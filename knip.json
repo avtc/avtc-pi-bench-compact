@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@6.17.1/schema.json",
+  "entry": [
+    "index.ts"
+  ],
+  "project": [
+    "index.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "ignore": [
+    "**/docs/**"
+  ],
+  "ignoreDependencies": [
+    "avtc-pi-settings-ui"
+  ]
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# tsc incremental cache
+node_modules/.cache/
+
+# pi runtime state
+.pi
+
+# featyard managed storage (symlinked)
+.featyard
