@@ -73,3 +73,21 @@ export function diffNameOnly(repo: string, a: string, b: string): string[] {
 export function diffFile(repo: string, a: string, b: string, file: string): string {
   return runGit(repo, ["diff", a, b, "--", file]);
 }
+
+/** True when `branch` exists in `repo` (has been committed at least once). Used by freeze
+ *  (Task 10c) to enforce main immutability — re-prepare is refused without `--force`. */
+export function branchExists(repo: string, branch: string): boolean {
+  try {
+    runGit(repo, ["rev-parse", "--verify", branch]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete `branch`'s ref so the next commit recreates it fresh. Used by freeze (Task 10c)
+ *  for the `--force` re-prepare path: reset main, then `initScenarioRepo` re-commits the
+ *  (new) working tree as a fresh main. */
+export function resetBranch(repo: string, branch: string): void {
+  runGit(repo, ["update-ref", "-d", `refs/heads/${branch}`]);
+}

@@ -8,7 +8,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkout, commitAll, diffFile, diffNameOnly, forkBranch, initScenarioRepo } from "../../src/storage/repo.js";
+import {
+  branchExists,
+  checkout,
+  commitAll,
+  diffFile,
+  diffNameOnly,
+  forkBranch,
+  initScenarioRepo,
+  resetBranch,
+} from "../../src/storage/repo.js";
 
 /** Run git directly in a repo (test-only helper for assertions/setup). */
 function git(repo: string, args: string[]): string {
@@ -39,6 +48,22 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     expect(files).toContain("session.jsonl");
     expect(files).toContain("game.ts");
     expect(files).toContain("src/util.ts");
+  });
+
+  it("branchExists reports whether a branch has been committed", () => {
+    expect(branchExists(repo, "main")).toBe(false); // not yet init'd
+    initScenarioRepo(repo);
+    expect(branchExists(repo, "main")).toBe(true);
+    expect(branchExists(repo, "nonexistent")).toBe(false);
+  });
+
+  it("resetBranch deletes the branch ref so a fresh commit recreates it (--force re-prepare)", () => {
+    initScenarioRepo(repo);
+    expect(branchExists(repo, "main")).toBe(true);
+    resetBranch(repo, "main");
+    expect(branchExists(repo, "main")).toBe(false);
+    initScenarioRepo(repo); // re-commit recreates main
+    expect(branchExists(repo, "main")).toBe(true);
   });
 
   it("initScenarioRepo accepts a custom commit message", () => {

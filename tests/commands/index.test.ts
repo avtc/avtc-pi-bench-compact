@@ -74,12 +74,13 @@ describe("registerBenchCommands", () => {
     expect(commands.has("bench-compact:settings")).toBe(false);
   });
 
-  it("stub handler runs preflight then notifies 'not implemented'", async () => {
+  it("prepare-scenario surfaces the Task-19 live-wiring error for a valid idea (real command, not stub)", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:prepare-scenario")("a tycoon idea", ctx);
-    expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(true);
+    // defaultBuildPrepareDeps throws NotImplemented (Task 19 wires the live seams)
+    expect(notifies.some((n) => /Task 19|prepare failed/i.test(n.msg))).toBe(true);
   });
 
   it("stub handler surfaces a preflight failure as a warning", async () => {

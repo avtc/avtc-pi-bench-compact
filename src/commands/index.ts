@@ -15,18 +15,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
 import { parsePositional, parsePrepareArgs, parseResultsArgs } from "./parse.js";
+import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { type CommandArgs, type CommandKind, preflight } from "./validate.js";
 
 /** Register all bench-compact commands (except settings) on `pi`. Called from activate. */
 export function registerBenchCommands(pi: ExtensionAPI): void {
+  // --- real: prepare-scenario (Task 10) -------------------------------------
+  registerPrepareScenarioCommand(pi);
+
   // --- stub commands: preflight -> "not implemented" ------------------------
-  stub(
-    pi,
-    "bench-compact:prepare-scenario",
-    "Prepare a scenario (build from <idea> or extract --from-session).",
-    "prepare",
-    (args) => parsePrepareArgs(args),
-  );
   stub(pi, "bench-compact:run", "Prepare + run a scenario from <idea>.", "run", (args) => parsePrepareArgs(args));
   stub(
     pi,
