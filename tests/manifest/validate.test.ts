@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+import { describe, expect, it } from "vitest";
+import type { RecallFact, ScenarioManifest } from "../../src/manifest/schema.js";
+
+/** Replace manifest.recallFacts[0] with a patched copy (readonly arrays → rebuild). */
+function withFirstRecallFact(m: ScenarioManifest, patch: Partial<RecallFact>): ScenarioManifest {
+  return { ...m, recallFacts: [{ ...m.recallFacts[0], ...patch }, ...m.recallFacts.slice(1)] };
+}
+
+import { type ManifestValidationContext, validateManifest } from "../../src/manifest/validate.js";
+
+/** Build a clean manifest with one condition per type, all citing in-span entries. */
+function cleanManifest(): ScenarioManifest {
+  return {
+    id: "t-1",
+    description: "d",
+    compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
+    recallFacts: [
+      {
+        id: "rf1",
+        fact: "scores in ~/.scores.json",
+        accept: ["~/.scores.json"],
+        entryIds: ["e1"],
+        domain: "technical",
+        lanes: ["embedded"],
+      },
+    ],
+    doneOps: [
+      {
+        id: "do1",
+        description: "built the game loop",
+        artifact: "src/loop.ts",
+        reworkable: false,
+        entryIds: ["e2"],
+        lanes: ["embedded"],
+      },
+    ],
+    supersessions: [
+      {
+        id: "ss1",
+        subject: "movement keys",
+        oldValue: "WASD",
+        latestValue: "arrows",
+        entryIds: ["e3"],
+        lanes: ["direct-probe"],
+      },
+    ],
+    abstentions: [
+      {
+        id: "ab1",
+        question: "which renderer should we use",
+        correctRefusal: true,
+        entryIds: ["e4"],
+        lanes: ["direct-probe"],
+      },
+    ],
+    taskObjective: { description: "build", testSpec: "npm test", lane: "embedded-test" },
+    probes: [{ question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] }],
+  };
+}
+
+/** Entries whose text contains each condition's content (clean content-present). */
+const entryText = new Map<string, string>([
+  ["e1", "the user said: store scores in ~/.scores.json"],
+  ["e2", "agent: I built the game loop in src/loop.ts"],
+  ["e3", "user: movement keys — actually let's use arrows not WASD"],
+  ["e4", "user: which renderer should we use?"],
+]);
+
+function cleanCtx(overrides: Partial<ManifestValidationContext> = {}): ManifestValidationContext {
+  return {
+    preSlicedEntryIds: new Set(["e1", "e2", "e3", "e4"]),
+    entryTextById: entryText,
+    essentialLists: new Set(["recallFacts", "doneOps"]),
+    compactionCount: 1,
+    expectedCompactionCount: 1,
+    ...overrides,
+  };
+}
+
+describe("validateManifest — accept", () => {
+  it("accepts a clean manifest with all conditions in-span + content present", () => {
+    const r = validateManifest(cleanManifest(), cleanCtx());
+    expect(r.ok).toBe(true);
+  });
+
+  it("accepts when a non-essential list (supersessions/abstentions) is empty", () => {
+    const m = cleanManifest();
+    const r = validateManifest({ ...m, supersessions: [], abstentions: [] }, cleanCtx());
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("validateManifest — reject", () => {
+  it("rejects an entryId not in the pre-sliced (in-span) set", () => {
+    const m = withFirstRecallFact(cleanManifest(), { entryIds: ["e1", "e99"] }); // e99 not in span
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reasons.join("\n")).toMatch(/e99/);
+      expect(r.reasons.join("\n")).toMatch(/in.span|pre-slic|not in/i);
+    }
+  });
+
+  it("rejects when cited content is not present at the entry (hallucinated mapping)", () => {
+    // e2's text is about the game loop, not this fact → content check fails
+    const m = withFirstRecallFact(cleanManifest(), {
+      fact: "totally unrelated hallucinated fact xyz",
+      entryIds: ["e2"],
+    });
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/content|present|e2/i);
+  });
+
+  it("rejects when an essential list (recallFacts) is empty", () => {
+    const m = cleanManifest();
+    const r = validateManifest({ ...m, recallFacts: [] }, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/recallFacts|essential|empty/i);
+  });
+
+  it("rejects when doneOps essential list is empty", () => {
+    const m = cleanManifest();
+    const r = validateManifest({ ...m, doneOps: [] }, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/doneOps|essential|empty/i);
+  });
+
+  it("rejects when compactionCount != expectedCompactionCount (build trial)", () => {
+    const r = validateManifest(cleanManifest(), cleanCtx({ compactionCount: 2 })); // expected 1, got 2
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/compaction/i);
+  });
+
+  it("rejects when extract session has a compaction (expected 0, got 1)", () => {
+    const r = validateManifest(cleanManifest(), cleanCtx({ compactionCount: 1, expectedCompactionCount: 0 }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/compaction/i);
+  });
+
+  it("accumulates multiple reasons (not just the first)", () => {
+    const m = withFirstRecallFact(cleanManifest(), { entryIds: ["e99"] }); // out-of-span
+    const r = validateManifest({ ...m, doneOps: [] }, cleanCtx()); // + essential empty
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("validateManifest — content check is lenient (any search-term matches)", () => {
+  it("matches via an accept phrasing even if the fact string differs", () => {
+    // fact paraphrased, but accept includes the exact substring present in e1
+    const m = withFirstRecallFact(cleanManifest(), {
+      fact: "the high score persistence choice",
+      accept: ["~/.scores.json"],
+      entryIds: ["e1"],
+    });
+    expect(validateManifest(m, cleanCtx()).ok).toBe(true);
+  });
+});
