@@ -46,6 +46,17 @@ describe("makeJsonOutputTool", () => {
     expect(tool._captured).toEqual([{ value: 7 }]);
   });
 
+  it("_captured returns a defensive copy — mutating it does not corrupt internal state", async () => {
+    const schema = Type.Object({ value: Type.Integer() });
+    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);
+    await tool.execute("call-1", { value: 7 } as unknown as never);
+    const view = tool._captured;
+    expect(view).toHaveLength(1);
+    // mutate the returned array — the internal accumulator must be unaffected
+    view.push({ value: 999 });
+    expect(tool._captured).toHaveLength(1);
+  });
+
   it("execute rejects params that fail schema validation (does not accumulate)", async () => {
     const schema = Type.Object({ value: Type.Integer() });
     const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);

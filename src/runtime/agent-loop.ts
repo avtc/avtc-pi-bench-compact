@@ -63,7 +63,8 @@ export interface StageRunResult {
   outputTokens: number;
   /** True when `input.signal` (the run/compaction signal) was aborted during the run. */
   aborted: boolean;
-  /** True when the per-LLM-call timeout fired (distinct from a run-signal abort).
+  /** True when the per-turn timeout fired (the timer covers one LLM call PLUS
+   *  its tool batch — a slow tool can trip it; distinct from a run-signal abort).
    *  Surfaced so the caller can STOP the stage + notify (a timeout is an error
    *  condition, not a silent no-op pass). */
   timedOut: boolean;
@@ -85,9 +86,12 @@ export interface StageRunInput {
    *  provider request; a response hitting it is truncated and its tool calls
    *  rejected. Bounds runaway generation. */
   maxTokens: number;
-  /** Per-LLM-call wall-clock timeout (ms), or `null` = no limit. Re-armed each
-   *  turn via the transformContext seam; aborting the in-flight fetch ends the
-   *  run. Bounds stalled/slow generation. */
+  /** Per-turn wall-clock timeout (ms), or `null` = no limit. The timer is armed at
+   *  the start of each turn (before the LLM call, via the transformContext seam)
+   *  and covers that turn's LLM call PLUS its tool batch — so a slow tool (e.g.
+   *  `bash`) can trip it. Re-armed each turn so a normal multi-turn run never
+   *  accumulates. Tool-bearing stages that may run slow tools should pass `null`
+   *  (or a generous limit). Aborting the in-flight fetch/tool ends the run. */
   timeoutMs: number | null;
   /** Widget/ledger event sink, or `NO_EVENT_SINK`. */
   onEvent: ((event: AgentEvent) => void) | null;
@@ -108,12 +112,14 @@ export class StageRunError extends Error {
   }
 }
 
-/** A per-LLM-call timeout — a stage-stopping error. Propagates to the caller so
- *  a slow/oversized call surfaces instead of silently producing partial output. */
+/** A per-turn timeout — a stage-stopping error. Propagates to the caller so
+ *  a slow turn (an oversized LLM call OR a slow tool batch) surfaces instead of
+ *  silently producing partial output. (Currently surfaced as the `timedOut` flag;
+ *  kept as the typed error for callers that prefer to throw.) */
 export class StageTimeoutError extends Error {
   constructor(stage: string, limitMs: number | null) {
     const limit = limitMs === null ? "the time limit" : `${Math.round(limitMs / 1000)}s time limit`;
-    super(`${stage} stopped: an LLM call exceeded the ${limit}`);
+    super(`${stage} stopped: a turn (LLM call + tools) exceeded the ${limit}`);
     this.name = "StageTimeoutError";
   }
 }
@@ -159,9 +165,10 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
       tools: input.tools,
     };
 
-    // Per-LLM-call timeout: a dedicated controller whose signal is passed to
-    // the loop (so aborting it cancels the in-flight fetch and ends the run).
-    // `input.signal` (run/compaction abort) is forwarded into it. The timer is
+    // Per-turn timeout: a dedicated controller whose signal is passed to
+    // the loop (so aborting it cancels the in-flight fetch/tool and ends the run).
+    // `input.signal` (run/compaction abort) is forwarded into it. The timer covers
+    // one turn = the LLM call PLUS its tool batch (a slow tool can trip it). It is
     // RE-ARMED each turn via transformContext (the only "before each LLM call"
     // seam agentLoop exposes), so a normal multi-turn run never accumulates — a
     // single runaway/stalled turn gets killed. null = no timeout.

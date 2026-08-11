@@ -139,6 +139,37 @@ describe("runBenchStage", () => {
     expect(r.timedOut).toBe(false); // aborted by the RUN signal, not the per-turn timer
   });
 
+  it("returns aborted:true when the run signal aborts mid-stream (after a turn landed)", async () => {
+    const ac = new AbortController();
+    // a fake that yields one turn, then blocks until the run signal aborts
+    const blocking = (_m: AgentMessage[], _ctx: unknown, _cfg: AgentLoopConfig, signal: AbortSignal, _s: unknown) => ({
+      async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+        if (signal.aborted) return;
+        yield TURN_END;
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve();
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      async result(): Promise<AgentMessage[]> {
+        return [];
+      },
+    });
+    const p = runBenchStage(
+      baseInput({
+        signal: ac.signal,
+        loopFn: blocking as unknown as typeof import("@earendil-works/pi-agent-core").agentLoop,
+        timeoutMs: null,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0)); // let the first turn land + block on the signal
+    ac.abort(new Error("user cancelled mid-run"));
+    const r = await p;
+    expect(r.aborted).toBe(true);
+    expect(r.timedOut).toBe(false); // RUN signal aborted, not the per-turn timer
+    expect(r.usage.turns).toBe(1); // the turn that landed before the abort
+  });
+
   it("stops after maxTurns completed turns (shouldStopAfterTurn wiring)", async () => {
     // 5 turn_ends scripted; maxTurns=3 -> stops after the 3rd
     const events = [TURN_END, TURN_END, TURN_END, TURN_END, TURN_END];
@@ -198,7 +229,7 @@ describe("runBenchStage", () => {
     }
   });
 
-  it("wraps a throwing loop in StageRunError", async () => {
+  it("wraps a throwing loop in StageRunError AND fires onStageEnd in finally (partial usage)", async () => {
     const boom = (): never => {
       throw new Error("kaboom");
     };
@@ -214,11 +245,20 @@ describe("runBenchStage", () => {
         return [];
       },
     });
+    let ended: { elapsedMs: number }[] = [];
     await expect(
       runBenchStage(
-        baseInput({ loopFn: throwing as unknown as typeof import("@earendil-works/pi-agent-core").agentLoop }),
+        baseInput({
+          loopFn: throwing as unknown as typeof import("@earendil-works/pi-agent-core").agentLoop,
+          onStageEnd: (u) => {
+            ended.push({ elapsedMs: u.elapsedMs });
+          },
+        }),
       ),
     ).rejects.toBeInstanceOf(StageRunError);
+    // the finally hook must fire even on failure (StageRunError doc: fires regardless)
+    expect(ended).toHaveLength(1);
+    expect(ended[0].elapsedMs).toBeGreaterThanOrEqual(0);
   });
 });
 

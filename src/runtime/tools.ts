@@ -73,9 +73,10 @@ export function makeJsonOutputTool<TParameters extends TSchema>(
         terminate: true,
       };
     },
-    // expose the accumulator (read-only view) on the tool object
+    // expose the accumulator (defensive copy each read — callers cannot mutate
+    // the internal state via the returned array) on the tool object
     get _captured(): unknown[] {
-      return captured;
+      return captured.slice();
     },
   };
   return tool;
