@@ -16,8 +16,9 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
-import type { BenchConfig } from "../config/types.js";
+import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
+import type { ScenarioManifest } from "../manifest/schema.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
 import { benchRoot, runDir } from "../storage/paths.js";
@@ -29,9 +30,11 @@ import {
   type Phase1StopReason,
   runPhase1,
 } from "./phase1.js";
+import { Phase2StoppedError, type Phase2StopReason, runContinuations } from "./phase2.js";
 import { setRunState, updateRunState } from "./run-state.js";
+import type { RunTrace } from "./trace.js";
 
-/** Inputs to {@link startRun}. `now`/`notify`/`phase1`/`ops` are injectable seams for testing. */
+/** Inputs to {@link startRun}. `now`/`notify`/`phase1`/`continuations`/`ops` are injectable seams for testing. */
 export interface StartRunDeps {
   /** The run command's context (the first arm's `switchSession`). `runPhase1` threads
    *  the fresh ctx from each `withSession` across arms — `switchSession` invalidates
@@ -42,6 +45,8 @@ export interface StartRunDeps {
   config: BenchConfig;
   /** The prepared scenario repo path (Phase-0 frozen backup + project files on `main`). */
   scenarioRepo: string;
+  /** The scenario manifest (seeds the Phase-2 simulator's system prompt). */
+  manifest: ScenarioManifest;
   /** Bench root override (default = `benchRoot(config.outputDir)`). */
   root?: string;
   /** Clock seam (default real). The run's calendar date is derived from this. */
@@ -50,19 +55,28 @@ export interface StartRunDeps {
   notify?: (message: string) => void;
   /** Injectable Phase-1 (default = real {@link runPhase1}). Tests stub it. */
   phase1?: typeof runPhase1;
+  /** Injectable Phase-2 continuations (default = real {@link runContinuations}). Tests stub it. */
+  continuations?: typeof runContinuations;
   /** Phase-1 ops seams (passed through to the real `runPhase1`). */
   ops?: Partial<Phase1Ops>;
   /** Tool-version resolver (default = real filesystem resolution). Tests inject a fake. */
   versionResolver?: VersionResolver;
 }
 
-/** Discriminated result of a run. Phase-2/3 extend the done branch. */
+/** Why a run halted (stop-and-surface), across phases. */
+export type RunStopReason = Phase1StopReason | Phase2StopReason;
+
+/** Discriminated result of a run. The done branch is Phase-2 (Phase-1 always
+ *  proceeds to continuations on success); the stopped branch carries the phase
+ *  (attempt is null for a Phase-1 stop, the attempt number for a Phase-2 stop). */
 export type RunResult =
-  | { kind: "phase1-done"; bases: ArmBase[]; runId: string; cfgId: string }
+  | { kind: "phase2-done"; bases: ArmBase[]; traces: RunTrace[]; runId: string; cfgId: string }
   | {
       kind: "stopped";
-      arm: BenchConfig["armsEnabled"][number];
-      reason: Phase1StopReason;
+      arm: ArmId;
+      /** The Phase-2 attempt index, or null for a Phase-1 stop. */
+      attempt: number | null;
+      reason: RunStopReason;
       message: string;
       runId: string;
     };
@@ -91,8 +105,9 @@ function nextRunId(root: string, date: string): number {
 /**
  * Start a bench run. Resolves the run identity, persists the run-config snapshot, sets
  * the run-state to `phase-1`, runs Phase-1 (inline — awaits it), and on success
- * advances to `phase-2`. On a Phase-1 stop, records the reason, notifies the operator,
- * and returns `{ kind: "stopped" }` — never auto-retries.
+ *  advances to `phase-2` + runs the Phase-2 continuations. On a Phase-1 or Phase-2
+ *  stop, records the reason, notifies the operator, and returns `{ kind: "stopped" }`
+ *  — never auto-retries. Phase 2b probes + Phase 3 scoring are appended by later tasks.
  */
 export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const root = deps.root ?? benchRoot(deps.config.outputDir);
@@ -125,6 +140,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   log.info(`run ${runId} started: cfg ${cfgId}, arms [${deps.config.armsEnabled.join(", ")}]`);
 
   const phase1 = deps.phase1 ?? runPhase1;
+  const continuations = deps.continuations ?? runContinuations;
   try {
     const bases = await phase1({
       cmdCtx: deps.cmdCtx,
@@ -137,16 +153,32 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       armsEnabled: deps.config.armsEnabled,
       ops: deps.ops,
     });
-    // Phase-2 (continuation + probes) + Phase-3 (scoring) are appended by later tasks.
-    updateRunState({ phase: "phase-2", currentArm: null });
-    return { kind: "phase1-done", bases, runId, cfgId };
+    // Phase-1 done → advance to Phase-2 + run the N continuation attempts per arm.
+    updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
+    const traces = await continuations({
+      cmdCtx: deps.cmdCtx,
+      armBases: bases,
+      config: deps.config,
+      manifest: deps.manifest,
+      repo: deps.scenarioRepo,
+      N: deps.config.N,
+    });
+    // Phase 2b probes + Phase 3 scoring are appended by later tasks.
+    return { kind: "phase2-done", bases, traces, runId, cfgId };
   } catch (err) {
     if (err instanceof Phase1StoppedError) {
       const { arm, reason, message } = err;
       updateRunState({ lastStopReason: message });
       deps.notify?.(`bench-compact stopped (arm ${arm}): ${message}`);
       log.warn(`run ${runId} stopped: arm ${arm} ${reason} — ${message}`);
-      return { kind: "stopped", arm, reason, message, runId };
+      return { kind: "stopped", arm, attempt: null, reason, message, runId };
+    }
+    if (err instanceof Phase2StoppedError) {
+      const { arm, attempt, reason, message } = err;
+      updateRunState({ lastStopReason: message });
+      deps.notify?.(`bench-compact stopped (arm ${arm} attempt ${attempt}): ${message}`);
+      log.warn(`run ${runId} stopped: arm ${arm} attempt ${attempt} ${reason} — ${message}`);
+      return { kind: "stopped", arm, attempt, reason, message, runId };
     }
     throw err;
   }
