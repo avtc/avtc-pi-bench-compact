@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerBenchCommands } from "../../src/commands/index.js";
 import { _setHandleForTest } from "../../src/config/accessor.js";
@@ -11,8 +12,8 @@ interface Captured {
   handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 }
 
-function fakeHandle(raw: Record<string, unknown>) {
-  return { getSettings: () => raw } as never;
+function fakeHandle(raw: Record<string, unknown>): SettingsHandle {
+  return { getSettings: () => raw } as unknown as SettingsHandle;
 }
 
 /** Fake pi: captures registered commands + spies sendUserMessage. */

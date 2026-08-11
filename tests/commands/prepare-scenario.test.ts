@@ -31,7 +31,7 @@ describe("makePrepareScenarioHandler", () => {
       prepareScenario: fakePrepare,
       buildDeps: fakeBuildDeps,
     });
-    await handler("my tycoon idea", ctx as never);
+    await handler("my tycoon idea", ctx);
     expect(fakeBuildDeps).toHaveBeenCalledOnce();
     expect(fakePrepare).toHaveBeenCalledOnce();
     expect(notified.some((n) => n.msg.includes("/repo/x"))).toBe(true);
@@ -46,7 +46,7 @@ describe("makePrepareScenarioHandler", () => {
       buildDeps: vi.fn(),
     });
     // both idea AND --from-session → parse error
-    await handler("some-idea --from-session /path", ctx as never);
+    await handler("some-idea --from-session /path", ctx);
     expect(fakePrepare).not.toHaveBeenCalled();
     expect(notified.some((n) => n.level === "warning")).toBe(true);
   });
@@ -58,7 +58,7 @@ describe("makePrepareScenarioHandler", () => {
       prepareScenario: vi.fn().mockRejectedValue(new Error("live wiring is Task 19")),
       buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
     });
-    await handler("my idea", ctx as never);
+    await handler("my idea", ctx);
     expect(notified.some((n) => n.level === "error" && n.msg.includes("Task 19"))).toBe(true);
   });
 });

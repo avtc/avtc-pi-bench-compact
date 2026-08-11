@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import type { MessageEndEvent, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { awaitOnce, once, onTurnEnd, readMessageEndUsage } from "../../src/session/events.js";
 import { fakeBus, fakeSignal } from "./helpers.js";
@@ -17,7 +17,7 @@ describe("readMessageEndUsage", () => {
         usage: { input: 100, output: 40, cacheRead: 10, cacheWrite: 5, cost: { total: 0.01 }, totalTokens: 155 },
       },
     };
-    expect(readMessageEndUsage(event as never)).toEqual({
+    expect(readMessageEndUsage(event as unknown as MessageEndEvent)).toEqual({
       input: 100,
       output: 40,
       cacheRead: 10,
@@ -29,7 +29,7 @@ describe("readMessageEndUsage", () => {
 
   it("returns null when the message carries no usage", () => {
     const event = { type: "message_end", message: {} };
-    expect(readMessageEndUsage(event as never)).toBeNull();
+    expect(readMessageEndUsage(event as unknown as MessageEndEvent)).toBeNull();
   });
 });
 

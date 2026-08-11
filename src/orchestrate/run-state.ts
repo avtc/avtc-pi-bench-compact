@@ -37,6 +37,10 @@ export interface BenchRunState {
 
 const GLOBAL_KEY = "__benchCompactRunState";
 
+/** Sentinel for "clear the run-state" (named so the call site reads as intent,
+ *  not an opaque null). */
+const CLEARED: BenchRunState | null = null;
+
 function readGlobal(): BenchRunState | null {
   return ((globalThis as Record<string, unknown>)[GLOBAL_KEY] as BenchRunState | null) ?? null;
 }
@@ -67,7 +71,7 @@ export function updateRunState(patch: Partial<BenchRunState>): void {
 
 /** Clear the run-state (run finished or aborted). */
 export function clearRunState(): void {
-  writeGlobal(null);
+  writeGlobal(CLEARED);
 }
 
 /** A one-line status for `/bench-compact:status` + the widget. */

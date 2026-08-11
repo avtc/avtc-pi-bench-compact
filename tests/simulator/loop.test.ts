@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { UserMessage } from "@earendil-works/pi-ai";
+import type { Api, Model, UserMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -101,7 +101,7 @@ function fakeStageResult(text: string) {
 function makeSeams(overrides: Partial<SimulatorSeams> = {}): SimulatorSeams {
   return {
     getBranch: () => [],
-    resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+    resolveModel: async () => ({ ok: true, model: { id: "fake" } as unknown as Model<Api>, apiKey: "k" }),
     runStage: async () => fakeStageResult("Build the next system."),
     inject: vi.fn(),
     ...overrides,

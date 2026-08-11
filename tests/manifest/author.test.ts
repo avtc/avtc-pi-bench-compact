@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
   type AuthoringSeams,
@@ -10,6 +11,9 @@ import {
   type ScenarioContext,
 } from "../../src/manifest/author.js";
 import type { AuthorOutput } from "../../src/manifest/schema.js";
+
+/** Minimal stand-in for a resolved bench model (only `id` is read by the seams). */
+const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
 
 const cannedAuthor: AuthorOutput = {
   recallFacts: [{ fact: "scores in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
@@ -137,7 +141,7 @@ describe("runAuthoringAgent", () => {
     // fake seam: runStage finds the write_manifest tool in input.tools + simulates the
     // agent calling it with the canned AuthorOutput, then returns a canned result.
     const fakeSeams: AuthoringSeams = {
-      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
         const wm = input.tools.find((t) => t.name === "write_manifest");
         if (!wm) throw new Error("write_manifest tool not composed into stage");
@@ -177,7 +181,7 @@ describe("runAuthoringAgent", () => {
 
   it("throws when the agent never called write_manifest (no capture)", async () => {
     const fakeSeams: AuthoringSeams = {
-      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async () => ({
         messages: [],
         usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
@@ -224,7 +228,7 @@ describe("runAuthoringAgent", () => {
   it("throws when the stage timed out (even if write_manifest left a capture) — R1-1", async () => {
     // a timed-out stage that left a partial capture must NOT be silently post-processed
     const fakeSeams: AuthoringSeams = {
-      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
         const wm = input.tools.find((t) => t.name === "write_manifest");
         if (!wm) throw new Error("write_manifest not composed");
@@ -259,7 +263,7 @@ describe("runAuthoringAgent", () => {
 
   it("throws when the stage was aborted (run signal) even with a capture — R2-2", async () => {
     const fakeSeams: AuthoringSeams = {
-      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
         const wm = input.tools.find((t) => t.name === "write_manifest");
         if (!wm) throw new Error("write_manifest not composed");
@@ -294,7 +298,7 @@ describe("runAuthoringAgent", () => {
 
   it("takes the LAST capture when write_manifest was called multiple times — R1-9", async () => {
     const fakeSeams: AuthoringSeams = {
-      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
         const wm = input.tools.find((t) => t.name === "write_manifest");
         if (!wm) throw new Error("write_manifest not composed");
