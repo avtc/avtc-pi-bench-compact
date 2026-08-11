@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // The manifest-authoring agent runner (§4.18). An out-of-session LLM agent with
-// pi's CORE read-only tools (read/grep/find/ls) pointed at the pre-sliced
+// pi's CORE tools (read/grep/find/ls + bash) pointed at the pre-sliced
 // compacted-away JSONL + a `write_manifest` terminal tool. The agent discovers
 // recallFacts / doneOps / supersessions / abstentions + writes probes, emits the
 // findings via `write_manifest`, and the harness post-processes the capture into
@@ -68,7 +68,7 @@ export interface AuthoringSeams {
 
 export interface RunAuthoringAgentDeps {
   readonly seams: AuthoringSeams;
-  /** Working directory the read-only tools operate in (the scenario repo). */
+  /** Working directory the authoring tools operate in (the scenario repo). */
   readonly cwd: string;
   /** Path to the pre-sliced compacted-away JSONL the agent reads. */
   readonly preSlicedJsonlPath: string;
@@ -191,9 +191,9 @@ export function buildAuthoringSystemPrompt(deps: {
 }
 
 /**
- * Compose the authoring tool set: pi's core read-only tools (read/grep/find/ls)
- * bound to `cwd` + the `write_manifest` terminal tool (validated against
- * `AUTHOR_OUTPUT_SCHEMA`, captures payloads on `._captured`).
+ * Compose the authoring tool set: pi's core read-only tools (read/grep/find/ls) +
+ * `bash` (for JSONL parsing — §4.18) bound to `cwd` + the `write_manifest` terminal
+ * tool (validated against `AUTHOR_OUTPUT_SCHEMA`, captures payloads on `._captured`).
  */
 export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeManifest: JsonOutputTool } {
   const writeManifest = makeJsonOutputTool("write_manifest", WRITE_MANIFEST_DESCRIPTION, AUTHOR_OUTPUT_SCHEMA);

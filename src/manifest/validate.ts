@@ -55,10 +55,11 @@ function checkConditions<T extends CitedCondition>(
       .filter((id) => ctx.entryTextById.has(id))
       .map((id) => ctx.entryTextById.get(id)?.toLowerCase() ?? "");
     // If NO cited entry is present in entryTextById, the content check cannot run
-    // (the harness may not have rendered those entries) — skip rather than flag a
-    // misleading "not present". The in-span check above is the structural guarantee.
+    // (the harness may not have rendered those entries) — skip THIS condition's
+    // content check (continue to the next), not the whole list. The in-span check
+    // above is the structural guarantee; later conditions must still be checked.
     if (citedTexts.length === 0) {
-      return;
+      continue;
     }
     const terms = searchTerms(c).map((t) => t.toLowerCase());
     const present = citedTexts.some((text) => terms.some((term) => term.length > 0 && text.includes(term)));
@@ -115,6 +116,20 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
   const hasConditions = manifest.recallFacts.length + manifest.supersessions.length + manifest.abstentions.length > 0;
   if (hasConditions && manifest.probes.length === 0) {
     reasons.push("manifest has conditions but no probes — every recall/supersession/abstention needs a probe");
+  }
+
+  // Each recallFact / supersession / abstention must be targeted by ≥1 probe
+  // (§4.18: "For each decision/recall-fact, each reversal, and each open-question,
+  // write a PROBE"). A condition with no targeting probe gets no direct-probe lane
+  // and cannot be scored on recall. doneOps are exempt (scored via redo E2/E3).
+  const allTargets = new Set(manifest.probes.flatMap((p) => p.targets));
+  const untargetedConditions = [
+    ...manifest.recallFacts.filter((c) => !c.entryIds.some((id) => allTargets.has(id))),
+    ...manifest.supersessions.filter((c) => !c.entryIds.some((id) => allTargets.has(id))),
+    ...manifest.abstentions.filter((c) => !c.entryIds.some((id) => allTargets.has(id))),
+  ];
+  for (const c of untargetedConditions) {
+    reasons.push(`${c.id} is not targeted by any probe — §4.18 requires a probe per condition`);
   }
 
   for (const list of ctx.essentialLists) {

@@ -57,7 +57,11 @@ function cleanManifest(): ScenarioManifest {
       },
     ],
     taskObjective: { description: "build", testSpec: "npm test", lane: "embedded-test" },
-    probes: [{ question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] }],
+    probes: [
+      { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] },
+      { question: "keys?", accept: ["arrows"], targets: ["e3"], lanes: ["direct-probe"] },
+      { question: "renderer?", correctRefusal: true, targets: ["e4"], lanes: ["direct-probe"] },
+    ],
   };
 }
 
@@ -188,6 +192,57 @@ describe("validateManifest — probe checks", () => {
     // no essential lists required (essentialLists only has recallFacts+doneOps here → would fail)
     const r = validateManifest(m, cleanCtx({ essentialLists: new Set() }));
     expect(r.ok).toBe(true);
+  });
+
+  it("R2-1 regression: a later condition's out-of-span citation is NOT masked by an earlier condition missing entryText", () => {
+    // rf1 cites e1 (in-span but NOT in entryTextById → content check skips it via continue)
+    // rf2 cites e99 (out-of-span) — MUST still be caught. `return` (bug) would skip rf2.
+    const m: ScenarioManifest = {
+      ...cleanManifest(),
+      recallFacts: [
+        { id: "rf1", fact: "unrelated", accept: ["unrelated"], entryIds: ["e1"], domain: "technical", lanes: [] },
+        {
+          id: "rf2",
+          fact: "also unrelated",
+          accept: ["also unrelated"],
+          entryIds: ["e99"],
+          domain: "technical",
+          lanes: [],
+        },
+      ],
+      probes: [{ question: "q?", accept: ["unrelated"], targets: ["e1"], lanes: ["direct-probe"] }],
+    };
+    // entryTextById deliberately omits e1 (rf1's cited entry) — partial map
+    const ctx = cleanCtx({ entryTextById: new Map() });
+    const r = validateManifest(m, ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/e99/); // rf2's out-of-span caught
+  });
+
+  it("R2-3: rejects a recallFact NOT targeted by any probe (§4.18: each condition needs a probe)", () => {
+    // rf2 is not in any probe.targets
+    const m: ScenarioManifest = {
+      ...cleanManifest(),
+      recallFacts: [
+        { ...cleanManifest().recallFacts[0] },
+        {
+          id: "rf2",
+          fact: "second fact xyz",
+          accept: ["second fact xyz"],
+          entryIds: ["e6"],
+          domain: "technical",
+          lanes: [],
+        },
+      ],
+    };
+    // give e6 text so content check passes; the failure is probe-targeting
+    const ctx = cleanCtx({
+      preSlicedEntryIds: new Set(["e1", "e2", "e3", "e4", "e6"]),
+      entryTextById: new Map([...entryText, ["e6", "the second fact xyz is here"]]),
+    });
+    const r = validateManifest(m, ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/rf2|probe|target/i);
   });
 });
 

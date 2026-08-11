@@ -251,6 +251,40 @@ describe("runAuthoringAgent", () => {
     ).rejects.toThrow(/timed.?out|timeout/i);
   });
 
+  it("throws when the stage was aborted (run signal) even with a capture — R2-2", async () => {
+    const fakeSeams: AuthoringSeams = {
+      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      runStage: async (input) => {
+        const wm = input.tools.find((t) => t.name === "write_manifest");
+        if (!wm) throw new Error("write_manifest not composed");
+        await wm.execute("call1", {
+          recallFacts: [{ fact: "partial", accept: ["partial"], entryIds: ["e1"] }],
+          doneOps: [],
+          supersessions: [],
+          abstentions: [],
+          probes: [],
+        });
+        return {
+          messages: [],
+          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
+          outputTokens: 5,
+          aborted: true, // run-signal abort (not timeout)
+          timedOut: false,
+        };
+      },
+    };
+    await expect(
+      runAuthoringAgent({
+        seams: fakeSeams,
+        cwd: process.cwd(),
+        preSlicedJsonlPath: "/tmp/x.jsonl",
+        scenarioCtx,
+        signal: new AbortController().signal,
+        maxTokens: 2000,
+      }),
+    ).rejects.toThrow(/abort/i);
+  });
+
   it("takes the LAST capture when write_manifest was called multiple times — R1-9", async () => {
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
