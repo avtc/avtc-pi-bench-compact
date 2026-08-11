@@ -11,6 +11,7 @@ import { registerBenchCommands } from "./commands/index.js";
 import { initBenchConfig } from "./config/accessor.js";
 import { registerBenchSettings } from "./config/schema.js";
 import { log } from "./log.js";
+import { registerPhase1Driver } from "./orchestrate/phase1.js";
 
 export default function activate(pi: ExtensionAPI): void {
   log.debug("bench-compact activated");
@@ -19,4 +20,8 @@ export default function activate(pi: ExtensionAPI): void {
   initBenchConfig(handle);
 
   registerBenchCommands(pi);
+
+  // The phase-1 driver: advances the run across per-arm reloads (CR-R1-1). Registered on
+  // every activate so the post-reload fresh ctx arrives via session_start{reload}.
+  registerPhase1Driver(pi);
 }
