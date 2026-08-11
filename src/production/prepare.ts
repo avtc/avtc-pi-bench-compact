@@ -17,11 +17,11 @@ import { join } from "node:path";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
 import { assertNotInRepo } from "../storage/paths.js";
-import { type BuildSeams, buildBackup, ESSENTIAL_LISTS, type ScenarioContext } from "./build.js";
+import { type BuildSeams, buildBackup, validateAuthoredManifest } from "./build.js";
 import { copyProjectTree } from "./copy-tree.js";
 import { extractBackup } from "./extract.js";
 import { freezeScenario } from "./freeze.js";
-import { preSlice } from "./pre-slice.js";
+import { countCompactions, preSlice } from "./pre-slice.js";
 
 /** Input to {@link prepareScenario}. Exactly one of `scenario` / `fromSessionPath` is required. */
 export interface PrepareDeps {
@@ -37,7 +37,6 @@ export interface PrepareDeps {
   readonly repoPath: string;
   readonly manifestPath: string;
   readonly preSliceDir: string;
-  readonly scenarioCtx: ScenarioContext;
   /** build-mode simulator/trial/author seams (trialCompact + author reused for extract). */
   readonly seams: BuildSeams;
   /** extract mode: copy the codebase from `sourceCwd` into `repoPath` (default = real
@@ -92,25 +91,15 @@ export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: st
     const trial = await deps.seams.trialCompact(backupPath);
     const preSliced = preSlice(backupPath, trial.firstKeptEntryId, join(deps.preSliceDir, "extract-sliced.jsonl"));
     manifest = await deps.seams.author(preSliced.jsonlPath);
-    // §4.15 step 4 — structural validation gate (extract: 0 compactions, stricter since
-    // ground truth is discovered). Failures stop-and-surface (§3.8).
-    const validation = validateManifest(manifest, {
-      preSlicedEntryIds: new Set(preSliced.entryIds),
-      entryTextById: preSliced.entryTextById,
-      essentialLists: ESSENTIAL_LISTS,
-      compactionCount: 0, // extract source is un-compacted
-      expectedCompactionCount: 0,
-    });
-    if (!validation.ok) {
-      throw new Error(`manifest validation failed: ${validation.reasons.join("; ")}`);
-    }
+    // §4.15 step 4 — structural validation gate (extract: stricter since ground truth is
+    // discovered). Failures stop-and-surface (§3.8).
+    validateAuthoredManifest(manifest, preSliced, backupPath);
   } else {
     // build mode: simulator → capture → trial → pre-slice → author → condition-landing loop.
     const built = await buildBackup({
       scenario: deps.scenario as string,
       compactionBoundary: deps.compactionBoundary,
       preSliceDir: deps.preSliceDir,
-      scenarioCtx: deps.scenarioCtx,
       seams: deps.seams,
     });
     backupPath = built.backupPath;

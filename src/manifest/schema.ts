@@ -60,7 +60,7 @@ export interface AuthorProbe {
 
 /** The authoring-agent's discovered task objective (what was built + how to test it).
  *  The harness derives the manifest's `taskObjective.lane` (embedded-test when testSpec
- *  is non-empty). Discovering this post-hoc makes the bench flexible for any idea +
+ *  is non-empty; omitted when no tests). Discovering this post-hoc makes the bench flexible for any idea +
  *  extracted sessions (the testSpec depends on what was actually built). */
 export interface AuthorTaskObjective {
   readonly description: string;
@@ -175,7 +175,10 @@ export interface Probe {
 export interface TaskObjective {
   readonly description: string;
   readonly testSpec: string;
-  readonly lane: "embedded-test";
+  /** Present (="embedded-test") iff testSpec is non-empty — the task has an embedded
+   *  test lane (E7). Omitted when there are no tests (E7 falls back to comparative
+   *  ranking only). Consistent with deriveLanes' embedded-lane rule. */
+  readonly lane?: "embedded-test";
 }
 export interface CompactionBoundary {
   readonly phaseATokenBudget: number;

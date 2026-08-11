@@ -75,6 +75,16 @@ describe("AUTHOR_OUTPUT_SCHEMA (write_manifest input)", () => {
     expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, bad)).toBe(false);
   });
 
+  it("rejects an output missing taskObjective (required — discovered by the author)", () => {
+    const { taskObjective: _drop, ...bad } = goodAuthor;
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, bad)).toBe(false);
+  });
+
+  it("rejects a taskObjective missing testSpec (required, may be empty string)", () => {
+    const bad = { ...goodAuthor, taskObjective: { description: "x" } };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, bad)).toBe(false);
+  });
+
   it("rejects an output missing a top-level list", () => {
     const bad = { recallFacts: [], doneOps: [], supersessions: [], abstentions: [] }; // no probes
     expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, bad)).toBe(false);

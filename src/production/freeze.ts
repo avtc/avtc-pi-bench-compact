@@ -54,8 +54,11 @@ function rewriteHeaderCwd(backupJson: string, repoPath: string): string {
  *   `manifestPath` is inside the repo (contamination).
  */
 export function freezeScenario(opts: FreezeOptions): { repoPath: string; manifestPath: string } {
-  // Contamination guard FIRST — never let the manifest land in the repo.
+  // Contamination guard FIRST — never let bench ground truth land in the repo.
   assertNotInRepo(opts.manifestPath, opts.repoPath);
+  // R2-1: the backup is the FULL pre-compaction session (fullest ground truth). If it
+  // lives inside the repo, `git add -A` commits it + the agent could `git show main:` it.
+  assertNotInRepo(opts.backupPath, opts.repoPath);
 
   const mainExists = branchExists(opts.repoPath, "main");
   if (mainExists && !opts.force) {

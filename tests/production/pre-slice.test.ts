@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { preSlice } from "../../src/production/pre-slice.js";
+import { countCompactions, preSlice } from "../../src/production/pre-slice.js";
 
 /** A backup JSONL: header + 4 message entries (e1..e4). firstKeptEntryId will be e3. */
 function writeBackup(dir: string): string {
@@ -74,6 +74,36 @@ describe("preSlice", () => {
       expect(result.entryTextById.get("e2")).toContain("second");
       expect(result.entryTextById.has("e3")).toBe(false); // not in span
       expect(result.entryTextById.size).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("countCompactions", () => {
+  it("returns 0 for a pre-compaction backup (the expected source state)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
+    try {
+      const backup = writeBackup(dir);
+      expect(countCompactions(backup)).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("counts CompactionEntries when present (catches an unexpected compacted source)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
+    try {
+      const path = join(dir, "backup.jsonl");
+      const lines = [
+        { type: "session", id: "s1", cwd: "/r" },
+        { type: "message", id: "e1" },
+        { type: "compaction", id: "c1", summary: "x", firstKeptEntryId: "e2" },
+        { type: "message", id: "e2" },
+        { type: "compaction", id: "c2", summary: "y", firstKeptEntryId: "e3" },
+      ];
+      writeFileSync(path, lines.map((l) => JSON.stringify(l)).join("\n"));
+      expect(countCompactions(path)).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

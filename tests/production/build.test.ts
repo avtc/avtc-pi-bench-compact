@@ -8,12 +8,6 @@ import { describe, expect, it } from "vitest";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { type BuildSeams, buildBackup, SurfaceConditionsError } from "../../src/production/build.js";
 
-const scenarioCtx = {
-  id: "t",
-  description: "d",
-  compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
-};
-
 /** A manifest with all 4 condition types citing the given entry-ids (all in-span when < e4).
  *  Conditions use search-terms present in every backup entry's content (see writeBackup)
  *  so the cited-content-present check passes. Includes one probe per recallable condition. */
@@ -84,7 +78,6 @@ describe("buildBackup", () => {
         scenario: "tycoon",
         compactionBoundary: 140000,
         preSliceDir: dir,
-        scenarioCtx,
         seams,
       });
       expect(result.manifest.recallFacts[0].id).toBe("rf1");
@@ -118,7 +111,6 @@ describe("buildBackup", () => {
         scenario: "tycoon",
         compactionBoundary: 140000,
         preSliceDir: dir,
-        scenarioCtx,
         seams,
       });
       expect(result.manifest.recallFacts[0].entryIds).toEqual(["e3"]); // the landed (2nd-attempt) manifest
@@ -144,7 +136,7 @@ describe("buildBackup", () => {
         },
       };
       await expect(
-        buildBackup({ scenario: "tycoon", compactionBoundary: 140000, preSliceDir: dir, scenarioCtx, seams }),
+        buildBackup({ scenario: "tycoon", compactionBoundary: 140000, preSliceDir: dir, seams }),
       ).rejects.toBeInstanceOf(SurfaceConditionsError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -171,7 +163,6 @@ describe("buildBackup", () => {
           scenario: "tycoon",
           compactionBoundary: 140000,
           preSliceDir: dir,
-          scenarioCtx,
           seams,
           maxAttempts: 3,
         }),
@@ -198,7 +189,7 @@ describe("buildBackup", () => {
         },
       };
       await expect(
-        buildBackup({ scenario: "tycoon", compactionBoundary: 140000, preSliceDir: dir, scenarioCtx, seams }),
+        buildBackup({ scenario: "tycoon", compactionBoundary: 140000, preSliceDir: dir, seams }),
       ).rejects.toThrow(/validation|probe/i);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -234,7 +225,6 @@ describe("buildBackup", () => {
         scenario: "tycoon",
         compactionBoundary: 140000,
         preSliceDir: dir,
-        scenarioCtx,
         seams,
       });
       expect(result.manifest.recallFacts.length).toBe(1); // proceeded on 2nd attempt

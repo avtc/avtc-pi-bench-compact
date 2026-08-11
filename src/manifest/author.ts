@@ -155,7 +155,11 @@ export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext):
     compactionBoundary: ctx.compactionBoundary,
     // taskObjective is DISCOVERED by the authoring agent (what was built + how to test it),
     // not harness-provided — makes the bench flexible for any idea + extracted sessions.
-    taskObjective: { ...author.taskObjective, lane: "embedded-test" },
+    // lane is present iff testSpec is non-empty (consistent with deriveLanes' embedded lane).
+    taskObjective:
+      author.taskObjective.testSpec.length > 0
+        ? { ...author.taskObjective, lane: "embedded-test" }
+        : author.taskObjective,
     recallFacts,
     doneOps,
     supersessions,

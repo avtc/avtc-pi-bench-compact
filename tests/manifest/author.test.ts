@@ -73,7 +73,7 @@ describe("postProcessManifest (pure)", () => {
     // doneOp e2 not targeted, no embedded → no lanes
     expect(m.doneOps[0].lanes).toEqual([]);
     // taskObjective is discovered from the author output (description + testSpec), lane set by harness
-    expect(m.taskObjective).toEqual({ description: "build the game", testSpec: "", lane: "embedded-test" });
+    expect(m.taskObjective).toEqual({ description: "build the game", testSpec: "" }); // no testSpec → no lane
   });
 
   it("probes always get lanes=['direct-probe']", () => {

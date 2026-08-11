@@ -12,14 +12,14 @@
 // wiring is Task 19. The orchestration flow + condition-landing loop are unit-tested.
 
 import { join } from "node:path";
-import type { ScenarioContext, ScenarioManifest } from "../manifest/schema.js";
+import type { ScenarioManifest } from "../manifest/schema.js";
 
 export type { ScenarioContext } from "../manifest/schema.js";
 
 import { type ConditionListName, validateManifest } from "../manifest/validate.js";
 import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
 import { buildEntryOrder, classifyLanding, decideLandingAction, type LandingAction } from "./condition-landing.js";
-import { preSlice } from "./pre-slice.js";
+import { countCompactions, preSlice } from "./pre-slice.js";
 import type { TrialCut } from "./trial-compaction.js";
 
 /** Injectable seams over the live simulator/trial/author dependencies. */
@@ -44,7 +44,6 @@ export interface BuildBackupDeps {
   readonly compactionBoundary: number;
   /** Directory for pre-sliced JSONL temp files. */
   readonly preSliceDir: string;
-  readonly scenarioCtx: ScenarioContext;
   readonly seams: BuildSeams;
   /** Max condition-landing iterations before giving up (default 5). */
   readonly maxAttempts?: number;
@@ -72,6 +71,27 @@ export interface BuildBackupResult {
 export const ESSENTIAL_LISTS: ReadonlySet<ConditionListName> = new Set(
   CONDITION_TOPICS.filter((t) => t.tag === "essential").map((t) => `${t.metricAxis}s` as ConditionListName),
 );
+
+/** §4.15 step 4 — structural validation gate shared by build (after condition-landing
+ *  'proceed') + extract (after authoring). The source backup is pre-compaction by
+ *  construction (build captures before trial; extract guards none) → expected 0.
+ *  Failures stop-and-surface (§3.8). Throws on validation failure. */
+export function validateAuthoredManifest(
+  manifest: ScenarioManifest,
+  preSliced: { readonly entryIds: readonly string[]; readonly entryTextById: ReadonlyMap<string, string> },
+  backupPath: string,
+): void {
+  const validation = validateManifest(manifest, {
+    preSlicedEntryIds: new Set(preSliced.entryIds),
+    entryTextById: preSliced.entryTextById,
+    essentialLists: ESSENTIAL_LISTS,
+    compactionCount: countCompactions(backupPath),
+    expectedCompactionCount: 0,
+  });
+  if (!validation.ok) {
+    throw new Error(`manifest validation failed: ${validation.reasons.join("; ")}`);
+  }
+}
 
 /**
  * Drive the build flow: simulator → capture → trial-compaction → (pre-slice → author →
@@ -106,18 +126,7 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
     const action = decideLandingAction(classification);
 
     if (action.kind === "proceed") {
-      // §4.15 step 4 — structural validation gate (probes, cited-content-present,
-      // compaction-count, essential-lists). Failures stop-and-surface (§3.8).
-      const validation = validateManifest(manifest, {
-        preSlicedEntryIds: new Set(preSliced.entryIds),
-        entryTextById: preSliced.entryTextById,
-        essentialLists: ESSENTIAL_LISTS,
-        compactionCount: 1, // build-trial produced exactly one compaction
-        expectedCompactionCount: 1,
-      });
-      if (!validation.ok) {
-        throw new Error(`manifest validation failed: ${validation.reasons.join("; ")}`);
-      }
+      validateAuthoredManifest(manifest, preSliced, backupPath);
       return { backupPath, backupEntries, manifest };
     }
     if (action.kind === "surface") {

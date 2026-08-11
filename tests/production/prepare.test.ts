@@ -12,12 +12,6 @@ import { prepareScenario } from "../../src/production/prepare.js";
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
 
-const scenarioCtx = {
-  id: "t",
-  description: "d",
-  compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
-};
-
 /** Every backup entry's content contains all condition search-terms so the cited-content-present
  *  check passes. Terms: decision / work / mind / question / a / b. */
 const ENTRY_CONTENT = "decision work mind question a b";
@@ -94,7 +88,6 @@ describe("prepareScenario — build mode", () => {
         repoPath: repo,
         manifestPath,
         preSliceDir,
-        scenarioCtx,
         seams,
       });
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
@@ -138,7 +131,6 @@ describe("prepareScenario — extract mode", () => {
         repoPath: repo,
         manifestPath,
         preSliceDir,
-        scenarioCtx,
         seams,
         copyProjectFiles: (src, dest) => {
           copied = true;
@@ -157,6 +149,42 @@ describe("prepareScenario — extract mode", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("throws when the extract-authored manifest fails validation (no probes)", async () => {
+    const { root, repo, manifestPath, preSliceDir } = setup();
+    try {
+      const codebase = join(root, "codebase");
+      mkdirSync(codebase, { recursive: true });
+      const sessionPath = join(root, "real.jsonl");
+      writeSession(sessionPath, codebase, 5);
+      const seams: BuildSeams = {
+        async driveAndCapture() {
+          throw new Error("no drive in extract");
+        },
+        async trialCompact() {
+          return { firstKeptEntryId: "e4", summary: "cut" };
+        },
+        async author() {
+          return { ...cannedManifest("e1", "e2", "e3", "e3"), probes: [] }; // invalid — no probes
+        },
+      };
+      await expect(
+        prepareScenario({
+          fromSessionPath: sessionPath,
+          extractOutputPath: join(root, "cleaned.jsonl"),
+          extractCwd: codebase,
+          compactionBoundary: 140000,
+          repoPath: repo,
+          manifestPath,
+          preSliceDir,
+          seams,
+          copyProjectFiles: () => {},
+        }),
+      ).rejects.toThrow(/validation|probe/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("prepareScenario — contamination guards (R1-3)", () => {
@@ -171,7 +199,6 @@ describe("prepareScenario — contamination guards (R1-3)", () => {
           repoPath: repo,
           manifestPath,
           preSliceDir: preSliceInsideRepo,
-          scenarioCtx,
           seams: {} as BuildSeams,
         }),
       ).rejects.toThrow(/contamination|inside/i);
@@ -193,7 +220,6 @@ describe("prepareScenario — contamination guards (R1-3)", () => {
           repoPath: repo,
           manifestPath,
           preSliceDir,
-          scenarioCtx,
           seams: {} as BuildSeams,
         }),
       ).rejects.toThrow(/contamination|inside/i);

@@ -23,9 +23,9 @@ export interface ManifestValidationContext {
   readonly entryTextById: ReadonlyMap<string, string>;
   /** Which condition lists must be non-empty (the essential scoring axes). */
   readonly essentialLists: ReadonlySet<ConditionListName>;
-  /** The actual number of CompactionEntries in the source (trial=1 for build; 0 for extract). */
+  /** The actual number of CompactionEntries in the source backup (must be 0 — pre-compaction). */
   readonly compactionCount: number;
-  /** The expected compaction count for this mode (1 build-trial, 0 extract). */
+  /** The expected compaction count (0 — the source is pre-compaction by construction). */
   readonly expectedCompactionCount: number;
 }
 
@@ -76,7 +76,8 @@ function checkConditions<T extends CitedCondition>(
  *
  * Checks:
  *   1. compaction precondition — `compactionCount === expectedCompactionCount`
- *      (build-trial produced exactly 1; extract source has 0).
+ *      (the source is pre-compaction: build captures before the trial, extract guards
+ *      none → expected 0 for both; verifies the backup is genuinely un-compacted).
  *   2. in-span — every cited entryId is in `preSlicedEntryIds` (defends the
  *      structural pre-slicing guarantee).
  *   3. content-present — at least one cited entry's text contains a search-term

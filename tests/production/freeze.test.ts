@@ -123,4 +123,18 @@ describe("freezeScenario", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("refuses a backupPath inside the repo (R2-1: the backup is full ground truth — git add -A would commit it)", () => {
+    const { root, repo } = setup();
+    try {
+      const badBackup = join(repo, "leaked-backup.jsonl"); // INSIDE repo — peekable via git show
+      writeFileSync(badBackup, JSON.stringify({ type: "session", id: "s1", cwd: repo }));
+      const manifestPath = join(root, "manifest.json");
+      expect(() =>
+        freezeScenario({ repoPath: repo, backupPath: badBackup, manifest: manifest(), manifestPath }),
+      ).toThrow(/contamination|inside|backup/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

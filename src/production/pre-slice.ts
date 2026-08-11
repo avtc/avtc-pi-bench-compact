@@ -68,3 +68,13 @@ export function preSlice(backupPath: string, firstKeptEntryId: string, outputPat
   writeFileSync(outputPath, spanLines.join("\n"));
   return { jsonlPath: outputPath, entryIds, entryTextById };
 }
+
+/** Count the CompactionEntries in a backup JSONL (the full file). The source is
+ *  pre-compaction by construction (build captures before trial; extract guards none),
+ *  so validateManifest's compaction precondition (expected 0) verifies this invariant. */
+export function countCompactions(backupPath: string): number {
+  const lines = readFileSync(backupPath, "utf8")
+    .split("\n")
+    .filter((l) => l.trim().length > 0);
+  return lines.filter((line) => (JSON.parse(line) as EntryLike).type === "compaction").length;
+}
