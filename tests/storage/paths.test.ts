@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  assertNotInRepo,
+  benchRoot,
+  calibrationDir,
+  configPath,
+  isInsideRepo,
+  runDir,
+  scenarioDir,
+  scenarioManifest,
+  scenarioRepo,
+} from "../../src/storage/paths.js";
+
+describe("benchRoot", () => {
+  it("defaults to ~/.pi/bench-compact when outputDir is null/undefined", () => {
+    expect(benchRoot(null)).toMatch(/[\\/]\.pi[\\/]bench-compact$/);
+    expect(benchRoot(undefined)).toMatch(/[\\/]\.pi[\\/]bench-compact$/);
+  });
+  it("uses outputDir when provided", () => {
+    expect(benchRoot("/tmp/bench-out")).toBe("/tmp/bench-out");
+  });
+});
+
+describe("path builders", () => {
+  const root = "/tmp/bench";
+  it("scenario paths nest under scenarios/<id>", () => {
+    expect(scenarioDir(root, "s1")).toBe(path.join(root, "scenarios", "s1"));
+    expect(scenarioRepo(root, "s1")).toBe(path.join(root, "scenarios", "s1", "repo"));
+    expect(scenarioManifest(root, "s1")).toBe(path.join(root, "scenarios", "s1", "manifest.json"));
+  });
+  it("run paths nest under runs/<runId>", () => {
+    expect(runDir(root, "run-1")).toBe(path.join(root, "runs", "run-1"));
+  });
+  it("config paths nest under configs/<cfgId>.json", () => {
+    expect(configPath(root, "cfg-a3f2c1")).toBe(path.join(root, "configs", "cfg-a3f2c1.json"));
+  });
+  it("calibration dir nests under calibration/", () => {
+    expect(calibrationDir(root)).toBe(path.join(root, "calibration"));
+  });
+});
+
+describe("contamination rule (isInsideRepo / assertNotInRepo)", () => {
+  const repo = path.join("/tmp/bench", "scenarios", "s1", "repo");
+  it("isInsideRepo: true for paths under the repo, false for siblings/outside", () => {
+    expect(isInsideRepo(path.join(repo, "session.jsonl"), repo)).toBe(true);
+    expect(isInsideRepo(path.join(repo, "src", "game.ts"), repo)).toBe(true);
+    expect(isInsideRepo(repo, repo)).toBe(false); // the repo root itself is not "inside"
+    // manifest.json is a sibling of repo/ (under scenarios/s1/), NOT inside repo/
+    expect(isInsideRepo(path.join(repo, "..", "manifest.json"), repo)).toBe(false);
+    // configs/ is under the bench root, far outside the repo
+    expect(isInsideRepo(path.join("/tmp/bench", "configs", "cfg-x.json"), repo)).toBe(false);
+  });
+  it("assertNotInRepo: passes for outside paths, throws for inside paths", () => {
+    expect(() => assertNotInRepo(path.join("/tmp/bench", "configs", "cfg-x.json"), repo)).not.toThrow();
+    expect(() => assertNotInRepo(path.join(repo, "..", "manifest.json"), repo)).not.toThrow();
+    expect(() => assertNotInRepo(path.join(repo, "session.jsonl"), repo)).toThrow(/contamination/i);
+    expect(() => assertNotInRepo(path.join(repo, "src", "game.ts"), repo)).toThrow(/contamination/i);
+  });
+});
