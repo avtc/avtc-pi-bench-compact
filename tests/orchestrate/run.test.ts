@@ -4,10 +4,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BenchConfig } from "../../src/config/types.js";
-import { getPhase1Cursor, type Phase1Ops } from "../../src/orchestrate/phase1.js";
+import { type ArmBase, type Phase1Deps, type Phase1Ops, Phase1StoppedError } from "../../src/orchestrate/phase1.js";
 import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 
@@ -26,24 +25,33 @@ function makeConfig(arms: BenchConfig["armsEnabled"]): BenchConfig {
   } as BenchConfig;
 }
 
+function makeProxies() {
+  return {
+    om: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+    mk: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+  };
+}
+
 function makeDeps(opts: {
   arms: BenchConfig["armsEnabled"];
   root: string;
   scenarioRepo?: string;
-  ops?: Partial<Phase1Ops>;
+  phase1?: ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<ArmBase[]>>>;
   now?: () => Date;
   notify?: (m: string) => void;
-  onDone?: () => void;
 }): StartRunDeps {
+  const proxies = makeProxies();
   return {
-    switchCtx: { reload: vi.fn(async () => {}) },
+    pi: { sendUserMessage: vi.fn(), setActiveTools: vi.fn() },
+    cmdCtx: {},
+    omProxy: proxies.om,
+    mkProxy: proxies.mk,
     config: makeConfig(opts.arms),
     scenarioRepo: opts.scenarioRepo ?? "/repo/scenario-x",
     root: opts.root,
     now: opts.now ?? (() => new Date("2026-08-11T10:00:00Z")),
     notify: opts.notify,
-    onDone: opts.onDone,
-    ops: opts.ops,
+    phase1: opts.phase1,
     versionResolver: {
       resolveRoot: () => "/fake",
       gitHead: () => "abcdef1234567890",
@@ -52,11 +60,30 @@ function makeDeps(opts: {
   } as unknown as StartRunDeps;
 }
 
+function fakeBases(arms: BenchConfig["armsEnabled"]): ArmBase[] {
+  return arms.map((arm, i) => ({
+    arm,
+    tool: `tool-${arm}`,
+    ver: i === 0 ? undefined : "gabc123",
+    cfgId: "cfg-x",
+    branch: `branch-${arm}`,
+    wallMs: 1000 + i,
+    usage: undefined,
+  }));
+}
+
+/** A typed Phase-1 mock so `mock.calls[0][0]` is the Phase1Deps arg (not an empty tuple). */
+function phase1Mock(
+  impl: (deps: Phase1Deps) => Promise<ArmBase[]>,
+): ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<ArmBase[]>>> {
+  return vi.fn(impl);
+}
+
 afterEach(() => {
   clearRunState();
 });
 
-describe("startRun — identity + state + trigger", () => {
+describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)", () => {
   let root: string;
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "bench-run-"));
@@ -65,58 +92,52 @@ describe("startRun — identity + state + trigger", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("computes runId = <utc-date>-<id>, sets run-state phase-1, installs the cursor, returns phase1-started", async () => {
-    const switchArm = vi.fn(async () => {});
-    const deps = makeDeps({ arms: ["A1", "A3"], root, ops: { switchArm } });
+  it("computes runId = <utc-date>-<id>, sets run-state phase-1, dispatches Phase-1, returns phase1-done + advances to phase-2", async () => {
+    const bases = fakeBases(["A1", "A3"]);
+    const phase1 = phase1Mock(async () => bases);
+    const deps = makeDeps({ arms: ["A1", "A3"], root, phase1 });
 
     const result = await startRun(deps);
 
-    expect(result.kind).toBe("phase1-started");
-    if (result.kind === "phase1-started") {
-      expect(result.runId).toBe("2026-08-11-1");
-      expect(result.cfgId).toMatch(/^cfg-/);
-    }
-    // run-state set eagerly to phase-1 (widget + /status reflect it).
+    expect(result.kind).toBe("phase1-done");
+    if (result.kind !== "phase1-done") return;
+    expect(result.runId).toBe("2026-08-11-1");
+    expect(result.cfgId).toMatch(/^cfg-/);
+    expect(result.bases).toBe(bases);
+
+    // run-state set eagerly to phase-1, then advanced to phase-2 on success.
     const s = getRunState();
     expect(s?.runId).toBe("2026-08-11-1");
-    expect(s?.phase).toBe("phase-1");
-    // cursor installed with the arms in order + the run deps (the driver reads it on reload).
-    const cursor = getPhase1Cursor();
-    expect(cursor?.arms).toEqual(["A1", "A3"]);
-    expect(cursor?.nextArmIndex).toBe(0);
-    expect(cursor?.bases).toEqual([]);
+    expect(s?.phase).toBe("phase-2");
+    expect(s?.cfgId).toBe(result.cfgId);
+
+    // Phase-1 received the resolved identity + proxies + config-derived knobs.
+    expect(phase1).toHaveBeenCalledTimes(1);
+    const phase1Arg = phase1.mock.calls[0]?.[0];
+    expect(phase1Arg?.date).toBe("2026-08-11");
+    expect(phase1Arg?.id).toBe(1);
+    expect(phase1Arg?.cfgId).toBe(result.cfgId);
+    expect(phase1Arg?.armsEnabled).toEqual(["A1", "A3"]);
+    expect(phase1Arg?.omFullReflectionThresholdTokens).toBe(4000);
+    expect(phase1Arg?.scenarioRepo).toBe(deps.scenarioRepo);
   });
 
-  it("triggers ONLY the first arm's isolation (switchArm(arm[0])); the driver owns the rest", async () => {
-    const switchArm = vi.fn(async () => {});
-    const deps = makeDeps({ arms: ["A1", "A3", "A5"], root, ops: { switchArm } });
-
-    await startRun(deps);
-
-    expect(switchArm).toHaveBeenCalledTimes(1);
-    expect(switchArm).toHaveBeenCalledWith(expect.anything(), "A1", deps.scenarioRepo, {
-      omFullReflectionThresholdTokens: 4000,
-    });
-  });
-
-  it("writes the run-config snapshot (cfgId + toolVersions) once", async () => {
-    const deps = makeDeps({ arms: ["A1"], root, ops: { switchArm: vi.fn(async () => {}) } });
+  it("writes the run-config snapshot (cfgId + toolVersions) once + reserves the run dir", async () => {
+    const deps = makeDeps({ arms: ["A1"], root, phase1: phase1Mock(async () => fakeBases(["A1"])) });
     await startRun(deps);
     const s = getRunState();
     expect(existsSync(join(root, "configs", `${s?.cfgId}.json`))).toBe(true);
+    expect(existsSync(join(root, "runs", "2026-08-11-1"))).toBe(true);
   });
 
-  it("reserves the run dir at start so a same-day stop-and-retry cannot collide ids", async () => {
-    const deps = makeDeps({ arms: ["A1"], root, ops: { switchArm: vi.fn(async () => {}) } });
-    await startRun(deps);
-    expect(existsSync(join(root, "runs", "2026-08-11-1"))).toBe(true);
-    // a second same-day run sees the reserved dir → id=2, no collision
-    await startRun(makeDeps({ arms: ["A1"], root, ops: { switchArm: vi.fn(async () => {}) } }));
+  it("same-day re-run increments the id (no collision with the reserved run dir)", async () => {
+    await startRun(makeDeps({ arms: ["A1"], root, phase1: phase1Mock(async () => fakeBases(["A1"])) }));
+    await startRun(makeDeps({ arms: ["A1"], root, phase1: phase1Mock(async () => fakeBases(["A1"])) }));
     expect(getRunState()?.runId).toBe("2026-08-11-2");
   });
 });
 
-describe("startRun — first switchArm failure", () => {
+describe("startRun — Phase-1 stop-and-surface", () => {
   let root: string;
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "bench-run-stop-"));
@@ -125,35 +146,33 @@ describe("startRun — first switchArm failure", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("surfaces a pre-reload switchArm throw as stopped(reason=switchArm-failed)", async () => {
+  it("a Phase1StoppedError from runPhase1 → stopped result + notify + run-state lastStopReason", async () => {
     const notify = vi.fn();
-    const switchArm = vi.fn(async () => {
-      throw new Error("settings write failed");
+    const phase1 = phase1Mock(async () => {
+      throw new Phase1StoppedError("A3", "cancelled", "arm A3 compaction cancelled");
     });
-    const deps = makeDeps({ arms: ["A1"], root, notify, ops: { switchArm } });
+    const deps = makeDeps({ arms: ["A3"], root, notify, phase1 });
 
     const result = await startRun(deps);
 
     expect(result.kind).toBe("stopped");
-    if (result.kind === "stopped") {
-      expect(result.arm).toBe("A1");
-      expect(result.reason).toBe("switchArm-failed");
-      expect(result.message).toContain("settings write failed");
-    }
+    if (result.kind !== "stopped") return;
+    expect(result.arm).toBe("A3");
+    expect(result.reason).toBe("cancelled");
+    expect(result.message).toContain("cancelled");
+    expect(result.runId).toBe("2026-08-11-1");
+    expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*A3/i));
+    expect(getRunState()?.lastStopReason).toContain("cancelled");
   });
 
-  it("does NOT swallow non-switchArm errors (unexpected failures re-throw)", async () => {
-    // A non-throwing switchArm but a broken config write path: simulate by making writeRunConfig
-    // unreachable — instead force nextRunId to throw via a root that vanishes mid-call is fragile;
-    // the switchArm-failed path is the only synchronous failure, so assert the happy path does not
-    // throw spuriously + the contract is exactly {started | stopped(switchArm-failed)}.
-    const switchArm = vi.fn(async () => {});
-    const deps = makeDeps({ arms: ["A1"], root, ops: { switchArm } });
-    const result = await startRun(deps);
-    expect(["phase1-started", "stopped"]).toContain(result.kind);
+  it("does NOT swallow non-Phase1StoppedError errors (unexpected failures re-throw)", async () => {
+    const phase1 = phase1Mock(async () => {
+      throw new Error("unexpected boom");
+    });
+    const deps = makeDeps({ arms: ["A1"], root, phase1 });
+    await expect(startRun(deps)).rejects.toThrow("unexpected boom");
   });
 });
 
-// ExtensionAPI is unused now (pi is threaded via the driver, not startRun); keep the import
-// honest by referencing the type so tsc does not flag a dangling import.
-void (undefined as unknown as ExtensionAPI);
+// Phase1Ops stays referenced so tsc does not flag a dangling import when the suite evolves.
+void (undefined as unknown as Phase1Ops);

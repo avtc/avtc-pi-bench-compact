@@ -13,12 +13,16 @@ import { _setRegisterSettingsCommand, BENCH_SCHEMA, BENCH_SETTINGS_COMMAND } fro
 import activate from "../src/index.js";
 
 /** A minimal fake `pi` (ExtensionAPI) that spies on registerCommand.
- *  Includes a no-op `on` so registerSettingsCommand's `pi.on("session_start", ...)`
- *  hook (avtc-pi-settings-ui settings-command.ts) doesn't throw when activate()
- *  wires the settings command. */
+ *  Includes a no-op `on` (so registerSettingsCommand's `pi.on("session_start", ...)`
+ *  hook from avtc-pi-settings-ui + the vendored snippets' `pi.on("session_shutdown", ...)`
+ *  don't throw) + a no-op `events.on` returning an unsub (the vendored subscribe-to-*
+ *  snippets register `:ready` listeners via `pi.events.on`). */
 function fakePi(): { pi: ExtensionAPI; registerCommand: ReturnType<typeof vi.fn> } {
   const registerCommand = vi.fn();
-  return { pi: { registerCommand, on: () => {} } as unknown as ExtensionAPI, registerCommand };
+  return {
+    pi: { registerCommand, on: () => {}, events: { on: () => () => {} } } as unknown as ExtensionAPI,
+    registerCommand,
+  };
 }
 
 /** A minimal fake command ctx that spies on `ui.notify`. */

@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The bench run driver: owns run identity (date/id/cfgId), sets the run-state + the
-// phase-1 cursor eagerly (the cursor lives on globalThis + survives the per-arm reloads),
-// persists the run-config snapshot, and triggers the FIRST arm's isolation (switchArm →
-// reload). Phase-1 then drives itself across reloads via the session_start{reload}
-// listener ({@link registerPhase1Driver} in phase1.ts) — startRun does NOT await it.
+// The bench run driver: owns run identity (date/id/cfgId), sets the run-state
+// eagerly (so the live-progress widget can show it), persists the run-config
+// snapshot, dispatches Phase-1 (inline — no cross-reload driver), and applies
+// stop-and-surface on a Phase-1 halt.
 //
-// This is the CR-R1-1 resolution: switchArm's reload invalidates the ctx, so the run
-// cannot loop over arms in one synchronous call. Instead the progress lives on globalThis
-// + each reload's fresh ctx advances one arm. startRun returns `{ kind: "phase1-started" }`;
-// completion is observed via run-state (widget/status) + the cursor's `onDone` hook.
+// configure-API model: the proxies (observational-memory + memkeeper) are cached
+// at activate (proxies.ts) and threaded into Phase-1, which reconfigures each arm
+// in-place (no `ctx.reload()`). startRun awaits Phase-1 and returns the bases (or
+// a stopped result). Tasks 13a/13b append Phase-2 (continuation + probes) + Phase-3
+// (scoring) after Phase-1 succeeds.
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { type SwitchContext, switchArm } from "../arms/switch.js";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
-import type { ArmId, BenchConfig } from "../config/types.js";
+import type { BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
@@ -24,17 +24,23 @@ import { benchRoot, runDir } from "../storage/paths.js";
 import {
   type ArmBase,
   buildRunConfig,
-  DEFAULT_OPS,
   type Phase1Ops,
-  type Phase1RunDeps,
-  setPhase1Cursor,
+  Phase1StoppedError,
+  type Phase1StopReason,
+  runPhase1,
 } from "./phase1.js";
-import { setRunState } from "./run-state.js";
+import { setRunState, updateRunState } from "./run-state.js";
 
-/** Inputs to {@link startRun}. `now`/`notify`/`onDone`/`ops` are injectable seams for testing. */
+/** Inputs to {@link startRun}. `now`/`notify`/`phase1`/`ops` are injectable seams for testing. */
 export interface StartRunDeps {
-  /** The command context for the FIRST arm's switchArm (the original, pre-reload ctx). */
-  switchCtx: SwitchContext;
+  /** The extension API (threaded into Phase-1 for inject + setActiveTools). */
+  pi: ExtensionAPI;
+  /** The command context (threaded into Phase-1 for switchSession; valid across the inline loop). */
+  cmdCtx: ExtensionCommandContext;
+  /** The observational-memory config proxy (vendored subscribe-to-OM snippet, cached at activate). */
+  omProxy: { reloadConfig(): void; getConfig(): unknown };
+  /** The memkeeper config proxy (vendored subscribe-to-memkeeper snippet, cached at activate). */
+  mkProxy: { reloadConfig(): void; getConfig(): unknown };
   config: BenchConfig;
   /** The prepared scenario repo path (Phase-0 frozen backup + project files on `main`). */
   scenarioRepo: string;
@@ -44,19 +50,24 @@ export interface StartRunDeps {
   now?: () => Date;
   /** Operator-attention channel (e.g. `ctx.ui.notify`). Invoked on stop-and-surface. */
   notify?: (message: string) => void;
-  /** Completion hook — Phase-2 (Task 13a) wires its start here; tests resolve a deferred. */
-  onDone?: (bases: ArmBase[]) => void;
-  /** Phase-1 ops seams (default = real implementations). */
+  /** Injectable Phase-1 (default = real {@link runPhase1}). Tests stub it. */
+  phase1?: typeof runPhase1;
+  /** Phase-1 ops seams (passed through to the real `runPhase1`). */
   ops?: Partial<Phase1Ops>;
   /** Tool-version resolver (default = real filesystem resolution). Tests inject a fake. */
   versionResolver?: VersionResolver;
 }
 
-/** Discriminated result of a run start. Phase-1 completes asynchronously (across reloads);
- *  observe completion via run-state (`phase-2`) or the `onDone` hook — NOT this return. */
+/** Discriminated result of a run. Phase-2/3 extend the done branch. */
 export type RunResult =
-  | { kind: "phase1-started"; runId: string; cfgId: string }
-  | { kind: "stopped"; arm: ArmId; reason: "switchArm-failed"; message: string; runId: string };
+  | { kind: "phase1-done"; bases: ArmBase[]; runId: string; cfgId: string }
+  | {
+      kind: "stopped";
+      arm: BenchConfig["armsEnabled"][number];
+      reason: Phase1StopReason;
+      message: string;
+      runId: string;
+    };
 
 /** UTC calendar date as `YYYY-MM-DD` (fixed across all arms/attempts of a run). */
 function utcDate(d: Date): string {
@@ -81,12 +92,9 @@ function nextRunId(root: string, date: string): number {
 
 /**
  * Start a bench run. Resolves the run identity, persists the run-config snapshot, sets
- * the run-state to `phase-1`, installs the phase-1 cursor on globalThis, and triggers the
- * FIRST arm's isolation (switchArm → reload). Phase-1 then drives itself across reloads;
- * this function returns `{ kind: "phase1-started" }` immediately. The only synchronous
- * failure mode is the first switchArm throwing before its reload (e.g. a settings write
- * error) — surfaced as `{ kind: "stopped" }`; everything after the first reload is driven
- * + surfaced by the phase-1 driver.
+ * the run-state to `phase-1`, runs Phase-1 (inline — awaits it), and on success
+ * advances to `phase-2`. On a Phase-1 stop, records the reason, notifies the operator,
+ * and returns `{ kind: "stopped" }` — never auto-retries.
  */
 export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const root = deps.root ?? benchRoot(deps.config.outputDir);
@@ -116,37 +124,35 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     currentAttempt: null,
     lastStopReason: null,
   });
+  log.info(`run ${runId} started: cfg ${cfgId}, arms [${deps.config.armsEnabled.join(", ")}]`);
 
-  // Install the phase-1 cursor on globalThis (survives the per-arm reloads). The driver
-  // (session_start{reload} listener) reads this on each reload to advance one arm.
-  const ops: Phase1Ops = { ...DEFAULT_OPS, ...deps.ops };
-  const runDeps: Phase1RunDeps = {
-    scenarioRepo: deps.scenarioRepo,
-    date,
-    id,
-    cfgId,
-    toolVersions: runConfig.toolVersions,
-    omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
-    ops,
-    notify: deps.notify,
-    onDone: deps.onDone,
-  };
-  const arms = deps.config.armsEnabled;
-  setPhase1Cursor({ arms: [...arms], nextArmIndex: 0, bases: [], deps: runDeps });
-  log.info(`run ${runId} started: cfg ${cfgId}, arms [${arms.join(", ")}]`);
-
-  // Trigger the FIRST arm's isolation. switchArm writes settings + reload() → emits
-  // session_start{reload} → the driver compacts arm[0] with the fresh ctx + advances.
-  // Fire-and-forget: the driver owns the rest; a pre-reload throw is the only sync failure.
+  const phase1 = deps.phase1 ?? runPhase1;
   try {
-    await ops.switchArm(deps.switchCtx, arms[0], deps.scenarioRepo, {
+    const bases = await phase1({
+      pi: deps.pi,
+      cmdCtx: deps.cmdCtx,
+      omProxy: deps.omProxy,
+      mkProxy: deps.mkProxy,
+      scenarioRepo: deps.scenarioRepo,
+      date,
+      id,
+      cfgId,
+      toolVersions: runConfig.toolVersions,
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
+      armsEnabled: deps.config.armsEnabled,
+      ops: deps.ops,
     });
+    // Phase-2 (continuation + probes) + Phase-3 (scoring) are appended by later tasks.
+    updateRunState({ phase: "phase-2", currentArm: null });
+    return { kind: "phase1-done", bases, runId, cfgId };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(`run ${runId} stopped: first switchArm(arm ${arms[0]}) failed — ${message}`);
-    return { kind: "stopped", arm: arms[0], reason: "switchArm-failed", message, runId };
+    if (err instanceof Phase1StoppedError) {
+      const { arm, reason, message } = err;
+      updateRunState({ lastStopReason: message });
+      deps.notify?.(`bench-compact stopped (arm ${arm}): ${message}`);
+      log.warn(`run ${runId} stopped: arm ${arm} ${reason} — ${message}`);
+      return { kind: "stopped", arm, reason, message, runId };
+    }
+    throw err;
   }
-
-  return { kind: "phase1-started", runId, cfgId };
 }

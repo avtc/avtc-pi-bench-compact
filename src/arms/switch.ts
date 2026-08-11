@@ -1,131 +1,120 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import type { PackageSource } from "@earendil-works/pi-coding-agent";
+// Per-arm isolation via the configure-API model: write the arm's observational-memory
+// + memkeeper config, ask each extension's proxy to `reloadConfig()` (so every read
+// site sees the new values), and set the tool allowlist so a disabled arm's recall
+// tool never reaches the evaluated agent. NO `ctx.reload()` — the command ctx stays
+// valid across arms (all extensions load once at startup; only their config + the
+// active tool set change per arm).
+//
+// `reloadConfig()` + `getConfig()` come from the vendored subscribe-to-* snippets
+// (lazy proxies over the `:ready` events each extension emits at session_start). The
+// harness subscribes once at activate + caches the proxies (proxies.ts); the
+// orchestrator reads them + passes them here per arm.
+
 import type { ArmId } from "../config/types.js";
-import { ARM_DEFS, type ArmDef, type MemkeeperArmConfig } from "./definitions.js";
-import { buildPackages } from "./packages.js";
+import { type WriteArmConfigOpts, writeArmConfig } from "./config.js";
+import { ARM_DEFS } from "./definitions.js";
 
-/** Options carrying the OM-full arm's threshold value (from bench config `omFullReflectionThresholdTokens`). */
-export interface BuildProjectSettingsOpts {
-  omFullReflectionThresholdTokens: number;
+/**
+ * The narrow tool-setting seam `configureArm` needs. The real `ExtensionAPI`
+ * satisfies this structurally via `pi.setActiveTools(names)` — the public method
+ * that filters the active tool set by name (provider-agnostic, so a disabled arm's
+ * recall tool is never sent to the model).
+ */
+export interface ToolSetSeam {
+  setActiveTools(toolNames: string[]): void;
 }
 
 /**
- * The `.pi/settings.json` content for one arm: `packages` (the isolated suite+harness+arm
- * set) + the `observational-memory` section for the OM-full arm (threshold override). pi's settings
- * deep-merge treats `packages` arrays as REPLACE-not-concat, so this set fully defines
- * what loads on `ctx.reload()`.
+ * The narrow config-proxy seam `configureArm` needs. Both vendored
+ * subscribe-to-* proxies satisfy this structurally: `reloadConfig()` refreshes the
+ * extension's live config from the sources `writeArmConfig` just wrote;
+ * `getConfig()` returns a non-null snapshot once the provider's `:ready` event has
+ * fired (null before / when the extension is absent or older — graceful degrade).
  */
-export interface ProjectSettings {
-  packages: PackageSource[];
-  /** OM-full arm only — the low threshold forcing the OM reflector/pruner to run. */
-  "observational-memory"?: { reflectionThresholdTokens: number };
+export interface MemoryConfigProxy {
+  reloadConfig(): void;
+  getConfig(): unknown;
 }
 
 /**
- * Build the project `.pi/settings.json` content for an arm. Pure — the I/O is in
- * {@link switchArm}. The OM-full arm injects `reflectionThresholdTokens` from config (the harness owns
- * that one value); the OM-default arm leaves the author threshold intact (no section written).
+ * The pi default coding tools every evaluated agent starts with (read-only set
+ * read/grep/find/ls + the mutation set bash/edit/write). The full default set is
+ * pinned here so every arm's agent has the same baseline filesystem tools — the
+ * arm only ADDS its memory recall tool(s) on top.
  */
-export function buildProjectSettings(arm: ArmId, opts: BuildProjectSettingsOpts): ProjectSettings {
-  const def = ARM_DEFS[arm];
-  const settings: ProjectSettings = { packages: buildPackages(arm) };
-  if (def.overrideReflectionThreshold) {
-    settings["observational-memory"] = { reflectionThresholdTokens: opts.omFullReflectionThresholdTokens };
-  }
-  return settings;
-}
+export const BUILTIN_TOOLS: readonly string[] = ["read", "grep", "find", "ls", "bash", "edit", "write"];
 
 /**
- * The memkeeper config for an arm (the memkeeper-builder and memkeeper-selector arms), or `null` (no memkeeper settings file) otherwise.
- * Written to `.pi/avtc-pi-memkeeper-settings.json` (the avtc-pi-settings-ui file for
- * `avtc-pi-memkeeper`). Pure.
+ * The agent-facing tools the avtc-pi suite extensions register (todo + user-decisions).
+ * portrait + notification are background extensions with NO agent-facing tools, so
+ * they contribute nothing to the allowlist. Every arm runs within the full suite, so
+ * every arm's allowlist includes these.
  */
-export function buildMemkeeperSettings(arm: ArmId): MemkeeperArmConfig | null {
-  return ARM_DEFS[arm].memkeeperSettings ?? null;
-}
+export const SUITE_TOOLS: readonly string[] = [
+  "todo_init",
+  "todo_add",
+  "todo_move",
+  "todo_list",
+  "todo_complete",
+  "user_decision_add",
+  "user_decision_list",
+  "user_decision_detail",
+];
 
 /**
- * Minimal seam over {@link ExtensionCommandContext} — the harness only needs `reload()`.
- * The real command context satisfies this structurally; tests pass a fake.
- */
-export interface SwitchContext {
-  /** Re-read project settings + re-discover extensions (G-iso: agent-session.js:2057). */
-  reload(): Promise<void>;
-}
-
-/** Memkeeper's settings-ui file name (avtc-pi-settings-ui convention: `<name>-settings.json`). */
-const MEMKEEPER_SETTINGS_FILE = "avtc-pi-memkeeper-settings.json";
-/** avtc-pi-settings-ui env transport for memkeeper (read FIRST on load — factory.ts:184). */
-const MEMKEEPER_ENV = "PI_SETTINGS_MEMKEEPER";
-/**
- * Every static-env key any arm declares via `envPreconditions` — the union, so switchArm can
- * set this arm's keys + DELETE stale keys from other arms (isolation is deterministic, not
- * dependent on prior process state). envPreconditions is the single source of truth for which
- * static env the bench manages (R-2).
- */
-const MANAGED_STATIC_ENV_KEYS = new Set(
-  (Object.values(ARM_DEFS) as ArmDef[]).flatMap((d) => Object.keys(d.envPreconditions ?? {})),
-);
-
-/**
- * Isolate an arm: write its project settings (packages + arm-specific config) + `reload()`
- * so pi loads exactly the suite + harness + this arm's memory extension.
+ * Isolate one arm for a compaction run: write its observational-memory + memkeeper
+ * config, reload both extensions' live config, and set the tool allowlist. Sync —
+ * every operation (file/env write, proxy reload, tool set) is synchronous.
  *
- * **Env transport:** avtc-pi-settings-ui reads `PI_SETTINGS_MEMKEEPER` env FIRST
- * (factory.ts:184) + a stale value from a prior arm survives `ctx.reload()` (process env is
- * not cleared), so a stale memkeeper-builder env would silently override the memkeeper-selector arm's FILE. OM `passive` is env-only
- * (no file equivalent). So switchArm sets the memkeeper env per memkeeper arm (builder/selector) + applies the arm's
- * `envPreconditions` (OM passive=1 for the OM-default and OM-full arms) + DELETES all managed env keys for arms that
- * don't use them — isolation is deterministic. `envPreconditions` is the single source of truth
- * for static env; the memkeeper env is dynamic config switchArm computes from memkeeperSettings.
+ * @param toolCtx — the tool-setting seam (the real `pi` satisfies this; tests pass a fake).
+ * @param omProxy — the observational-memory config proxy (vendored subscribe-to-OM snippet).
+ * @param mkProxy — the memkeeper config proxy (vendored subscribe-to-memkeeper snippet).
+ * @param arm — the arm to isolate.
+ * @param repoCwd — the scenario repo working dir (the agent's cwd; `.pi/` is gitignored).
+ * @param opts — carries the om-full arm's threshold value from bench config.
  *
- * **Lifecycle note:** switchArm mutates process.env with NO teardown — the env persists in the
- * operator's session post-run (only a restart clears it). Teardown is Task-12 orchestration
- * (R-4); switchArm is the per-arm isolation primitive.
- *
- * **G-iso (verified):** `ctx.reload()` → `settingsManager.reload()` (re-reads the project
- * `.pi/settings.json` we just wrote — `packages` REPLACES global, so the harness is
- * included) → `resourceLoader.reload()` (re-discovers extensions from the new packages).
- *
- * **Lifecycle:** `reload()` invalidates THIS ctx (runner.js:352). Harness state survives in
- * `globalThis` (UD25); post-reload continuation runs in the NEW ctx via a `session_start`
- * (reason "reload") listener (Task 12 orchestration).
+ * Presence check: if an enabled arm's provider proxy is not live (`getConfig()` null)
+ * — the extension is absent or older — this throws (stop-and-surface). The reload is
+ * unconditional (it runs before the check), so a provider that IS loaded always sees
+ * the freshly-written config regardless of the presence outcome.
  */
-export async function switchArm(
-  ctx: SwitchContext,
+export function configureArm(
+  toolCtx: ToolSetSeam,
+  omProxy: MemoryConfigProxy,
+  mkProxy: MemoryConfigProxy,
   arm: ArmId,
   repoCwd: string,
-  opts: BuildProjectSettingsOpts,
-): Promise<void> {
-  const piDir = join(repoCwd, ".pi");
-  mkdirSync(piDir, { recursive: true });
+  opts: WriteArmConfigOpts,
+): void {
+  const def = ARM_DEFS[arm];
 
-  // 1. project .pi/settings.json — packages + (OM-full) observational-memory threshold
-  writeFileSync(join(piDir, "settings.json"), `${JSON.stringify(buildProjectSettings(arm, opts), null, 2)}\n`, "utf-8");
+  // 1. Write this arm's OM + memkeeper config to the sources those extensions read.
+  writeArmConfig(arm, repoCwd, opts);
 
-  // 2. memkeeper config — file + env transport (memkeeper-builder/selector); remove both otherwise (no stale override)
-  const mk = buildMemkeeperSettings(arm);
-  const mkPath = join(piDir, MEMKEEPER_SETTINGS_FILE);
-  if (mk) {
-    writeFileSync(mkPath, `${JSON.stringify(mk, null, 2)}\n`, "utf-8");
-    process.env[MEMKEEPER_ENV] = JSON.stringify(mk);
-  } else {
-    rmSync(mkPath, { force: true }); // stale file from a prior memkeeper arm
-    delete process.env[MEMKEEPER_ENV];
+  // 2. Reload both extensions' live config (no-op when a provider is absent — the
+  //    proxies graceful-degrade; the presence check below surfaces a genuinely-missing
+  //    enabled extension).
+  omProxy.reloadConfig();
+  mkProxy.reloadConfig();
+
+  // 3. Presence check: an enabled arm whose provider is not live cannot run — surface it.
+  if (def.omConfig.enabled && omProxy.getConfig() === null) {
+    throw new Error(
+      `configureArm(${arm}): observational-memory is enabled for this arm but its extension proxy is not live ` +
+        "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure pi-observational-memory is in the loaded packages.",
+    );
+  }
+  if (def.memkeeperConfig.enabled && mkProxy.getConfig() === null) {
+    throw new Error(
+      `configureArm(${arm}): memkeeper is enabled for this arm but its extension proxy is not live ` +
+        "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure avtc-pi-memkeeper is in the loaded packages.",
+    );
   }
 
-  // 3. static env preconditions (envPreconditions) — apply this arm's, clear stale keys from other arms
-  const staticEnv = ARM_DEFS[arm].envPreconditions ?? {};
-  for (const key of MANAGED_STATIC_ENV_KEYS) {
-    const val = staticEnv[key];
-    if (val !== undefined) process.env[key] = val;
-    else delete process.env[key];
-  }
-
-  // 4. reload — re-read project settings + re-discover extensions (the arm loads)
-  await ctx.reload();
+  // 4. Tool allowlist: builtins + suite + this arm's memory recall tool(s). A disabled
+  //    arm's recall tool is excluded so the evaluated agent never sees it.
+  toolCtx.setActiveTools([...BUILTIN_TOOLS, ...SUITE_TOOLS, ...def.memoryTools]);
 }

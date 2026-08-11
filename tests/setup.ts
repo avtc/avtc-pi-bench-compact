@@ -31,15 +31,17 @@ const NO_OP_LOG_SINK = {
 };
 _setBaseLoggerForTest(NO_OP_LOG_SINK);
 
-// The run-state singleton lives on globalThis (survives /reload in production;
-// under isolate:false it survives across test files too). Clear it before each
-// test so no test sees another's run-state.
+// These singletons live on globalThis (survive /reload in production; under
+// isolate:false they survive across test files too). Clear them before each test
+// so no test sees another's singleton state.
 const RUN_STATE_KEY = "__benchCompactRunState";
+const MEMORY_PROXIES_KEY = "__benchCompactMemoryProxies";
 
-// Run-state is cleared before EACH test: a test that writes it (via writeGlobal)
-// must never bleed into the next, and every test starts from a known-empty slot.
+// Cleared before EACH test: a test that writes one (via writeGlobal) must never
+// bleed into the next, and every test starts from a known-empty slot.
 beforeEach(() => {
   delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
+  delete (globalThis as Record<string, unknown>)[MEMORY_PROXIES_KEY];
 });
 
 // Reset the config/settings singletons at the FILE boundary — the isolate:false
@@ -54,4 +56,5 @@ afterAll(() => {
   _setHandleForTest(null);
   _setRegisterSettingsCommand(null);
   delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
+  delete (globalThis as Record<string, unknown>)[MEMORY_PROXIES_KEY];
 });

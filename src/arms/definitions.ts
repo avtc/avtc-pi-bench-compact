@@ -4,74 +4,73 @@
 import type { ArmId } from "../config/types.js";
 
 /**
- * The five compaction/memory arms under test. Every arm runs within
- * the FULL avtc-pi suite; arms differ ONLY in the compaction-memory
- * extension. {@link ARM_DEFS} is the single source of truth for each arm's tool
- * name + memory package + per-arm config knobs.
+ * The five compaction/memory arms under test. Every arm runs within the FULL
+ * avtc-pi suite with ONE shared package set (suite + harness + both memory
+ * extensions loaded at startup); arms differ ONLY in the per-arm OM/memkeeper
+ * config knobs + the tool allowlist. {@link ARM_DEFS} is the single source of
+ * truth for each arm's tool name, per-arm config, memory-tool package (for
+ * version identity), and the memory recall tools exposed to the evaluated agent.
+ *
+ * Arm isolation is the configure-API model: the harness writes each arm's
+ * OM+memkeeper config to the existing config sources, calls each extension's
+ * `reloadConfig()` (vendored proxies), and sets the tool allowlist via
+ * `setActiveTools` — no per-arm `packages` edit, no `ctx.reload()`.
  */
 
-// --- package identifiers ----------------------------------------------------
+// --- memory-tool package identifiers (for version identity only) ------------
 
-/** The four avtc-pi suite members active for EVERY arm. */
-export const SUITE_PACKAGES = [
-  "avtc-pi-todo",
-  "avtc-pi-user-decisions",
-  "avtc-pi-portrait",
-  "avtc-pi-notification",
-] as const;
-
-/**
- * The bench harness itself. CRITICAL: the harness writes project
- * `.pi/settings.json` `packages` to isolate an arm — pi's settings deep-merge
- * treats `packages` arrays as REPLACE-not-concat (verified: settings-manager.js
- * `deepMergeObjects`), so the written list MUST include the harness or it unloads
- * ITSELF on `ctx.reload()`. Consumed by {@link buildPackages}
- * (packages.ts).
- */
-export const HARNESS_PACKAGE = "avtc-pi-bench-compact";
-
-/** The observational-memory package (the fork — used by the OM-default and OM-full arms). */
+/** The observational-memory package name — the om-default and om-full arms resolve
+ *  their tool version from this. NOT a per-arm package set (all arms share one set). */
 export const OM_PACKAGE = "pi-observational-memory";
-/** The memkeeper package (the memkeeper-builder and memkeeper-selector arms). */
+/** The memkeeper package name — the memkeeper-builder and memkeeper-selector arms
+ *  resolve their tool version from this. NOT a per-arm package set. */
 export const MEMKEEPER_PACKAGE = "avtc-pi-memkeeper";
 
-// --- arm config shapes ------------------------------------------------------
+// --- per-arm config shapes --------------------------------------------------
 
-/** The memkeeper config the bench pins for the memkeeper-builder and memkeeper-selector arms — all stages on-compaction. */
+/** The observational-memory config knobs the bench pins per OM arm. `passive`
+ *  (the forked-OM catch-up fix) is the OM default for every OM arm; the fork is
+ *  a hard bench dependency. `overrideReflectionThreshold` is a marker — the
+ *  harness injects the actual threshold number from bench config at write time
+ *  (forces the reflector/pruner to always run). */
+export interface OmArmConfig {
+  enabled: boolean;
+  /** Present (true) when the arm runs OM in passive catch-up mode (the OM-default + OM-full arms). */
+  passive?: true;
+  /** Marker: inject `reflectionThresholdTokens` from bench config at write time
+   *  (forces the reflector/pruner to always run). The OM-default arm omits it. */
+  overrideReflectionThreshold?: true;
+}
+
+/** The memkeeper config knobs the bench pins per memkeeper arm. `observations-root`
+ *  gates the Selector OFF (the builder's full view); `selected-root` runs the
+ *  Selector (task-relative curated tree). All stages run on-compaction. */
 export interface MemkeeperArmConfig {
-  /** `observations-root` (memkeeper-builder, Selector OFF) or `selected-root` (memkeeper-selector, Selector runs). */
-  renderMode: "observations-root" | "selected-root";
-  observerMode: "on-compaction";
-  builderMode: "on-compaction";
-  selectorMode: "on-compaction";
+  enabled: boolean;
+  /** `observations-root` (Selector OFF) or `selected-root` (Selector runs). */
+  renderMode?: "observations-root" | "selected-root";
+  observerMode?: "on-compaction";
+  builderMode?: "on-compaction";
+  selectorMode?: "on-compaction";
 }
 
 /**
- * One arm's definition. Pure data — consumed by {@link buildPackages}
- * (packages.ts) + {@link buildProjectSettings} / {@link switchArm} (switch.ts).
+ * One arm's definition. Pure data — consumed by {@link writeArmConfig}
+ * (config.ts), {@link configureArm} (switch.ts), and {@link resolveToolVersion}
+ * (version.ts). No per-arm `packages` array: all arms share one loaded package set.
  */
 export interface ArmDef {
   id: ArmId;
-  /** Branch-name `{tool}` token: `bare-pi` · `om-default` · … */
+  /** Branch-name `{tool}` token: `bare-pi` · `om-default` · `memkeeper-builder` · `memkeeper-selector` · `om-full`. */
   tool: string;
-  /** The memory-extension package added to the suite (`null` for the bare-pi arm). */
+  /** Memory-tool package name for version-identity resolution (`null` for the bare-pi arm). */
   memoryPackage: string | null;
-  /** The memkeeper-builder and memkeeper-selector arms: the memkeeper config written to `.pi/avtc-pi-memkeeper-settings.json`. */
-  memkeeperSettings?: MemkeeperArmConfig;
-  /**
-   * The OM-full arm: force `reflectionThresholdTokens` low (the value is injected at
-   * `buildProjectSettings` from config `omFullReflectionThresholdTokens`) so the
-   * reflector/pruner ALWAYS run. The OM-default arm leaves the author threshold intact.
-   */
-  overrideReflectionThreshold?: true;
-  /**
-   * Static process-env the bench APPLIES for this arm at `switchArm` (env-only knobs with no
-   * file equivalent). `switchArm` sets each `key=value` + clears stale keys from other arms —
-   * this field is the single source of truth for which static env the bench manages.
-   * OM `passive` (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) is env-only (OM `readEnvConfig`); the OM-default
-   * and OM-full arms need it + the forked OM (passive catch-up). (Teardown of these env vars is Task-12 orchestration.)
-   */
-  envPreconditions?: Readonly<Record<string, string>>;
+  /** The observational-memory config the harness writes for this arm. */
+  omConfig: OmArmConfig;
+  /** The memkeeper config the harness writes for this arm. */
+  memkeeperConfig: MemkeeperArmConfig;
+  /** Memory-recall tool names this arm exposes to the evaluated agent (added to the tool allowlist). */
+  memoryTools: string[];
 }
 
 /** The five arm definitions. */
@@ -80,40 +79,52 @@ export const ARM_DEFS: Record<ArmId, ArmDef> = {
     id: "A1",
     tool: "bare-pi",
     memoryPackage: null,
+    omConfig: { enabled: false },
+    memkeeperConfig: { enabled: false },
+    memoryTools: [],
   },
   A2: {
     id: "A2",
     tool: "om-default",
     memoryPackage: OM_PACKAGE,
-    envPreconditions: { PI_OBSERVATIONAL_MEMORY_PASSIVE: "1" },
+    omConfig: { enabled: true, passive: true },
+    memkeeperConfig: { enabled: false },
+    memoryTools: ["recall"],
   },
   A3: {
     id: "A3",
     tool: "memkeeper-builder",
     memoryPackage: MEMKEEPER_PACKAGE,
-    memkeeperSettings: {
+    omConfig: { enabled: false },
+    memkeeperConfig: {
+      enabled: true,
       renderMode: "observations-root",
       observerMode: "on-compaction",
       builderMode: "on-compaction",
       selectorMode: "on-compaction",
     },
+    memoryTools: ["mk_recall"],
   },
   A4: {
     id: "A4",
     tool: "memkeeper-selector",
     memoryPackage: MEMKEEPER_PACKAGE,
-    memkeeperSettings: {
+    omConfig: { enabled: false },
+    memkeeperConfig: {
+      enabled: true,
       renderMode: "selected-root",
       observerMode: "on-compaction",
       builderMode: "on-compaction",
       selectorMode: "on-compaction",
     },
+    memoryTools: ["mk_recall"],
   },
   A5: {
     id: "A5",
     tool: "om-full",
     memoryPackage: OM_PACKAGE,
-    overrideReflectionThreshold: true,
-    envPreconditions: { PI_OBSERVATIONAL_MEMORY_PASSIVE: "1" },
+    omConfig: { enabled: true, passive: true, overrideReflectionThreshold: true },
+    memkeeperConfig: { enabled: false },
+    memoryTools: ["recall"],
   },
 };

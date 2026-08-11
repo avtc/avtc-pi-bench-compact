@@ -39,6 +39,6 @@
     }
   },
   "files": {
-    "includes": ["**", "!**/docs", "!**/*.md", "!**/*.json", "!**/*.html"]
+    "includes": ["**", "!**/docs", "!**/*.md", "!**/*.json", "!**/*.html", "!src/snippets/vendored"]
   }
 }

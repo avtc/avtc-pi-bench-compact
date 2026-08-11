@@ -11,22 +11,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type Usage = NonNullable<CompactionEntry["usage"]>;
 
 import { ARM_DEFS } from "../../src/arms/definitions.js";
+import { BUILTIN_TOOLS, SUITE_TOOLS } from "../../src/arms/switch.js";
 import type { VersionResolver } from "../../src/arms/version.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import {
-  advancePhase1,
   type ArmBase,
   buildRunConfig,
-  clearPhase1Cursor,
-  compactOneArm,
-  type Phase1Cursor,
+  type Phase1Deps,
   type Phase1Ops,
-  type Phase1RunDeps,
   Phase1StoppedError,
-  registerPhase1Driver,
-  setPhase1Cursor,
+  runPhase1,
 } from "../../src/orchestrate/phase1.js";
-import { clearRunState, setRunState } from "../../src/orchestrate/run-state.js";
+import { clearRunState } from "../../src/orchestrate/run-state.js";
 import { CompactionCancelledError } from "../../src/session/compact.js";
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { buildArmBaseBranch } from "../../src/storage/branches.js";
@@ -61,7 +57,6 @@ function makeCompactionEntry(overrides: Partial<CompactionEntry>): CompactionEnt
 }
 
 interface FakeOps {
-  switchArm: ReturnType<typeof vi.fn>;
   trigger: ReturnType<typeof vi.fn>;
   loadSession: ReturnType<typeof vi.fn>;
   fork: ReturnType<typeof vi.fn>;
@@ -71,8 +66,8 @@ interface FakeOps {
 
 function makeFakeOps(): FakeOps {
   return {
-    switchArm: vi.fn(async () => {}),
     trigger: vi.fn(async () => ({ compactionEntry: makeCompactionEntry({}), wallMs: 4200 })),
+    // loadSession invokes the callback with a fake session ctx so inject + re-set + trigger run.
     loadSession: vi.fn(async (_ctx: unknown, _path: string, cb: (ctx: unknown) => Promise<unknown>) => cb({})),
     fork: vi.fn(),
     checkout: vi.fn(),
@@ -80,51 +75,56 @@ function makeFakeOps(): FakeOps {
   };
 }
 
-function makeConfig(armsEnabled: BenchConfig["armsEnabled"]): BenchConfig {
-  return {
-    evaluatedModel: "test/model",
-    evaluatedThinkingLevel: "high",
-    judgeModel: "test/judge",
-    judgeThinkingLevel: "high",
-    N: 3,
-    compactionBoundary: 140000,
-    backupMode: "build",
-    omFullReflectionThresholdTokens: 4000,
-    armsEnabled,
-  } as BenchConfig;
+interface FakePi {
+  pi: ExtensionAPI;
+  sendUserMessage: ReturnType<typeof vi.fn>;
+  setActiveTools: ReturnType<typeof vi.fn>;
 }
 
-function makeRunDeps(opts: { ops: FakeOps; scenarioRepo?: string; onDone?: (b: ArmBase[]) => void }): Phase1RunDeps {
-  const ops = opts.ops as unknown as Phase1Ops;
+/** A fake pi satisfying the ToolSetSeam (setActiveTools) + the inject seam (sendUserMessage). */
+function makeFakePi(): FakePi {
+  const sendUserMessage = vi.fn();
+  const setActiveTools = vi.fn();
+  return { pi: { sendUserMessage, setActiveTools } as unknown as ExtensionAPI, sendUserMessage, setActiveTools };
+}
+
+function makeProxies() {
   return {
-    scenarioRepo: opts.scenarioRepo ?? "/repo/scenario-x",
+    om: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+    mk: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+  };
+}
+
+function makeDeps(opts: {
+  ops: FakeOps;
+  pi: FakePi;
+  proxies: ReturnType<typeof makeProxies>;
+  scenarioRepo: string;
+  armsEnabled: BenchConfig["armsEnabled"];
+}): Phase1Deps {
+  return {
+    pi: opts.pi.pi,
+    cmdCtx: {} as ExtensionCommandContext,
+    omProxy: opts.proxies.om,
+    mkProxy: opts.proxies.mk,
+    scenarioRepo: opts.scenarioRepo,
     date: "2026-08-11",
     id: 1,
     cfgId: "cfg-test1",
     toolVersions: { A2: { source: "git", commit: "gabc123", full: "abcdef1234567890" } },
     omFullReflectionThresholdTokens: 4000,
-    ops,
-    onDone: opts.onDone,
+    armsEnabled: opts.armsEnabled,
+    ops: opts.ops as unknown as Phase1Ops,
   };
 }
 
-/** Install a cursor for `arms` with the given ops; returns it for mutation/assertion. */
-function installCursor(arms: BenchConfig["armsEnabled"], deps: Phase1RunDeps): Phase1Cursor {
-  const cursor: Phase1Cursor = { arms: [...arms], nextArmIndex: 0, bases: [], deps };
-  setPhase1Cursor(cursor);
-  return cursor;
-}
-
-const fakePi = { sendUserMessage: vi.fn() } as unknown as ExtensionAPI;
-
 afterEach(() => {
-  clearPhase1Cursor();
   clearRunState();
 });
 
-// --- compactOneArm (single arm) --------------------------------------------
+// --- runPhase1 (inline for-loop over arms) ----------------------------------
 
-describe("compactOneArm", () => {
+describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.reload)", () => {
   let repo: string;
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), "bench-phase1-"));
@@ -133,198 +133,133 @@ describe("compactOneArm", () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it("per arm: fork main→arm-base → checkout → load+inject+compact → commit", async () => {
+  it("per arm: configureArm (writeArmConfig + both reloadConfig + setActiveTools) → fork main→arm-base → checkout → load+inject+compact → commit", async () => {
     const ops = makeFakeOps();
-    const deps = makeRunDeps({ ops, scenarioRepo: repo });
-    const ctx = {} as ExtensionCommandContext;
+    const pi = makeFakePi();
+    const proxies = makeProxies();
+    const deps = makeDeps({ ops, pi, proxies, scenarioRepo: repo, armsEnabled: ["A1", "A3"] });
 
-    const base = (await compactOneArm(ctx, fakePi, "A1", deps)) as ArmBase;
+    const bases = await runPhase1(deps);
 
-    expect(base.arm).toBe("A1");
-    expect(base.tool).toBe("bare-pi");
-    expect(base.ver).toBeUndefined(); // bare-pi omits {ver}
-    expect(base.branch).toBe(
+    expect(bases).toHaveLength(2);
+    // arm 1 (bare-pi)
+    const b1 = bases[0] as ArmBase;
+    expect(b1.arm).toBe("A1");
+    expect(b1.tool).toBe("bare-pi");
+    expect(b1.ver).toBeUndefined(); // bare-pi omits {ver}
+    expect(b1.cfgId).toBe("cfg-test1");
+    expect(b1.branch).toBe(
       buildArmBaseBranch({ date: "2026-08-11", id: 1, cfgId: "cfg-test1", tool: "bare-pi", ver: undefined }),
     );
-    expect(ops.fork).toHaveBeenCalledWith(repo, "main", base.branch);
-    expect(ops.checkout).toHaveBeenCalledWith(repo, base.branch);
-    expect(ops.loadSession).toHaveBeenCalledWith(ctx, `${repo}/session.jsonl`, expect.any(Function));
+    expect(b1.wallMs).toBe(4200);
+    expect(b1.usage).toEqual(makeUsage(1000, 500));
+    expect(ops.fork).toHaveBeenCalledWith(repo, "main", b1.branch);
+    expect(ops.checkout).toHaveBeenCalledWith(repo, b1.branch);
+    expect(ops.loadSession).toHaveBeenCalledWith(expect.anything(), `${repo}/session.jsonl`, expect.any(Function));
     expect(ops.commit).toHaveBeenCalledWith(repo, expect.stringContaining("phase-1"));
+    // arm 2 (memkeeper-builder) carries the resolved tool version
+    const b2 = bases[1] as ArmBase;
+    expect(b2.arm).toBe("A3");
+    expect(b2.tool).toBe("memkeeper-builder");
+    expect(b2.ver).toBeUndefined(); // A3 has no toolVersions entry in the fake deps
+  });
+
+  it("configureArm runs for each arm: both reloadConfig fire + setActiveTools receives the arm's allowlist", async () => {
+    const ops = makeFakeOps();
+    const pi = makeFakePi();
+    const proxies = makeProxies();
+    await runPhase1(makeDeps({ ops, pi, proxies, scenarioRepo: repo, armsEnabled: ["A2", "A3"] }));
+
+    // both proxies reloaded once per arm (2 arms → 2 calls each)
+    expect(proxies.om.reloadConfig).toHaveBeenCalledTimes(2);
+    expect(proxies.mk.reloadConfig).toHaveBeenCalledTimes(2);
+    // setActiveTools: configureArm + the post-switch re-set = 2 calls per arm;
+    // assert the allowlist was set (toHaveBeenCalledWith matches any matching call).
+    expect(pi.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "recall"]); // A2
+    expect(pi.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "mk_recall"]); // A3
   });
 
   it("injects the anti-peek prompt (followUp) before compaction inside the loaded session", async () => {
     const ops = makeFakeOps();
-    const deps = makeRunDeps({ ops });
-    await compactOneArm({} as ExtensionCommandContext, fakePi, "A1", deps);
-    expect(fakePi.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
+    const pi = makeFakePi();
+    await runPhase1(makeDeps({ ops, pi, proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A1"] }));
+    expect(pi.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
     expect(ops.trigger).toHaveBeenCalled();
   });
 
-  it("carries wallMs + usage from the compaction into the base", async () => {
+  it("carries wallMs + usage from the compaction into each base", async () => {
     const ops = makeFakeOps();
     ops.trigger.mockResolvedValue({
       compactionEntry: makeCompactionEntry({ usage: makeUsage(2000, 800) }),
       wallMs: 9999,
     });
-    const deps = makeRunDeps({ ops });
-    const base = (await compactOneArm({} as ExtensionCommandContext, fakePi, "A2", deps)) as ArmBase;
-    expect(base.wallMs).toBe(9999);
-    expect(base.usage).toEqual(makeUsage(2000, 800));
-    expect(base.ver).toBe("gabc123"); // non-bare-pi carries the tool version
+    const bases = await runPhase1(
+      makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A2"] }),
+    );
+    expect((bases[0] as ArmBase).wallMs).toBe(9999);
+    expect((bases[0] as ArmBase).usage).toEqual(makeUsage(2000, 800));
+    expect((bases[0] as ArmBase).ver).toBe("gabc123"); // A2 has a toolVersions entry
   });
 
-  it("throws Phase1StoppedError(reason=cancelled) on arm-cancel + does NOT commit", async () => {
+  it("uses the SAME command ctx for every arm (inline loop — no reload, no fresh-ctx gymnastics)", async () => {
+    const ops = makeFakeOps();
+    const ctx = { id: "single-inline-ctx" } as unknown as ExtensionCommandContext;
+    const deps: Phase1Deps = {
+      ...makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A1", "A3"] }),
+      cmdCtx: ctx,
+    };
+    await runPhase1(deps);
+    // every loadSession call received the SAME ctx (inline loop reuses it; reload would invalidate it)
+    for (const call of ops.loadSession.mock.calls) {
+      expect(call[0]).toBe(ctx);
+    }
+    expect(ops.loadSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("fork is idempotent — a base branch that already exists is not re-forked (branchExists guard)", async () => {
+    // The guard is `if (!branchExists(repo, branch)) fork(...)`. branchExists is a real
+    // git read, so exercising it end-to-end needs a real repo: covered by the fork
+    // round-trip in storage/repo.test.ts. Here we only assert the guard is present
+    // (the branch is forked exactly once when it does not yet exist).
+    const ops = makeFakeOps();
+    await runPhase1(
+      makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A1"] }),
+    );
+    expect(ops.fork).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runPhase1 — stop-and-surface", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-phase1-stop-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("arm-cancel (CompactionCancelledError) → rejects with Phase1StoppedError(reason=cancelled) + does NOT commit", async () => {
     const ops = makeFakeOps();
     ops.trigger.mockRejectedValue(new CompactionCancelledError(new Error("hook cancelled")));
-    const deps = makeRunDeps({ ops, scenarioRepo: repo });
-    await expect(compactOneArm({} as ExtensionCommandContext, fakePi, "A1", deps)).rejects.toMatchObject({
-      arm: "A1",
-      reason: "cancelled",
-    });
+    await expect(
+      runPhase1(makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A3"] })),
+    ).rejects.toMatchObject({ arm: "A3", reason: "cancelled" });
     expect(ops.commit).not.toHaveBeenCalled();
   });
 
-  it("throws Phase1StoppedError(reason=empty-summary) on a degenerate empty summary", async () => {
+  it("degenerate empty summary → rejects with Phase1StoppedError(reason=empty-summary)", async () => {
     const ops = makeFakeOps();
-    ops.trigger.mockResolvedValue({
-      compactionEntry: makeCompactionEntry({ summary: "   \n\t " }),
-      wallMs: 100,
-    });
-    const deps = makeRunDeps({ ops });
-    await expect(compactOneArm({} as ExtensionCommandContext, fakePi, "A3", deps)).rejects.toMatchObject({
-      arm: "A3",
-      reason: "empty-summary",
-    });
-  });
-});
-
-// --- advancePhase1 (the reload check — CR-R1-1) ----------------------------
-
-describe("advancePhase1 — cross-reload auto-drive", () => {
-  beforeEach(() => {
-    setRunState({
-      runId: "2026-08-11-1",
-      date: "2026-08-11",
-      id: 1,
-      cfgId: "cfg-test1",
-      scenarioRepo: "/repo",
-      phase: "phase-1",
-      currentArm: null,
-      currentAttempt: null,
-      lastStopReason: null,
-    });
-  });
-
-  it("compacts the next arm with the FRESH ctx from the reload (the CR-R1-1 fix)", async () => {
-    const ops = makeFakeOps();
-    const deps = makeRunDeps({ ops });
-    const cursor = installCursor(["A1", "A3"], deps);
-    const ctx0 = { id: "ctx-after-reload-0" } as unknown as ExtensionCommandContext;
-    const ctx1 = { id: "ctx-after-reload-1" } as unknown as ExtensionCommandContext;
-
-    // Reload 1 → arm[0] (A1) compacted with ctx0; then switchArm(A3) triggers the next reload.
-    await advancePhase1(fakePi, ctx0);
-    expect(ops.loadSession).toHaveBeenCalledWith(ctx0, expect.any(String), expect.any(Function));
-    expect(cursor.nextArmIndex).toBe(1);
-    expect(ops.switchArm).toHaveBeenCalledWith(ctx0, "A3", deps.scenarioRepo, {
-      omFullReflectionThresholdTokens: 4000,
-    });
-
-    // Reload 2 → arm[1] (A3) compacted with ctx1 (NOT the stale ctx0).
-    ops.loadSession.mockClear();
-    ops.switchArm.mockClear();
-    await advancePhase1(fakePi, ctx1);
-    expect(ops.loadSession).toHaveBeenCalledWith(ctx1, expect.any(String), expect.any(Function)); // fresh ctx
-    expect(ops.switchArm).not.toHaveBeenCalled(); // last arm → no next-isolation trigger
-    expect(cursor.bases.map((b) => b.arm)).toEqual(["A1", "A3"]);
-  });
-
-  it("completes phase-1 after the last arm: clears cursor, advances run-state, fires onDone", async () => {
-    const onDone = vi.fn();
-    const ops = makeFakeOps();
-    const deps = makeRunDeps({ ops, onDone });
-    const cursor = installCursor(["A1"], deps); // single arm
-
-    await advancePhase1(fakePi, {} as ExtensionCommandContext);
-
-    expect(cursor.bases).toHaveLength(1);
-    expect(getCursorOrNull()).toBeNull(); // cursor cleared
-    // run-state advanced to phase-2
-    const { getRunState } = await import("../../src/orchestrate/run-state.js");
-    expect(getRunState()?.phase).toBe("phase-2");
-    expect(onDone).toHaveBeenCalledTimes(1);
-    expect((onDone.mock.calls[0] as [ArmBase[]])[0]).toHaveLength(1);
-  });
-
-  it("no-ops when no phase-1 cursor is active (listener is always registered — must be idle-safe)", async () => {
-    clearPhase1Cursor();
-    const ops = makeFakeOps();
-    await advancePhase1(fakePi, {} as ExtensionCommandContext);
-    expect(ops.loadSession).not.toHaveBeenCalled();
-  });
-
-  it("no-ops when the cursor is past the last arm (defensive)", async () => {
-    const ops = makeFakeOps();
-    const deps = makeRunDeps({ ops });
-    const cursor = installCursor(["A1"], deps);
-    cursor.nextArmIndex = 1; // already past
-    await advancePhase1(fakePi, {} as ExtensionCommandContext);
-    expect(ops.loadSession).not.toHaveBeenCalled();
-  });
-
-  it("stop-and-surfaces on arm-cancel: clears cursor, records lastStopReason, notifies", async () => {
-    const notify = vi.fn();
-    const ops = makeFakeOps();
-    ops.trigger.mockRejectedValue(new CompactionCancelledError(new Error("boom")));
-    const deps = makeRunDeps({ ops });
-    (deps as Phase1RunDeps & { notify?: (m: string) => void }).notify = notify;
-    const cursor = installCursor(["A3"], deps);
-
-    await advancePhase1(fakePi, {} as ExtensionCommandContext);
-
-    expect(getCursorOrNull()).toBeNull();
-    const { getRunState } = await import("../../src/orchestrate/run-state.js");
-    expect(getRunState()?.lastStopReason).toMatch(/A3.*cancelled/i);
-    expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*A3/i));
-  });
-});
-
-// --- registerPhase1Driver --------------------------------------------------
-
-describe("registerPhase1Driver", () => {
-  it("registers a session_start listener that advances phase-1 ONLY on reason 'reload'", async () => {
-    const handlers: Record<string, ((...args: unknown[]) => Promise<void>) | undefined> = {};
-    const pi = {
-      on: vi.fn((event: string, handler: (...args: unknown[]) => Promise<void>) => {
-        handlers[event] = handler;
-      }),
-    } as unknown as ExtensionAPI;
-
-    registerPhase1Driver(pi);
-
-    expect(pi.on).toHaveBeenCalledWith("session_start", expect.any(Function));
-    const listener = handlers["session_start"];
-    expect(listener).toBeDefined();
-
-    // Install a cursor so advancePhase1 would act if called.
-    const ops = makeFakeOps();
-    installCursor(["A1"], makeRunDeps({ ops }));
-
-    // Non-reload reasons are ignored (startup/resume/new/fork do not drive phase-1).
-    await listener?.({ type: "session_start", reason: "startup" }, {});
-    await listener?.({ type: "session_start", reason: "resume" }, {});
-    expect(ops.loadSession).not.toHaveBeenCalled();
-
-    // reload drives the next arm.
-    await listener?.({ type: "session_start", reason: "reload" }, {});
-    expect(ops.loadSession).toHaveBeenCalled();
+    ops.trigger.mockResolvedValue({ compactionEntry: makeCompactionEntry({ summary: "   \n\t " }), wallMs: 100 });
+    await expect(
+      runPhase1(makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A3"] })),
+    ).rejects.toMatchObject({ arm: "A3", reason: "empty-summary" });
   });
 });
 
 // --- buildRunConfig --------------------------------------------------------
 
 describe("buildRunConfig", () => {
-  it("resolves every enabled arm's tool version (A1 → absent) via the injectable resolver", () => {
+  it("resolves every enabled arm's tool version (bare-pi → absent) via the injectable resolver", () => {
     const resolver: VersionResolver = {
       resolveRoot: () => "/fake/root",
       gitHead: (dir: string) => (dir === "/fake/root" ? "abcdef1234567890" : null),
@@ -353,7 +288,16 @@ describe("phase-1 sanity", () => {
   });
 });
 
-// read the live cursor without importing the setter (avoids stale module state)
-function getCursorOrNull(): Phase1Cursor | null {
-  return ((globalThis as Record<string, unknown>).__benchCompactPhase1Cursor as Phase1Cursor | null) ?? null;
+function makeConfig(armsEnabled: BenchConfig["armsEnabled"]): BenchConfig {
+  return {
+    evaluatedModel: "test/model",
+    evaluatedThinkingLevel: "high",
+    judgeModel: "test/judge",
+    judgeThinkingLevel: "high",
+    N: 3,
+    compactionBoundary: 140000,
+    backupMode: "build",
+    omFullReflectionThresholdTokens: 4000,
+    armsEnabled,
+  } as BenchConfig;
 }

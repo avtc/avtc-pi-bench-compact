@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "lint": "biome check .",
-    "lint:optional-params": "node scripts/no-optional-params.cjs src/ tests/",
+    "lint:optional-params": "node scripts/no-optional-params.cjs src/arms src/commands src/config src/manifest src/orchestrate src/production src/runtime src/session src/simulator src/storage src/log.ts src/index.ts tests/",
     "lint:bare-literals": "node scripts/no-bare-literals.cjs src/ index.ts",
     "lint:design-refs": "node scripts/no-design-refs.cjs src/ index.ts README.md",
     "lint:as-never": "node scripts/no-as-never.cjs src/ tests/ index.ts",
