@@ -78,6 +78,30 @@ describe("preSlice", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("throws when firstKeptEntryId is not found in the backup", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
+    try {
+      const backup = writeBackup(dir);
+      const out = join(dir, "sliced.jsonl");
+      expect(() => preSlice(backup, "nonexistent", out)).toThrow(/firstKeptEntryId|not found/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty span when firstKeptEntryId is the first entry", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
+    try {
+      const backup = writeBackup(dir);
+      const out = join(dir, "sliced.jsonl");
+      const result = preSlice(backup, "e1", out); // nothing before e1
+      expect(result.entryIds).toEqual([]);
+      expect(readFileSync(out, "utf8").trim()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("countCompactions", () => {
@@ -104,30 +128,6 @@ describe("countCompactions", () => {
       ];
       writeFileSync(path, lines.map((l) => JSON.stringify(l)).join("\n"));
       expect(countCompactions(path)).toBe(2);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("throws when firstKeptEntryId is not found in the backup", () => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
-    try {
-      const backup = writeBackup(dir);
-      const out = join(dir, "sliced.jsonl");
-      expect(() => preSlice(backup, "nonexistent", out)).toThrow(/firstKeptEntryId|not found/i);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns an empty span when firstKeptEntryId is the first entry", () => {
-    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
-    try {
-      const backup = writeBackup(dir);
-      const out = join(dir, "sliced.jsonl");
-      const result = preSlice(backup, "e1", out); // nothing before e1
-      expect(result.entryIds).toEqual([]);
-      expect(readFileSync(out, "utf8").trim()).toBe("");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

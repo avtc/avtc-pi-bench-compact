@@ -78,8 +78,8 @@ function cleanCtx(overrides: Partial<ManifestValidationContext> = {}): ManifestV
     preSlicedEntryIds: new Set(["e1", "e2", "e3", "e4"]),
     entryTextById: entryText,
     essentialLists: new Set(["recallFacts", "doneOps"]),
-    compactionCount: 1,
-    expectedCompactionCount: 1,
+    compactionCount: 0, // source is pre-compaction by construction
+    expectedCompactionCount: 0,
     ...overrides,
   };
 }
@@ -133,14 +133,8 @@ describe("validateManifest — reject", () => {
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/doneOps|essential|empty/i);
   });
 
-  it("rejects when compactionCount != expectedCompactionCount (build trial)", () => {
-    const r = validateManifest(cleanManifest(), cleanCtx({ compactionCount: 2 })); // expected 1, got 2
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/compaction/i);
-  });
-
-  it("rejects when extract session has a compaction (expected 0, got 1)", () => {
-    const r = validateManifest(cleanManifest(), cleanCtx({ compactionCount: 1, expectedCompactionCount: 0 }));
+  it("rejects when the source has a CompactionEntry (expected pre-compaction 0, got 1)", () => {
+    const r = validateManifest(cleanManifest(), cleanCtx({ compactionCount: 1 })); // expected 0, got 1
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/compaction/i);
   });

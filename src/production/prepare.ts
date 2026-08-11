@@ -15,13 +15,12 @@
 
 import { join } from "node:path";
 import type { ScenarioManifest } from "../manifest/schema.js";
-import { validateManifest } from "../manifest/validate.js";
 import { assertNotInRepo } from "../storage/paths.js";
 import { type BuildSeams, buildBackup, validateAuthoredManifest } from "./build.js";
 import { copyProjectTree } from "./copy-tree.js";
 import { extractBackup } from "./extract.js";
 import { freezeScenario } from "./freeze.js";
-import { countCompactions, preSlice } from "./pre-slice.js";
+import { preSlice } from "./pre-slice.js";
 
 /** Input to {@link prepareScenario}. Exactly one of `scenario` / `fromSessionPath` is required. */
 export interface PrepareDeps {
