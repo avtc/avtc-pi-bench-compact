@@ -4,25 +4,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { CompactionCancelledError, triggerCompact } from "../../src/session/compact.js";
+import { fakeBus, fakeSignal } from "./helpers.js";
 
-/** A minimal fake AbortSignal that tracks add/removeEventListener (to assert listener
- *  cleanup on settle). */
-function fakeSignal(aborted = false): AbortSignal & { listenerCount: () => number } {
-  const listeners: Array<() => void> = [];
-  return {
-    aborted,
-    reason: aborted ? new Error("aborted") : undefined,
-    addEventListener: (_type: string, fn: () => void) => listeners.push(fn),
-    removeEventListener: (_type: string, fn: () => void) => {
-      const i = listeners.indexOf(fn);
-      if (i >= 0) listeners.splice(i, 1);
-    },
-    listenerCount: () => listeners.length,
-  } as unknown as AbortSignal & { listenerCount: () => number };
-}
-
-/** Fake pi (events bus) + ctx (compact). pi.events.on returns a disposer; emit fires
- *  handlers; triggerError invokes the onError captured from ctx.compact. */
+/** Fake pi (events bus, via the shared fakeBus) + ctx (compact). pi.events.on returns a
+ *  disposer; emit fires handlers; triggerError invokes the onError captured from
+ *  ctx.compact. fakeSignal (for R4-3 listener-cleanup assertions) is shared too. */
 function fakeRuntime(): {
   pi: ExtensionAPI;
   ctx: ExtensionContext;
@@ -30,22 +16,9 @@ function fakeRuntime(): {
   triggerError: (err: Error) => void;
   compactCalls: number;
 } {
-  const handlers = new Map<string, Array<(data: unknown) => void>>();
+  const bus = fakeBus();
   let capturedOnError: ((err: Error) => void) | undefined;
   let compactCalls = 0;
-  const on = (channel: string, handler: (data: unknown) => void): (() => void) => {
-    const list = handlers.get(channel);
-    if (list) list.push(handler);
-    else handlers.set(channel, [handler]);
-    return () => {
-      const arr = handlers.get(channel);
-      if (arr) {
-        const i = arr.indexOf(handler);
-        if (i >= 0) arr.splice(i, 1);
-      }
-    };
-  };
-  const pi = { events: { on } } as unknown as ExtensionAPI;
   const ctx = {
     compact(opts?: { onError?: (e: Error) => void }) {
       compactCalls += 1;
@@ -53,12 +26,9 @@ function fakeRuntime(): {
     },
   } as unknown as ExtensionContext;
   return {
-    pi,
+    pi: bus.pi,
     ctx,
-    emit: (channel, data) => {
-      const arr = handlers.get(channel);
-      if (arr) for (const h of arr) h(data);
-    },
+    emit: bus.emit,
     triggerError: (err) => capturedOnError?.(err),
     get compactCalls() {
       return compactCalls;

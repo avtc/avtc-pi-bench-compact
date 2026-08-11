@@ -1,40 +1,13 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { ExtensionAPI, TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { once, onTurnEnd, readMessageEndUsage } from "../../src/session/events.js";
+import { awaitOnce, once, onTurnEnd, readMessageEndUsage } from "../../src/session/events.js";
+import { fakeBus, fakeSignal } from "./helpers.js";
 
 /** Minimal EventBus fake: events.on registers + returns a disposer; emit fires handlers. */
-function fakeBus(): { pi: ExtensionAPI; emit: (channel: string, data: unknown) => void } {
-  const handlers = new Map<string, Array<(data: unknown) => void>>();
-  const pi = {
-    events: {
-      on(channel: string, handler: (data: unknown) => void): () => void {
-        const list = handlers.get(channel);
-        if (list) {
-          list.push(handler);
-        } else {
-          handlers.set(channel, [handler]);
-        }
-        return () => {
-          const arr = handlers.get(channel);
-          if (arr) {
-            const i = arr.indexOf(handler);
-            if (i >= 0) arr.splice(i, 1);
-          }
-        };
-      },
-    },
-  } as unknown as ExtensionAPI;
-  return {
-    pi,
-    emit: (channel, data) => {
-      const arr = handlers.get(channel);
-      if (arr) for (const h of arr) h(data);
-    },
-  };
-}
+// NOTE: the shared fakeBus/fakeSignal live in ./helpers.ts (R2-3 dedup).
 
 describe("readMessageEndUsage", () => {
   it("extracts input/output/cacheRead/cacheWrite/cost/totalTokens from a message_end event", () => {
@@ -91,5 +64,74 @@ describe("once", () => {
     dispose();
     emit("agent_settled", { type: "agent_settled" });
     expect(seen).toEqual([]);
+  });
+});
+
+describe("awaitOnce", () => {
+  it("resolves with the event data when the channel fires", async () => {
+    const { pi, emit } = fakeBus();
+    const p = awaitOnce<{ n: number }>(pi, "agent_settled", { makeAbortedError: (r) => new Error(String(r)) });
+    emit("agent_settled", { n: 7 });
+    await expect(p).resolves.toEqual({ n: 7 });
+  });
+
+  it("rejects via makeAbortedError when the signal aborts first", async () => {
+    const { pi } = fakeBus();
+    const signal = fakeSignal();
+    const p = awaitOnce(pi, "agent_settled", { signal, makeAbortedError: () => new Error("boom-abort") });
+    signal.abort();
+    await expect(p).rejects.toThrow(/boom-abort/);
+  });
+
+  it("rejects immediately (no listener registered) when the signal is pre-aborted", async () => {
+    const { pi, listenerCount } = fakeBus();
+    const signal = fakeSignal();
+    signal.abort();
+    await expect(
+      awaitOnce(pi, "agent_settled", { signal, makeAbortedError: () => new Error("pre-abort") }),
+    ).rejects.toThrow(/pre-abort/);
+    expect(listenerCount("agent_settled")).toBe(0); // no listener was registered
+  });
+
+  it("extra.resolve settles the same race (joins the idempotent settler)", async () => {
+    const { pi } = fakeBus();
+    const p = awaitOnce<{ v: number }>(pi, "agent_settled", {
+      makeAbortedError: () => new Error("x"),
+      extra: ({ resolve }) => resolve({ v: 42 }),
+    });
+    await expect(p).resolves.toEqual({ v: 42 });
+  });
+
+  it("no double-settle: an event after extra.resolve is ignored (one-shot, idempotent)", async () => {
+    const { pi, emit, listenerCount } = fakeBus();
+    let resolves = 0;
+    const p = awaitOnce<{ v: number }>(pi, "agent_settled", {
+      makeAbortedError: () => new Error("x"),
+      extra: ({ resolve }) => resolve({ v: 1 }),
+    });
+    p.then(() => {
+      resolves += 1;
+    });
+    emit("agent_settled", { v: 99 }); // must NOT re-resolve
+    await p;
+    expect(resolves).toBe(1);
+    expect(listenerCount("agent_settled")).toBe(0); // listener torn down by the extra settle
+  });
+
+  it("R2-1: if extra throws synchronously, awaitOnce rejects AND tears down both listeners (no leak)", async () => {
+    const { pi, listenerCount } = fakeBus();
+    const signal = fakeSignal();
+    await expect(
+      awaitOnce(pi, "session_compact", {
+        signal,
+        makeAbortedError: (r) => new Error(String(r)),
+        extra: () => {
+          throw new Error("stale ctx");
+        },
+      }),
+    ).rejects.toThrow(/stale ctx/);
+    // both listeners must be removed despite the throw (R4-3 guarantee holds on this path)
+    expect(signal.listenerCount()).toBe(0);
+    expect(listenerCount("session_compact")).toBe(0);
   });
 });

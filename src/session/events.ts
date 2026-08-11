@@ -52,7 +52,14 @@ export function once<T = unknown>(pi: ExtensionAPI, channel: string, fn: (data: 
  *  shared basis for the bench's two one-shot event-vs-signal races:
  *  `awaitAgentSettled` (agent_settled) and `triggerCompact` (session_compact — which
  *  also wires a third onError path via `extra`). A signal already aborted at call time
- *  rejects immediately (no listener registered, no side effect fired). */
+ *  rejects immediately (no listener registered, no side effect fired).
+ *
+ *  Contract: NOT safe for CONCURRENT calls on the same `channel` — the pi event bus
+ *  fans out to every listener, so two racing `awaitOnce`s on the same channel would
+ *  both resolve on one event. The bench only ever drives one such race per channel at
+ *  a time (sequential Phase-1 compaction; one continuation/probe await per forked
+ *  session), so this is fine today — but do not introduce concurrent same-channel
+ *  races without a per-call correlation key. */
 export function awaitOnce<T>(
   pi: ExtensionAPI,
   channel: string,
@@ -81,9 +88,16 @@ export function awaitOnce<T>(
     };
     const dispose = once(pi, channel, (data) => settle(() => resolve(data as T)));
     if (signal !== undefined) signal.addEventListener("abort", onAbort, { once: true });
-    extra?.({
-      resolve: (value) => settle(() => resolve(value)),
-      reject: (error) => settle(() => reject(error)),
-    });
+    // R2-1: if `extra` throws synchronously (e.g. ctx.compact on a stale ctx — a real
+    // hazard since loadSession invalidates the old ctx), settle via reject so BOTH
+    // listeners are torn down (no leak) instead of escaping via the Promise ctor.
+    try {
+      extra?.({
+        resolve: (value) => settle(() => resolve(value)),
+        reject: (error) => settle(() => reject(error)),
+      });
+    } catch (err) {
+      settle(() => reject(err));
+    }
   });
 }
