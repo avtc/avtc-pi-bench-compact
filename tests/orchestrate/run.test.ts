@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -97,16 +97,22 @@ describe("startRun — identity + state", () => {
     expect(existsSync(join(root, "configs", `${s?.cfgId}.json`))).toBe(true);
   });
 
-  it("increments id when a run dir for that date already exists", async () => {
-    // pre-create a prior run dir for the same date
-    mkdirSync(join(root, "runs", "2026-08-11-1"), { recursive: true });
+  it("reserves the run dir at start so a same-day stop-and-retry cannot collide ids (R1-3)", async () => {
     const deps = makeDeps({
       arms: ["A1"],
       root,
       phase1: async () => [],
     });
     await startRun(deps);
-    expect(getRunState()?.id).toBe(2);
+    // the run dir exists immediately (reserved before phase1 even runs)
+    expect(existsSync(join(root, "runs", "2026-08-11-1"))).toBe(true);
+    // a second same-day run sees the reserved dir → id=2, no collision
+    const deps2 = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1: async () => [],
+    });
+    await startRun(deps2);
     expect(getRunState()?.runId).toBe("2026-08-11-2");
   });
 });

@@ -50,6 +50,21 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     expect(files).toContain("src/util.ts");
   });
 
+  it("initScenarioRepo writes a .gitignore so switchArm's .pi/ arm-isolation files are never tracked (R1-2)", () => {
+    initScenarioRepo(repo);
+    expect(git(repo, ["ls-tree", "-r", "--name-only", "HEAD"])).toContain(".gitignore");
+    // simulate switchArm writing .pi/settings.json, then commitAll must NOT stage it
+    mkdirSync(path.join(repo, ".pi"));
+    writeFileSync(path.join(repo, ".pi", "settings.json"), '{"packages":[]}');
+    commitAll(repo, "arm isolation written");
+    const tracked = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"])
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(tracked).not.toContain(".pi/settings.json");
+    expect(tracked).toContain(".gitignore"); // the gitignore itself is tracked
+  });
+
   it("branchExists reports whether a branch has been committed", () => {
     expect(branchExists(repo, "main")).toBe(false); // not yet init'd
     initScenarioRepo(repo);

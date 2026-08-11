@@ -11,6 +11,15 @@
 // uncommitted mid-run). One branch live at a time → no worktrees.
 
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Bench-internal, never tracked scenario content: `.pi/` holds the arm-isolation settings
+ *  (`settings.json` packages + memkeeper config) that `switchArm` writes per arm. Committing them
+ *  would (a) reveal the active arm to the agent (anti-peek violation) + (b) pollute every arm
+ *  branch's diff vs `main` (R1-2). `.git/info/exclude` is local-only + doesn't survive a fresh
+ *  clone, so a committed `.gitignore` is the robust choice. */
+const SCENARIO_GITIGNORE = ".pi/\n";
 
 /** Run `git` in `cwd` with `args`; returns stdout (utf8). Throws a contextual error on failure. */
 function runGit(cwd: string, args: string[]): string {
@@ -33,6 +42,8 @@ function runGit(cwd: string, args: string[]): string {
  * Sets a local git identity so commits succeed in a fresh repo.
  */
 export function initScenarioRepo(repoPath: string, opts: { message?: string } = {}): string {
+  // Ignore bench-internal `.pi/` BEFORE the first add (R1-2) — persists across forks/branches.
+  writeFileSync(join(repoPath, ".gitignore"), SCENARIO_GITIGNORE, "utf-8");
   runGit(repoPath, ["init", "-b", "main"]);
   // local identity — a fresh repo has none, so commits would fail without this.
   runGit(repoPath, ["config", "user.email", "bench-compact@local"]);

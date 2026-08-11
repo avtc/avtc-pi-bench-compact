@@ -8,7 +8,7 @@
 // Tasks 13a/13b append Phase-2 (continuation + probes) + Phase-3 (scoring) calls
 // after Phase-1 succeeds. This module is the single entry point for a bench run.
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SwitchContext } from "../arms/switch.js";
@@ -17,7 +17,7 @@ import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
-import { benchRoot } from "../storage/paths.js";
+import { benchRoot, runDir } from "../storage/paths.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -89,6 +89,10 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const date = utcDate(now());
   const id = nextRunId(root, date);
   const runId = `${date}-${id}`;
+
+  // Reserve the run dir immediately (R1-3): a Phase-1 stop creates no result yet, but the
+  // identity is taken — so a same-day retry/scan sees this run + picks the next id (no collision).
+  mkdirSync(runDir(root, runId), { recursive: true });
 
   // Resolve the full run config (every arm's tool version) + its fingerprint, ONCE.
   const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER);
