@@ -51,13 +51,15 @@ describe("writeRunConfig", () => {
     expect(existsSync(path.dirname(file))).toBe(true);
   });
 
-  it("contamination: the config path is under configs/, NEVER under a scenario repo", () => {
+  it("contamination: the config path is exactly root/configs/<cfgId>.json, never in a repo", () => {
     const rc = sampleRunConfig();
     const file = writeRunConfig("cfg-xyz123", rc, root);
-    // The config lands under <root>/configs/ — a sibling of scenarios/, never inside a repo.
-    expect(file).toContain(path.join("configs"));
-    expect(file).not.toContain(path.join("scenarios"));
+    // exact path (R1-5: strengthen beyond substring checks)
+    expect(file).toBe(path.join(root, "configs", "cfg-xyz123.json"));
+    // strictly under root/configs (does not escape)
+    expect(path.relative(path.join(root, "configs"), file)).toBe("cfg-xyz123.json");
+    // outside any scenario repo (the agent's cwd)
     const scenarioRepo = path.join(root, "scenarios", "s1", "repo");
-    expect(path.relative(scenarioRepo, file).startsWith("..")).toBe(true); // outside the repo
+    expect(path.relative(scenarioRepo, file).startsWith("..")).toBe(true);
   });
 });

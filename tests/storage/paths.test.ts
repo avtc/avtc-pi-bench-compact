@@ -43,6 +43,26 @@ describe("path builders", () => {
   });
 });
 
+describe("path-traversal guard (R1-3: ids cannot escape their subdir)", () => {
+  const root = "/tmp/bench";
+  it("configPath rejects a cfgId that escapes configs/ into a repo", () => {
+    expect(() => configPath(root, "../scenarios/s1/repo/evil")).toThrow(/unsafe cfgId/i);
+    expect(() => configPath(root, "..\\scenarios\\s1\\repo\\evil")).toThrow(/unsafe cfgId/i);
+  });
+  it("scenarioDir rejects a scenarioId that escapes scenarios/", () => {
+    expect(() => scenarioDir(root, "../configs/cfg-x")).toThrow(/unsafe scenario/i);
+    expect(() => scenarioDir(root, "..")).toThrow(/unsafe scenario/i);
+  });
+  it("runDir rejects a runId that escapes runs/", () => {
+    expect(() => runDir(root, "../../etc/passwd")).toThrow(/unsafe run/i);
+  });
+  it("valid ids are accepted", () => {
+    expect(() => configPath(root, "cfg-a3f2c1")).not.toThrow();
+    expect(() => scenarioDir(root, "2026-08-10-tycoon")).not.toThrow();
+    expect(() => runDir(root, "run-2026-08-10-1")).not.toThrow();
+  });
+});
+
 describe("contamination rule (isInsideRepo / assertNotInRepo)", () => {
   const repo = path.join("/tmp/bench", "scenarios", "s1", "repo");
   it("isInsideRepo: true for paths under the repo, false for siblings/outside", () => {

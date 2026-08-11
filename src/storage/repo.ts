@@ -52,10 +52,12 @@ export function checkout(repo: string, branch: string): void {
   runGit(repo, ["checkout", branch]);
 }
 
-/** Stage all changes + commit them with `message` (called at agent_settled / phase boundary). */
+/** Stage all changes + commit them with `message` (called at agent_settled / phase boundary).
+ *  `--allow-empty`: a boundary may have no working-tree changes (the agent only read files); the
+ *  harness still records the boundary as a commit. (R1-9) */
 export function commitAll(repo: string, message: string): void {
   runGit(repo, ["add", "-A"]);
-  runGit(repo, ["commit", "-m", message]);
+  runGit(repo, ["commit", "--allow-empty", "-m", message]);
 }
 
 /** List the file paths that differ between two branches (`git diff --name-only a b`). */

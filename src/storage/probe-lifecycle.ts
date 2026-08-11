@@ -46,9 +46,13 @@ export function isQaOnlyBranch(repo: string, baseBranch: string, probeBranch: st
   const files = diffNameOnly(repo, baseBranch, probeBranch);
   if (files.some((f) => f !== "session.jsonl")) return false;
 
-  // 2. Parse the ADDED session.jsonl lines; any mutating entry → not Q&A-only.
+  // 2. Parse the ADDED session.jsonl lines; any mutating entry → not Q&A-only. ALSO: any
+  // `-` line (a removal/modification — session JSONL is append-only, so a removal is
+  // unexpected) or any unparseable `+` line → conservative keep (§3.14: "anything
+  // unexpected is kept"). (R1-4)
   const diff = diffFile(repo, baseBranch, probeBranch, "session.jsonl");
   for (const line of diff.split("\n")) {
+    if (line.startsWith("-") && !line.startsWith("---")) return false; // unexpected removal/modification
     if (!line.startsWith("+") || line.startsWith("+++")) continue; // skip context/hunk headers
     const json = line.slice(1).trim();
     if (json.length === 0) continue;
@@ -56,7 +60,7 @@ export function isQaOnlyBranch(repo: string, baseBranch: string, probeBranch: st
     try {
       entry = JSON.parse(json) as SessionEntry;
     } catch {
-      continue; // not a JSON line (shouldn't happen for append-only JSONL) — skip defensively
+      return false; // unparseable added line — unexpected → keep
     }
     if (isMutatingEntry(entry)) return false;
   }

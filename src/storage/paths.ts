@@ -24,8 +24,22 @@ export function benchRoot(outputDir: string | null | undefined): string {
 }
 
 // --- scenario layout -------------------------------------------------------
+function assertChildPath(parent: string, child: string, kind: string): string {
+  // path.join normalizes separators + "..", so a malicious id (e.g. "../scenarios/s1/repo/evil")
+  // could escape its subdir into a sibling (a scenario repo — the agent's cwd). Enforce the
+  // invariant at the sink: the resolved path must stay strictly under `parent` (R1-3).
+  const resolved = path.join(parent, child);
+  const rel = path.relative(parent, resolved);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(
+      `unsafe ${kind} id ${JSON.stringify(child)}: resolves to ${resolved}, escaping ${parent} (contamination / traversal guard)`,
+    );
+  }
+  return resolved;
+}
+
 export function scenarioDir(root: string, scenarioId: string): string {
-  return path.join(root, "scenarios", scenarioId);
+  return assertChildPath(path.join(root, "scenarios"), scenarioId, "scenario");
 }
 /** The scenario git repo working dir (the agent's cwd; tracks session.jsonl + project files). */
 export function scenarioRepo(root: string, scenarioId: string): string {
@@ -38,11 +52,11 @@ export function scenarioManifest(root: string, scenarioId: string): string {
 
 // --- run / config / calibration layout -------------------------------------
 export function runDir(root: string, runId: string): string {
-  return path.join(root, "runs", runId);
+  return assertChildPath(path.join(root, "runs"), runId, "run");
 }
 /** The full run-config file (source of truth for the run-condition fingerprint). */
 export function configPath(root: string, cfgId: string): string {
-  return path.join(root, "configs", `${cfgId}.json`);
+  return assertChildPath(path.join(root, "configs"), `${cfgId}.json`, "cfgId");
 }
 export function calibrationDir(root: string): string {
   return path.join(root, "calibration");

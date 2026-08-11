@@ -73,4 +73,9 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     forkBranch(repo, "main", "sibling");
     expect(diffNameOnly(repo, "main", "sibling")).toEqual([]);
   });
+
+  it("commitAll with --allow-empty succeeds on a no-change tree (R1-9)", () => {
+    initScenarioRepo(repo);
+    expect(() => commitAll(repo, "no-op phase boundary")).not.toThrow();
+  });
 });

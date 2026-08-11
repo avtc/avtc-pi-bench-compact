@@ -77,4 +77,12 @@ describe("isQaOnlyBranch (real git, synthetic JSONL)", () => {
     const br = probeBranch("p-empty"); // forked == base, no changes committed
     expect(isQaOnlyBranch(repo, base, br)).toBe(true);
   });
+
+  it("false when the probe MODIFIED an existing entry (a '-' line appears — R1-4)", () => {
+    const br = probeBranch("p-mod");
+    // modify the existing user message rather than appending (a '-' line in the diff)
+    writeFileSync(path.join(repo, "session.jsonl"), `${[SESSION, USER("changed-q")].join("\n")}\n`);
+    commitAll(repo, "probe modify");
+    expect(isQaOnlyBranch(repo, base, br)).toBe(false);
+  });
 });
