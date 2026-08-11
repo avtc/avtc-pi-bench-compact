@@ -104,9 +104,9 @@ const SETTINGS: readonly SettingSchema[] = [
     presets: BACKUP_MODE_PRESETS,
   }),
   setting("scenario", {
-    label: "Scenario (build mode)",
+    label: "Scenario folder",
     description:
-      "In build mode, the task brief / theme for the user-simulator. Empty = use the default AI-tycoon theme.",
+      "Path/id of a prepared scenario folder to run by default (§2.12). null = the folder must be passed to /bench-compact:run-scenario.",
     type: "string",
     defaultValue: DEFAULTS.scenario,
   }),

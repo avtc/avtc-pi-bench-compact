@@ -93,4 +93,21 @@ describe("getBenchConfig", () => {
     );
     expect(getBenchConfig().armsEnabled).toEqual([]);
   });
+
+  it("returns all defaults (all arms enabled) when no handle is initialized", () => {
+    _setHandleForTest(null);
+    const cfg = getBenchConfig();
+    expect(cfg.N).toBe(DEFAULTS.N);
+    expect(cfg.compactionBoundary).toBe(DEFAULTS.compactionBoundary);
+    expect(cfg.evaluatedModel).toBeNull();
+    // all five arm defaults are true
+    expect(cfg.armsEnabled).toEqual(["A1", "A2", "A3", "A4", "A5"]);
+  });
+
+  it("falls back to the default thinking level when the raw value is not a known level", () => {
+    _setHandleForTest(fakeHandle({ evaluatedThinkingLevel: "bogus", judgeThinkingLevel: 42 }));
+    const cfg = getBenchConfig();
+    expect(cfg.evaluatedThinkingLevel).toBe(DEFAULTS.evaluatedThinkingLevel);
+    expect(cfg.judgeThinkingLevel).toBe(DEFAULTS.judgeThinkingLevel);
+  });
 });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { DEFAULTS } from "./schema.js";
 import { ARM_ENABLED_KEY, ARM_IDS, type ArmId, type BackupMode, type BenchConfig } from "./types.js";
@@ -19,11 +20,6 @@ export function _setHandleForTest(h: SettingsHandle | null): void {
 
 // --- raw-value coercions (the handle's getSettings is untyped; fall back to DEFAULTS) ---
 
-function asString(raw: Record<string, unknown>, key: string, fallback: string): string {
-  const v = raw[key];
-  return typeof v === "string" ? v : fallback;
-}
-
 function asStringOrNull(raw: Record<string, unknown>, key: string, fallback: string | null): string | null {
   const v = raw[key];
   return typeof v === "string" ? v : v === null ? null : fallback;
@@ -37,6 +33,15 @@ function asNumber(raw: Record<string, unknown>, key: string, fallback: number): 
 function asBoolean(raw: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const v = raw[key];
   return typeof v === "boolean" ? v : fallback;
+}
+
+const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/** Narrow a raw value to a ThinkingLevel; fall back if it isn't a known level (the
+ *  settings-ui thinking-level type only emits these, but the handle is untyped). */
+function asThinkingLevel(raw: Record<string, unknown>, key: string, fallback: ThinkingLevel): ThinkingLevel {
+  const v = raw[key];
+  return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v) ? (v as ThinkingLevel) : fallback;
 }
 
 function asBackupMode(raw: Record<string, unknown>, key: string): BackupMode {
@@ -57,9 +62,9 @@ export function getBenchConfig(): BenchConfig {
   const raw: Record<string, unknown> = handle ? handle.getSettings() : {};
   const cfg: BenchConfig = {
     evaluatedModel: asStringOrNull(raw, "evaluatedModel", DEFAULTS.evaluatedModel),
-    evaluatedThinkingLevel: asString(raw, "evaluatedThinkingLevel", DEFAULTS.evaluatedThinkingLevel),
+    evaluatedThinkingLevel: asThinkingLevel(raw, "evaluatedThinkingLevel", DEFAULTS.evaluatedThinkingLevel),
     judgeModel: asStringOrNull(raw, "judgeModel", DEFAULTS.judgeModel),
-    judgeThinkingLevel: asString(raw, "judgeThinkingLevel", DEFAULTS.judgeThinkingLevel),
+    judgeThinkingLevel: asThinkingLevel(raw, "judgeThinkingLevel", DEFAULTS.judgeThinkingLevel),
     N: asNumber(raw, "N", DEFAULTS.N),
     compactionBoundary: asNumber(raw, "compactionBoundary", DEFAULTS.compactionBoundary),
     backupMode: asBackupMode(raw, "backupMode"),

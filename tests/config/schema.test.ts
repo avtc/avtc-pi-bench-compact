@@ -51,6 +51,9 @@ describe("BENCH_SCHEMA", () => {
     it("backupMode: string, default build", () => {
       expect(row("backupMode")).toMatchObject({ type: "string", defaultValue: "build" });
     });
+    it("backupMode presets are exactly [build, extract]", () => {
+      expect(row("backupMode").presets).toEqual(["build", "extract"]);
+    });
     it("scenario: string, default null", () => {
       expect(row("scenario")).toMatchObject({ type: "string", defaultValue: null });
     });

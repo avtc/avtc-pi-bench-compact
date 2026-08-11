@@ -93,4 +93,24 @@ describe("validateBenchConfig", () => {
     cfg.omFullReflectionThresholdTokens = 0;
     expect(validateBenchConfig(cfg)).toEqual({ ok: true });
   });
+
+  it("rejects when A5 (om-full) is enabled but omFullReflectionThresholdTokens >= OM's default (30000) — would make A5 indistinguishable from A2", () => {
+    const cfg = validConfig();
+    cfg.armOmFullEnabled = true;
+    cfg.armsEnabled = ["A5"];
+    cfg.omFullReflectionThresholdTokens = 30000;
+    const result = validateBenchConfig(cfg);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/30000|indistinguishable|reflection|threshold/i);
+    }
+  });
+
+  it("accepts A5 at the default 4000 (well below OM's 30000 default)", () => {
+    const cfg = validConfig();
+    cfg.armOmFullEnabled = true;
+    cfg.armsEnabled = ["A5"];
+    cfg.omFullReflectionThresholdTokens = 4000;
+    expect(validateBenchConfig(cfg)).toEqual({ ok: true });
+  });
 });

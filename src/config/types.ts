@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+
 /** The five compaction/memory arms under test (§2). */
 export type ArmId = "A1" | "A2" | "A3" | "A4" | "A5";
 
@@ -43,9 +45,9 @@ export type BackupMode = "build" | "extract";
 export interface BenchConfig {
   // Models tab
   evaluatedModel: string | null;
-  evaluatedThinkingLevel: string;
+  evaluatedThinkingLevel: ThinkingLevel;
   judgeModel: string | null;
-  judgeThinkingLevel: string;
+  judgeThinkingLevel: ThinkingLevel;
   // Run tab
   N: number;
   compactionBoundary: number;
