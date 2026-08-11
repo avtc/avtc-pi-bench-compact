@@ -27,10 +27,16 @@
   ],
   "scripts": {
     "lint": "biome check .",
-    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo",
+    "lint:optional-params": "node scripts/no-optional-params.cjs src/ tests/",
+    "lint:bare-literals": "node scripts/no-bare-literals.cjs src/ index.ts",
+    "lint:design-refs": "node scripts/no-design-refs.cjs src/ index.ts README.md",
+    "lint:as-never": "node scripts/no-as-never.cjs src/ tests/ index.ts",
+    "lint:bundled-imports": "node scripts/no-bundled-extension-imports.cjs src/ index.ts",
     "knip": "knip --production",
-    "dupes": "jscpd src/ --exit-code --threshold 0.01",
-    "test": "biome check . && tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo && knip --production && npm run dupes && vitest run"
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo",
+    "test:unit": "node scripts/test-low-priority.cjs vitest run",
+    "test": "node scripts/test-low-priority.cjs \"node scripts/run-parallel.cjs \"npm run lint:optional-params :: npm run lint:bare-literals :: npm run lint:design-refs :: npm run lint:as-never :: npm run lint:bundled-imports :: npm run lint :: npm run typecheck :: npm run knip :: npm run dupes\" && vitest run\"",
+    "dupes": "jscpd src/ --exit-code --threshold 0.01"
   },
   "dependencies": {
     "avtc-pi-logger": "^1.0.3",

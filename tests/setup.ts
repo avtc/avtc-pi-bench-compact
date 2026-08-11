@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+/**
+ * Global test setup, registered via `setupFiles` in vitest.config.ts.
+ *
+ * The suite runs with `isolate: false` for speed, which shares ONE module
+ * registry across every test file. That turns module singletons into
+ * cross-test leak vectors — so they are reset here centrally, mirroring the
+ * sibling-repo setupFiles pattern (avtc-pi-memkeeper / avtc-pi-portrait).
+ *
+ * No bench test uses `vi.mock` on a shared src module (all dependency-inject
+ * their fakes via deps objects), so — unlike memkeeper — there is no centralized
+ * vi.mock/stub-flag layer here. Only the singletons + the run-state globalThis
+ * slot are reset.
+ */
+
+import { afterAll, beforeEach } from "vitest";
+import { _setHandleForTest } from "../src/config/accessor.js";
+import { _setRegisterSettingsCommand } from "../src/config/schema.js";
+import { _setBaseLoggerForTest } from "../src/log.js";
+
+// Tests must NEVER write to the real production log file (~/.pi/logs/...). The
+// real avtc-pi-logger is created at log.ts module load (shared under
+// isolate:false), so redirect it to a no-op sink here.
+const NO_OP_LOG_SINK = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+};
+_setBaseLoggerForTest(NO_OP_LOG_SINK);
+
+// The run-state singleton lives on globalThis (survives /reload in production;
+// under isolate:false it survives across test files too). Clear it before each
+// test so no test sees another's run-state.
+const RUN_STATE_KEY = "__benchCompactRunState";
+
+// Run-state is cleared before EACH test: a test that writes it (via writeGlobal)
+// must never bleed into the next, and every test starts from a known-empty slot.
+beforeEach(() => {
+  delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
+});
+
+// Reset the config/settings singletons at the FILE boundary — the isolate:false
+// leak boundary (mirrors avtc-pi-memkeeper/tests/setup.ts, which resets in
+// afterAll). Resetting per-test (afterEach) would clash with files that install
+// a fake for the whole file in beforeAll (tests/smoke.test.ts installs a fake
+// registerSettingsCommand in beforeAll and asserts against it across all tests).
+// Every file that swaps a singleton already self-clears it (accessor.test.ts and
+// commands/index.test.ts clear the handle in their own afterEach; smoke.test.ts
+// in afterAll), so this afterAll only guards the cross-FILE leak.
+afterAll(() => {
+  _setHandleForTest(null);
+  _setRegisterSettingsCommand(null);
+  delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
+});

@@ -1,12 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@6.17.1/schema.json",
   "entry": [
-    "index.ts"
+    "index.ts",
+    "scripts/no-optional-params.cjs",
+    "scripts/no-bare-literals.cjs",
+    "scripts/test-low-priority.cjs"
   ],
   "project": [
     "index.ts",
     "src/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "scripts/**/*.{cjs,mjs,js,ts}"
   ],
   "ignore": [
     "**/docs/**"

@@ -12,10 +12,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { _setRegisterSettingsCommand, BENCH_SCHEMA, BENCH_SETTINGS_COMMAND } from "../src/config/schema.js";
 import activate from "../src/index.js";
 
-/** A minimal fake `pi` (ExtensionAPI) that only spies on registerCommand. */
+/** A minimal fake `pi` (ExtensionAPI) that spies on registerCommand.
+ *  Includes a no-op `on` so registerSettingsCommand's `pi.on("session_start", ...)`
+ *  hook (avtc-pi-settings-ui settings-command.ts) doesn't throw when activate()
+ *  wires the settings command. */
 function fakePi(): { pi: ExtensionAPI; registerCommand: ReturnType<typeof vi.fn> } {
   const registerCommand = vi.fn();
-  return { pi: { registerCommand } as unknown as ExtensionAPI, registerCommand };
+  return { pi: { registerCommand, on: () => {} } as unknown as ExtensionAPI, registerCommand };
 }
 
 /** A minimal fake command ctx that spies on `ui.notify`. */
