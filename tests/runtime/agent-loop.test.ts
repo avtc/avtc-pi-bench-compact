@@ -245,7 +245,7 @@ describe("runBenchStage", () => {
         return [];
       },
     });
-    let ended: { elapsedMs: number }[] = [];
+    const ended: { elapsedMs: number }[] = [];
     await expect(
       runBenchStage(
         baseInput({
