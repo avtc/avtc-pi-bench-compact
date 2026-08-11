@@ -26,3 +26,64 @@ export function onTurnEnd(pi: ExtensionAPI, fn: (event: TurnEndEvent) => void): 
     fn(data as TurnEndEvent);
   });
 }
+
+/** Register a ONE-SHOT listener for `channel` on `pi.events`: `fn` fires at most once,
+ *  then the listener is auto-removed. Returns a disposer for early external teardown
+ *  (idempotent — safe to call after the listener already fired/removed). The shared
+ *  basis for the session-driving primitives' one-shot listeners (`triggerCompact`,
+ *  `awaitAgentSettled`) so the one-shot + dispose pattern lives in one place. */
+export function once<T = unknown>(pi: ExtensionAPI, channel: string, fn: (data: T) => void): () => void {
+  let disposed = false;
+  const eventDispose = pi.events.on(channel, (data) => {
+    if (disposed) return;
+    disposed = true;
+    eventDispose();
+    fn(data as T);
+  });
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    eventDispose();
+  };
+}
+
+/** Race a one-shot `channel` event against an optional `signal`, settling exactly once
+ *  and tearing down BOTH listeners (no accumulation on the long-lived run signal). The
+ *  shared basis for the bench's two one-shot event-vs-signal races:
+ *  `awaitAgentSettled` (agent_settled) and `triggerCompact` (session_compact — which
+ *  also wires a third onError path via `extra`). A signal already aborted at call time
+ *  rejects immediately (no listener registered, no side effect fired). */
+export function awaitOnce<T>(
+  pi: ExtensionAPI,
+  channel: string,
+  options: {
+    signal?: AbortSignal;
+    /** Builds the rejection error for a signal abort (caller picks the typed error). */
+    makeAbortedError: (reason: unknown) => Error;
+    /** Optional extra settle paths joined to the SAME idempotent race (e.g.
+     *  `triggerCompact`'s onError). Receives resolve/reject that settle the promise
+     *  exactly once alongside the event/signal paths. */
+    extra?: (settle: { resolve: (value: T) => void; reject: (error: unknown) => void }) => void;
+  },
+): Promise<T> {
+  const { signal, makeAbortedError, extra } = options;
+  if (signal?.aborted) return Promise.reject(makeAbortedError(signal.reason));
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = (): void => settle(() => reject(makeAbortedError(signal?.reason)));
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      dispose();
+      signal?.removeEventListener("abort", onAbort);
+      fn();
+    };
+    const dispose = once(pi, channel, (data) => settle(() => resolve(data as T)));
+    if (signal !== undefined) signal.addEventListener("abort", onAbort, { once: true });
+    extra?.({
+      resolve: (value) => settle(() => resolve(value)),
+      reject: (error) => settle(() => reject(error)),
+    });
+  });
+}

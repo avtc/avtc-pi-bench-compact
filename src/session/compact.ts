@@ -6,19 +6,22 @@
 // The public `ctx.compact({onError})` is fire-and-forget: success arrives via the
 // `session_compact` event (carrying the persisted `CompactionEntry`); every failure —
 // including a `session_before_compact` hook's `{cancel:true}` ("Compaction cancelled",
-// no CompactionEntry, no native fallback) — surfaces via `onError`. We bridge those to a
-// single Promise: resolve on `session_compact`, reject on `onError`, and map the cancel
-// message to a distinct `CompactionCancelledError` so the caller can STOP+surface it.
-//
-// Two objects are involved: `pi` (ExtensionAPI) carries the event bus (`pi.events.on`
-// returns a disposer so the listener is removed on fire — no leak); `ctx`
-// (ExtensionContext) carries `compact()`.
+// no CompactionEntry, no native fallback) — surfaces via `onError`. We race those three
+// outcomes (event / onError / signal) via the shared `awaitOnce` helper, mapping the
+// cancel message to a distinct `CompactionCancelledError` so the caller can STOP+surface.
 //
 // `wallMs` is bench-timed (Date.now bracket around compact->event): `CompactionEntry`
 // has no duration field (verified — only usage/timestamp/firstKeptEntryId/details).
 // The CALLER carries wallMs into the run's cost record (NOT the JSONL).
 
-import type { CompactionEntry, ExtensionContext, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  CompactionEntry,
+  ExtensionAPI,
+  ExtensionContext,
+  SessionCompactEvent,
+} from "@earendil-works/pi-coding-agent";
+import { log } from "../log.js";
+import { awaitOnce } from "./events.js";
 
 /** pi message produced when a `session_before_compact` hook returns `{cancel:true}`. */
 const CANCEL_MESSAGE = "Compaction cancelled";
@@ -42,9 +45,11 @@ export class CompactAbortedError extends Error {
 }
 
 export interface TriggerCompactOptions {
-  /** Run/compaction signal — aborting it rejects the promise (CompactAbortedError). */
+  /** Run/compaction signal — aborting it rejects the promise (CompactAbortedError).
+   *  A signal already aborted at call time rejects WITHOUT firing `ctx.compact`. */
   signal?: AbortSignal;
-  /** Fired once on success with the persisted entry + the bench-measured wall time. */
+  /** Fired once on success with the persisted entry + the bench-measured wall time.
+   *  Isolated: a throw here is logged + swallowed (it never hangs the promise). */
   onCompacted?: (compactionEntry: CompactionEntry, wallMs: number) => void;
 }
 
@@ -52,13 +57,6 @@ export interface CompactResult {
   compactionEntry: CompactionEntry;
   /** Wall-clock ms from the compact() call to the session_compact event (bench-timed). */
   wallMs: number;
-}
-
-/** Minimal event-bus surface triggerCompact needs from `pi` (only `events.on`). */
-interface EventBusLike {
-  events: {
-    on(channel: string, handler: (data: unknown) => void): () => void;
-  };
 }
 
 /**
@@ -69,64 +67,40 @@ interface EventBusLike {
  *
  * Resolves with `{compactionEntry, wallMs}` on the `session_compact` event; rejects
  * with `CompactionCancelledError` on a hook cancel, `CompactAbortedError` on signal
- * abort, or the raw `Error` for any other failure (surfaced via `onError`).
+ * abort, or the raw `Error` for any other failure (surfaced via `onError`). A signal
+ * already aborted at call time rejects immediately WITHOUT firing `ctx.compact`
+ * (no unwanted session mutation).
  */
-export function triggerCompact(
-  pi: EventBusLike,
+export async function triggerCompact(
+  pi: ExtensionAPI,
   ctx: ExtensionContext,
   options: TriggerCompactOptions = {},
 ): Promise<CompactResult> {
   const { signal, onCompacted } = options;
   const start = Date.now();
-  let settled = false;
 
-  return new Promise<CompactResult>((resolve, reject) => {
-    const finish = (fn: () => void): void => {
-      if (settled) return;
-      settled = true;
-      fn();
-    };
-
-    // Success path: the persisted CompactionEntry arrives via the session_compact event.
-    // pi.events.on returns a disposer — call it on fire so the listener is removed.
-    const dispose = pi.events.on("session_compact", (data) => {
-      const event = data as SessionCompactEvent;
-      finish(() => {
-        dispose();
-        const wallMs = Date.now() - start;
-        onCompacted?.(event.compactionEntry, wallMs);
-        resolve({ compactionEntry: event.compactionEntry, wallMs });
-      });
-    });
-
-    // Run-signal abort path.
-    if (signal !== undefined) {
-      if (signal.aborted) {
-        finish(() => {
-          dispose();
-          reject(new CompactAbortedError(signal.reason));
-        });
-      } else {
-        signal.addEventListener(
-          "abort",
-          () =>
-            finish(() => {
-              dispose();
-              reject(new CompactAbortedError(signal.reason));
-            }),
-          { once: true },
-        );
-      }
-    }
-
-    // Fire the compaction; failures (incl. cancel) surface via onError.
-    ctx.compact({
-      onError: (err: Error) =>
-        finish(() => {
-          dispose();
+  // Race session_compact (success) vs signal-abort vs onError (failure). The compaction
+  // is fired inside `extra` so its onError joins the same idempotent race; a pre-aborted
+  // signal short-circuits in awaitOnce BEFORE ctx.compact is ever called (R4-6).
+  const event = await awaitOnce<SessionCompactEvent>(pi, "session_compact", {
+    signal,
+    makeAbortedError: (reason) => new CompactAbortedError(reason),
+    extra: ({ reject }) => {
+      ctx.compact({
+        onError: (err: Error) => {
           if (err.message === CANCEL_MESSAGE) reject(new CompactionCancelledError(err));
           else reject(err);
-        }),
-    });
+        },
+      });
+    },
   });
+
+  const wallMs = Date.now() - start;
+  // R4-1: isolate onCompacted so a throwing callback cannot hang the promise.
+  try {
+    onCompacted?.(event.compactionEntry, wallMs);
+  } catch (err) {
+    log.warn(`triggerCompact onCompacted callback threw: ${String(err)}`);
+  }
+  return { compactionEntry: event.compactionEntry, wallMs };
 }

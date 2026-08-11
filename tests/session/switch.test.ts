@@ -38,4 +38,13 @@ describe("loadSession", () => {
     const { cmdCtx } = fakeCmdCtx({ cancelled: true });
     await expect(loadSession(cmdCtx, "/p.jsonl", async () => "never")).rejects.toThrow(/cancel/i);
   });
+
+  it("R4-5: propagates a throw from the withSession callback", async () => {
+    const { cmdCtx } = fakeCmdCtx();
+    await expect(
+      loadSession(cmdCtx, "/p.jsonl", async () => {
+        throw new Error("work inside withSession failed");
+      }),
+    ).rejects.toThrow(/work inside withSession failed/);
+  });
 });

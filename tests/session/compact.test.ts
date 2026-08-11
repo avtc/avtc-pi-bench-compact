@@ -1,14 +1,30 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { CompactionCancelledError, triggerCompact } from "../../src/session/compact.js";
+
+/** A minimal fake AbortSignal that tracks add/removeEventListener (to assert listener
+ *  cleanup on settle). */
+function fakeSignal(aborted = false): AbortSignal & { listenerCount: () => number } {
+  const listeners: Array<() => void> = [];
+  return {
+    aborted,
+    reason: aborted ? new Error("aborted") : undefined,
+    addEventListener: (_type: string, fn: () => void) => listeners.push(fn),
+    removeEventListener: (_type: string, fn: () => void) => {
+      const i = listeners.indexOf(fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+    listenerCount: () => listeners.length,
+  } as unknown as AbortSignal & { listenerCount: () => number };
+}
 
 /** Fake pi (events bus) + ctx (compact). pi.events.on returns a disposer; emit fires
  *  handlers; triggerError invokes the onError captured from ctx.compact. */
 function fakeRuntime(): {
-  pi: { events: { on: (channel: string, handler: (data: unknown) => void) => () => void } };
+  pi: ExtensionAPI;
   ctx: ExtensionContext;
   emit: (channel: string, data: unknown) => void;
   triggerError: (err: Error) => void;
@@ -29,7 +45,7 @@ function fakeRuntime(): {
       }
     };
   };
-  const pi = { events: { on } };
+  const pi = { events: { on } } as unknown as ExtensionAPI;
   const ctx = {
     compact(opts?: { onError?: (e: Error) => void }) {
       compactCalls += 1;
@@ -86,5 +102,34 @@ describe("triggerCompact", () => {
     const promise = triggerCompact(f.pi, f.ctx, { signal: ac.signal });
     ac.abort(new Error("user aborted"));
     await expect(promise).rejects.toThrow(/abort/i);
+  });
+
+  it("R4-6: a PRE-aborted signal rejects WITHOUT firing ctx.compact (no unwanted session mutation)", async () => {
+    const f = fakeRuntime();
+    const ac = new AbortController();
+    ac.abort(new Error("pre-abort"));
+    await expect(triggerCompact(f.pi, f.ctx, { signal: ac.signal })).rejects.toThrow(/abort/i);
+    expect(f.compactCalls).toBe(0); // ctx.compact must NOT have fired
+  });
+
+  it("R4-1: a throwing onCompacted does not hang the promise (it still resolves)", async () => {
+    const f = fakeRuntime();
+    const promise = triggerCompact(f.pi, f.ctx, {
+      onCompacted: () => {
+        throw new Error("callback boom");
+      },
+    });
+    const entry = { type: "compaction", summary: "s", firstKeptEntryId: "e9" };
+    f.emit("session_compact", { type: "session_compact", compactionEntry: entry });
+    await expect(promise).resolves.toMatchObject({ compactionEntry: entry });
+  });
+
+  it("R4-3: on settle the signal abort listener is removed (no accumulation on the run signal)", async () => {
+    const f = fakeRuntime();
+    const signal = fakeSignal();
+    const promise = triggerCompact(f.pi, f.ctx, { signal });
+    f.emit("session_compact", { type: "session_compact", compactionEntry: { type: "compaction" } });
+    await promise;
+    expect(signal.listenerCount()).toBe(0); // the abort listener was removed on settle
   });
 });

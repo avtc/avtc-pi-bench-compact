@@ -14,51 +14,30 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { awaitOnce } from "./events.js";
+
+/** The run signal aborted before the agent settled. Distinct from a generic Error so
+ *  the caller can STOP+surface a hung run (matches the CompactAbortedError pattern). */
+export class AgentSettledAbortedError extends Error {
+  constructor(cause: unknown) {
+    super("awaitAgentSettled aborted (run signal)", { cause });
+    this.name = "AgentSettledAbortedError";
+  }
+}
 
 export interface AwaitSettledOptions {
-  /** Run signal — aborting it rejects the promise (the caller STOPs+surfaces). */
+  /** Run signal — aborting it rejects the promise (AgentSettledAbortedError). A signal
+   *  already aborted at call time rejects immediately. */
   signal?: AbortSignal;
 }
 
-/** Resolve when the active session's agent settles (both queues drained). Rejects on
- *  `signal` abort. The pi event bus exposes no `off()`, so the one-shot handler stays
- *  registered but no-ops after firing (bounded by the ctx lifetime). */
-export function awaitAgentSettled(pi: ExtensionAPI, options: AwaitSettledOptions = {}): Promise<void> {
-  const { signal } = options;
-  let settled = false;
-
-  return new Promise<void>((resolve, reject) => {
-    const finish = (fn: () => void): void => {
-      if (settled) return;
-      settled = true;
-      fn();
-    };
-
-    // pi.events.on returns a disposer — call it on fire so the listener is removed.
-    const dispose = pi.events.on("agent_settled", () => {
-      finish(() => {
-        dispose();
-        resolve();
-      });
-    });
-
-    if (signal !== undefined) {
-      if (signal.aborted) {
-        finish(() => {
-          dispose();
-          reject(new Error(`awaitAgentSettled aborted: ${String(signal.reason)}`));
-        });
-      } else {
-        signal.addEventListener(
-          "abort",
-          () =>
-            finish(() => {
-              dispose();
-              reject(new Error(`awaitAgentSettled aborted: ${String(signal.reason)}`));
-            }),
-          { once: true },
-        );
-      }
-    }
+/** Resolve when the active session's agent settles (both queues drained). Rejects with
+ *  `AgentSettledAbortedError` on `signal` abort. The one-shot `agent_settled` listener
+ *  AND the signal abort listener are both removed on settle (no accumulation across
+ *  multiple awaits on the long-lived run signal) — handled by the shared `awaitOnce`. */
+export async function awaitAgentSettled(pi: ExtensionAPI, options: AwaitSettledOptions = {}): Promise<void> {
+  await awaitOnce(pi, "agent_settled", {
+    signal: options.signal,
+    makeAbortedError: (reason) => new AgentSettledAbortedError(reason),
   });
 }

@@ -3,7 +3,7 @@
 
 import type { ExtensionAPI, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { onTurnEnd, readMessageEndUsage } from "../../src/session/events.js";
+import { once, onTurnEnd, readMessageEndUsage } from "../../src/session/events.js";
 
 /** Minimal EventBus fake: events.on registers + returns a disposer; emit fires handlers. */
 function fakeBus(): { pi: ExtensionAPI; emit: (channel: string, data: unknown) => void } {
@@ -71,5 +71,25 @@ describe("onTurnEnd", () => {
     dispose();
     emit("turn_end", ev);
     expect(seen).toEqual([ev]); // not fired again after dispose
+  });
+});
+
+describe("once", () => {
+  it("fires the handler at most once, then auto-removes the listener", () => {
+    const { pi, emit } = fakeBus();
+    const seen: unknown[] = [];
+    once(pi, "agent_settled", (data) => seen.push(data));
+    emit("agent_settled", { type: "agent_settled", n: 1 });
+    emit("agent_settled", { type: "agent_settled", n: 2 }); // must NOT fire again
+    expect(seen).toEqual([{ type: "agent_settled", n: 1 }]);
+  });
+
+  it("the returned disposer removes the listener before it fires", () => {
+    const { pi, emit } = fakeBus();
+    const seen: unknown[] = [];
+    const dispose = once(pi, "agent_settled", (data) => seen.push(data));
+    dispose();
+    emit("agent_settled", { type: "agent_settled" });
+    expect(seen).toEqual([]);
   });
 });
