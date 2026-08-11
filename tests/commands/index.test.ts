@@ -25,7 +25,7 @@ function fakePi(): { pi: ExtensionAPI; commands: Map<string, Captured>; sent: { 
       commands.set(name, opts);
     },
     sendUserMessage(text: string, options: { deliverAs?: string } | null) {
-      sent.push({ text, deliverAs: (options ?? {}).deliverAs });
+      sent.push({ text, deliverAs: options?.deliverAs });
     },
   } as unknown as ExtensionAPI;
   return { pi, commands, sent };

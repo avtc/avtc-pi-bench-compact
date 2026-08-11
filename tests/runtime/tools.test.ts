@@ -75,7 +75,9 @@ describe("makeJsonOutputTool", () => {
   it("execute rejects params that fail schema validation (does not accumulate)", async () => {
     const schema = Type.Object({ value: Type.Integer() });
     const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);
-    const result = await tool.execute("call-1", { value: "not-an-int" } as unknown as Parameters<typeof tool.execute>[1]);
+    const result = await tool.execute("call-1", { value: "not-an-int" } as unknown as Parameters<
+      typeof tool.execute
+    >[1]);
     // rejection surfaces as an error text result; nothing accumulated
     expect(tool._captured).toEqual([]);
     expect(result.content[0]).toMatchObject({ type: "text" });

@@ -79,10 +79,7 @@ export const DEFAULT_VERSION_RESOLVER: VersionResolver = {
  * yields the package version. Throws if the package cannot be resolved or its
  * version determined (the harness must surface this via stop-and-surface).
  */
-export function resolveToolVersion(
-  arm: ArmId,
-  resolver: VersionResolver | null,
-): ToolVersion | null {
+export function resolveToolVersion(arm: ArmId, resolver: VersionResolver | null): ToolVersion | null {
   const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const def = ARM_DEFS[arm];
   if (def.memoryPackage === null) return null; // the bare-pi arm carries no tool version

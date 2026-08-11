@@ -174,7 +174,10 @@ describe("buildChunks", () => {
   });
 
   it("pairs a tool call with its tool result inside one block sequence", () => {
-    const entries = [asstToolCall("a1", "call1", "read", '"file.ts"'), toolResult("r1", "call1", "file contents", false)];
+    const entries = [
+      asstToolCall("a1", "call1", "read", '"file.ts"'),
+      toolResult("r1", "call1", "file contents", false),
+    ];
     const [chunk] = buildChunks(entries, OPTS_NO_IDS);
     expect(chunk.text).toContain("<TOOLCALL:read>");
     expect(chunk.text).toContain("<TOOLRESULT>");

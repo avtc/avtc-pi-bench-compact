@@ -11,8 +11,8 @@
 // (steer/continue/stop/report); Task 18 wires the widget teardown for `abort`, Task 19
 // refines run-stop semantics.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
 import { parsePositional, parsePrepareArgs, parseResultsArgs } from "./parse.js";

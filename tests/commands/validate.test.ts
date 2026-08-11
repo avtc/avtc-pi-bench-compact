@@ -88,7 +88,9 @@ describe("preflight — run-scenario folder", () => {
 
 describe("preflight — run-session-file path", () => {
   it("accepts an existing path", () => {
-    expect(preflight(validConfig({}), "run-session-file", { value: "/s.jsonl" }, exists(new Set(["/s.jsonl"])))).toEqual({
+    expect(
+      preflight(validConfig({}), "run-session-file", { value: "/s.jsonl" }, exists(new Set(["/s.jsonl"]))),
+    ).toEqual({
       ok: true,
     });
   });
