@@ -244,6 +244,32 @@ describe("validateManifest — probe checks", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/rf2|probe|target/i);
   });
+
+  it("R3-issue3: rejects a probe whose target is not in the pre-sliced (in-span) set — §4.7 defense-in-depth", () => {
+    // add an extra probe targeting e99 (out-of-span); conditions still targeted by clean probes
+    const m: ScenarioManifest = {
+      ...cleanManifest(),
+      probes: [
+        ...cleanManifest().probes,
+        { question: "extra?", accept: ["x"], targets: ["e99"], lanes: ["direct-probe"] } as Probe,
+      ],
+    };
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/e99/);
+  });
+
+  it("R3-1: when probes is empty, emits ONE summary reason (not N+1 redundant per-condition reasons)", () => {
+    const m = { ...cleanManifest(), probes: [] };
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const probeReasons = r.reasons.filter((x) => /probe|target/i.test(x));
+      // exactly one summary reason ("conditions but no probes"), NOT one-per-condition
+      expect(probeReasons).toHaveLength(1);
+      expect(probeReasons[0]).toMatch(/no probes/i);
+    }
+  });
 });
 
 describe("validateManifest — content check is lenient (any search-term matches)", () => {
