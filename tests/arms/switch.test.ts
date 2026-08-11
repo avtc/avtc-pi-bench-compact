@@ -139,17 +139,19 @@ describe("arms/switch — switchArm writes files + reloads", () => {
 
   it("always reloads exactly once, AFTER writing files + syncing env (R1-2/R1-5/R-3)", async () => {
     let fileWritten = false;
-    let envSynced = false;
+    let memkeeperEnvSynced = false;
     const ctx: SwitchContext = {
       reload: vi.fn(async () => {
-        // by the time reload runs, BOTH the settings file AND the env must be in place
+        // by the time reload runs, BOTH the settings file AND the env must be in place.
+        // Pins R1-2 (the critical premise): PI_SETTINGS_MEMKEEPER env must be set BEFORE reload
+        // fires, else the stale env-first-precedence (factory.ts:184) silently overrides A4.
         fileWritten = existsSync(join(repo, ".pi", "settings.json"));
-        envSynced = process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE === "1";
+        memkeeperEnvSynced = JSON.parse(process.env.PI_SETTINGS_MEMKEEPER ?? "{}").renderMode === "observations-root";
       }),
     };
-    await switchArm(ctx, "A2", repo, OPTS); // A2 sets the OM passive env
+    await switchArm(ctx, "A3", repo, OPTS); // A3 sets the memkeeper env transport
     expect(fileWritten).toBe(true);
-    expect(envSynced).toBe(true);
+    expect(memkeeperEnvSynced).toBe(true);
     expect(ctx.reload).toHaveBeenCalledOnce();
   });
 
