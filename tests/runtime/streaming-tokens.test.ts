@@ -3,7 +3,13 @@
 
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
-import { deltaTextOf, deltaTokens, estimateContentTokens, messageEndUsage, streamedOutputUsage } from "../../src/runtime/streaming-tokens.js";
+import {
+  deltaTextOf,
+  deltaTokens,
+  estimateContentTokens,
+  messageEndUsage,
+  streamedOutputUsage,
+} from "../../src/runtime/streaming-tokens.js";
 
 /** Build a minimal assistant message; pass `usage` to attach one, or omit it for the no-usage case. */
 function msgWithUsage(usage?: Record<string, unknown>): AgentMessage {
@@ -67,7 +73,10 @@ describe("streaming-tokens", () => {
   describe("deltaTextOf", () => {
     it("extracts the delta string from text/thinking/toolcall deltas", () => {
       for (const t of ["text_delta", "thinking_delta", "toolcall_delta"] as const) {
-        const ev = { type: "message_update", assistantMessageEvent: { type: t, delta: "abc" } } as unknown as AgentEvent;
+        const ev = {
+          type: "message_update",
+          assistantMessageEvent: { type: t, delta: "abc" },
+        } as unknown as AgentEvent;
         expect(deltaTextOf(ev)).toBe("abc");
       }
     });
