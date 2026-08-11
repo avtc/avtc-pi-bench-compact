@@ -91,8 +91,9 @@ export function writeArmConfig(arm: ArmId, repoCwd: string, opts: WriteArmConfig
  * Teardown: remove this arm's observational-memory section + every managed env key.
  * Keeps `.pi/settings.json` when it still has other keys; removes the file when empty.
  */
-export function clearArmConfig(arm: ArmId, repoCwd: string): void {
-  void arm; // the writes are per-arm but teardown is symmetric (clear everything the bench manages)
+export function clearArmConfig(repoCwd: string): void {
+  // Teardown is symmetric — clear everything the bench manages (the writes are per-arm,
+  // but the env/settings keys are global, so one clear at run end suffices).
 
   const settings = readSettings(repoCwd);
   if (OM_SETTINGS_KEY in settings) {

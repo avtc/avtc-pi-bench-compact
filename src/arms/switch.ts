@@ -40,6 +40,23 @@ export interface MemoryConfigProxy {
 }
 
 /**
+ * An enabled arm's memory extension is not live (absent or older than the
+ * `reloadConfig` bridge). Thrown by {@link configureArm}'s presence check; the Phase-1
+ * driver catches it + surfaces it as a stop-and-surface `Phase1StoppedError`
+ * (reason `config-failed`) — never auto-retries.
+ */
+export class ArmIsolationError extends Error {
+  readonly arm: ArmId;
+  readonly provider: "observational-memory" | "memkeeper";
+  constructor(arm: ArmId, provider: "observational-memory" | "memkeeper", message: string) {
+    super(message);
+    this.name = "ArmIsolationError";
+    this.arm = arm;
+    this.provider = provider;
+  }
+}
+
+/**
  * The pi default coding tools every evaluated agent starts with (read-only set
  * read/grep/find/ls + the mutation set bash/edit/write). The full default set is
  * pinned here so every arm's agent has the same baseline filesystem tools — the
@@ -102,13 +119,17 @@ export function configureArm(
 
   // 3. Presence check: an enabled arm whose provider is not live cannot run — surface it.
   if (def.omConfig.enabled && omProxy.getConfig() === null) {
-    throw new Error(
+    throw new ArmIsolationError(
+      arm,
+      "observational-memory",
       `configureArm(${arm}): observational-memory is enabled for this arm but its extension proxy is not live ` +
         "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure pi-observational-memory is in the loaded packages.",
     );
   }
   if (def.memkeeperConfig.enabled && mkProxy.getConfig() === null) {
-    throw new Error(
+    throw new ArmIsolationError(
+      arm,
+      "memkeeper",
       `configureArm(${arm}): memkeeper is enabled for this arm but its extension proxy is not live ` +
         "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure avtc-pi-memkeeper is in the loaded packages.",
     );

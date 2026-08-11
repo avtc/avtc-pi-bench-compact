@@ -14,7 +14,7 @@
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import type { BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
@@ -33,14 +33,12 @@ import { setRunState, updateRunState } from "./run-state.js";
 
 /** Inputs to {@link startRun}. `now`/`notify`/`phase1`/`ops` are injectable seams for testing. */
 export interface StartRunDeps {
-  /** The extension API (threaded into Phase-1 for inject + setActiveTools). */
-  pi: ExtensionAPI;
-  /** The command context (threaded into Phase-1 for switchSession; valid across the inline loop). */
+  /** The run command's context (the first arm's `switchSession`). `runPhase1` threads
+   *  the fresh ctx from each `withSession` across arms — `switchSession` invalidates
+   *  the prior ctx the same way `reload` does, so only the FIRST arm's ctx comes from
+   *  the command handler; the rest come from the re-activation. The fresh `pi` +
+   *  memory proxies are read from `globalThis` inside each `withSession` (bench-ctx.ts). */
   cmdCtx: ExtensionCommandContext;
-  /** The observational-memory config proxy (vendored subscribe-to-OM snippet, cached at activate). */
-  omProxy: { reloadConfig(): void; getConfig(): unknown };
-  /** The memkeeper config proxy (vendored subscribe-to-memkeeper snippet, cached at activate). */
-  mkProxy: { reloadConfig(): void; getConfig(): unknown };
   config: BenchConfig;
   /** The prepared scenario repo path (Phase-0 frozen backup + project files on `main`). */
   scenarioRepo: string;
@@ -129,10 +127,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const phase1 = deps.phase1 ?? runPhase1;
   try {
     const bases = await phase1({
-      pi: deps.pi,
       cmdCtx: deps.cmdCtx,
-      omProxy: deps.omProxy,
-      mkProxy: deps.mkProxy,
       scenarioRepo: deps.scenarioRepo,
       date,
       id,

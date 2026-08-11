@@ -11,9 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 type Usage = NonNullable<CompactionEntry["usage"]>;
 
 import { ARM_DEFS } from "../../src/arms/definitions.js";
+import { clearMemoryProxies, type MemoryProxies, setMemoryProxies } from "../../src/arms/proxies.js";
 import { BUILTIN_TOOLS, SUITE_TOOLS } from "../../src/arms/switch.js";
 import type { VersionResolver } from "../../src/arms/version.js";
 import type { BenchConfig } from "../../src/config/types.js";
+import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -56,57 +58,89 @@ function makeCompactionEntry(overrides: Partial<CompactionEntry>): CompactionEnt
   } as CompactionEntry;
 }
 
-interface FakeOps {
-  trigger: ReturnType<typeof vi.fn>;
-  loadSession: ReturnType<typeof vi.fn>;
-  fork: ReturnType<typeof vi.fn>;
-  checkout: ReturnType<typeof vi.fn>;
-  commit: ReturnType<typeof vi.fn>;
-}
-
-function makeFakeOps(): FakeOps {
-  return {
-    trigger: vi.fn(async () => ({ compactionEntry: makeCompactionEntry({}), wallMs: 4200 })),
-    // loadSession invokes the callback with a fake session ctx so inject + re-set + trigger run.
-    loadSession: vi.fn(async (_ctx: unknown, _path: string, cb: (ctx: unknown) => Promise<unknown>) => cb({})),
-    fork: vi.fn(),
-    checkout: vi.fn(),
-    commit: vi.fn(),
-  };
-}
-
 interface FakePi {
   pi: ExtensionAPI;
   sendUserMessage: ReturnType<typeof vi.fn>;
   setActiveTools: ReturnType<typeof vi.fn>;
 }
 
-/** A fake pi satisfying the ToolSetSeam (setActiveTools) + the inject seam (sendUserMessage). */
+/** A fake pi satisfying the inject seam (sendUserMessage) + the tool-allowlist seam (setActiveTools). */
 function makeFakePi(): FakePi {
   const sendUserMessage = vi.fn();
   const setActiveTools = vi.fn();
   return { pi: { sendUserMessage, setActiveTools } as unknown as ExtensionAPI, sendUserMessage, setActiveTools };
 }
 
-function makeProxies() {
+interface FakeProxies {
+  om: { reloadConfig: ReturnType<typeof vi.fn>; getConfig: ReturnType<typeof vi.fn> };
+  mk: { reloadConfig: ReturnType<typeof vi.fn>; getConfig: ReturnType<typeof vi.fn> };
+}
+
+function makeProxies(): FakeProxies {
   return {
     om: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
     mk: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
   };
 }
 
+interface FakeOps {
+  trigger: ReturnType<typeof vi.fn>;
+  loadSession: ReturnType<typeof vi.fn>;
+  fork: ReturnType<typeof vi.fn>;
+  checkout: ReturnType<typeof vi.fn>;
+  commit: ReturnType<typeof vi.fn>;
+  /** The fresh pi stashed per loadSession call (one per arm) — for assertions. */
+  freshPis: FakePi[];
+  /** The fresh proxies stashed per loadSession call (one per arm) — for assertions. */
+  freshProxies: FakeProxies[];
+  /** The fresh ctx passed to each withSession callback — for assertions. */
+  freshCtxs: ExtensionCommandContext[];
+}
+
+/**
+ * Builds fake ops whose `loadSession` MODELS switchSession's re-activation: each call
+ * generates a DISTINCT fresh pi + fresh proxies + fresh ctx, stashes the fresh pi +
+ * proxies on globalThis (as activate would on re-activation), then invokes the
+ * withSession callback with the fresh ctx. This reproduces the real lifecycle where
+ * the command-handler pi/ctx go STALE after switchSession and runPhase1 MUST read the
+ * fresh handles from globalThis — so tests asserting "fresh pi used, stale pi not
+ * used" are non-tautological.
+ */
+function makeFakeOps(): FakeOps {
+  const freshPis: FakePi[] = [];
+  const freshProxies: FakeProxies[] = [];
+  const freshCtxs: ExtensionCommandContext[] = [];
+  return {
+    trigger: vi.fn(async () => ({ compactionEntry: makeCompactionEntry({}), wallMs: 4200 })),
+    loadSession: vi.fn(async (_ctx: unknown, _path: string, cb: (ctx: ExtensionCommandContext) => Promise<unknown>) => {
+      const pi = makeFakePi();
+      const proxies = makeProxies();
+      const ctx = { id: `fresh-ctx-${freshCtxs.length + 1}` } as unknown as ExtensionCommandContext;
+      freshPis.push(pi);
+      freshProxies.push(proxies);
+      freshCtxs.push(ctx);
+      // Re-activation: activate(freshPi) stashes the fresh pi + proxies BEFORE withSession runs.
+      setBenchPi(pi.pi);
+      setMemoryProxies(proxies as unknown as MemoryProxies);
+      return cb(ctx);
+    }),
+    fork: vi.fn(),
+    checkout: vi.fn(),
+    commit: vi.fn(),
+    freshPis,
+    freshProxies,
+    freshCtxs,
+  };
+}
+
 function makeDeps(opts: {
   ops: FakeOps;
-  pi: FakePi;
-  proxies: ReturnType<typeof makeProxies>;
   scenarioRepo: string;
   armsEnabled: BenchConfig["armsEnabled"];
+  cmdCtx?: ExtensionCommandContext;
 }): Phase1Deps {
   return {
-    pi: opts.pi.pi,
-    cmdCtx: {} as ExtensionCommandContext,
-    omProxy: opts.proxies.om,
-    mkProxy: opts.proxies.mk,
+    cmdCtx: opts.cmdCtx ?? ({ id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext),
     scenarioRepo: opts.scenarioRepo,
     date: "2026-08-11",
     id: 1,
@@ -120,9 +154,11 @@ function makeDeps(opts: {
 
 afterEach(() => {
   clearRunState();
+  clearBenchPi();
+  clearMemoryProxies();
 });
 
-// --- runPhase1 (inline for-loop over arms) ----------------------------------
+// --- runPhase1 (inline for-loop over arms — fresh pi/ctx per arm via re-activation) ---
 
 describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.reload)", () => {
   let repo: string;
@@ -133,11 +169,9 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it("per arm: configureArm (writeArmConfig + both reloadConfig + setActiveTools) → fork main→arm-base → checkout → load+inject+compact → commit", async () => {
+  it("per arm: fork main→arm-base → checkout → load+configure+inject+compact → commit", async () => {
     const ops = makeFakeOps();
-    const pi = makeFakePi();
-    const proxies = makeProxies();
-    const deps = makeDeps({ ops, pi, proxies, scenarioRepo: repo, armsEnabled: ["A1", "A3"] });
+    const deps = makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A1", "A3"] });
 
     const bases = await runPhase1(deps);
 
@@ -164,26 +198,54 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     expect(b2.ver).toBeUndefined(); // A3 has no toolVersions entry in the fake deps
   });
 
-  it("configureArm runs for each arm: both reloadConfig fire + setActiveTools receives the arm's allowlist", async () => {
+  it("reads the FRESH pi from globalThis inside each withSession (not the stale command-handler pi)", async () => {
+    // CR-R1-1 regression guard: switchSession invalidates the command-handler pi, so
+    // runPhase1 MUST use the fresh pi stashed by re-activation. This test fails
+    // (setActiveTools never called on the fresh pi) if runPhase1 used a stale pi.
     const ops = makeFakeOps();
-    const pi = makeFakePi();
-    const proxies = makeProxies();
-    await runPhase1(makeDeps({ ops, pi, proxies, scenarioRepo: repo, armsEnabled: ["A2", "A3"] }));
+    await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A2", "A3"] }));
 
-    // both proxies reloaded once per arm (2 arms → 2 calls each)
-    expect(proxies.om.reloadConfig).toHaveBeenCalledTimes(2);
-    expect(proxies.mk.reloadConfig).toHaveBeenCalledTimes(2);
-    // setActiveTools: configureArm + the post-switch re-set = 2 calls per arm;
-    // assert the allowlist was set (toHaveBeenCalledWith matches any matching call).
-    expect(pi.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "recall"]); // A2
-    expect(pi.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "mk_recall"]); // A3
+    expect(ops.freshPis).toHaveLength(2);
+    // arm 1's fresh pi received A2's allowlist (recall); arm 2's fresh pi received A3's (mk_recall).
+    expect(ops.freshPis[0]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "recall"]);
+    expect(ops.freshPis[1]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "mk_recall"]);
+    // the anti-peek inject + trigger also ran against the FRESH pi (arm 1)
+    expect(ops.freshPis[0]?.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
+    expect(ops.trigger.mock.calls[0]?.[0]).toBe(ops.freshPis[0]?.pi); // trigger got the fresh pi
+    expect(ops.trigger.mock.calls[1]?.[0]).toBe(ops.freshPis[1]?.pi);
+  });
+
+  it("reads the FRESH proxies from globalThis inside each withSession (both reloadConfig fire per arm)", async () => {
+    const ops = makeFakeOps();
+    await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A2", "A3"] }));
+
+    expect(ops.freshProxies).toHaveLength(2);
+    // each arm's fresh proxies were reloaded (configureArm calls reloadConfig on the fresh proxies)
+    expect(ops.freshProxies[0]?.om.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(ops.freshProxies[0]?.mk.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(ops.freshProxies[1]?.om.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(ops.freshProxies[1]?.mk.reloadConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("threads the fresh ctx from each withSession into the next arm's switchSession (NOT the stale command-handler ctx)", async () => {
+    // CR-R1-1 regression guard: switchSession invalidates the ctx it's called on, so
+    // arm 2+ MUST use the fresh ctx threaded from the previous arm's withSession.
+    const ops = makeFakeOps();
+    const cmdCtx = { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext;
+    await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A1", "A3"], cmdCtx }));
+
+    expect(ops.loadSession).toHaveBeenCalledTimes(2);
+    // arm 1's switchSession got the command-handler ctx (the loop's starting point)...
+    expect(ops.loadSession.mock.calls[0]?.[0]).toBe(cmdCtx);
+    // ...arm 2's switchSession got arm 1's FRESH withSession ctx (threaded), NOT the stale cmdCtx.
+    expect(ops.loadSession.mock.calls[1]?.[0]).toBe(ops.freshCtxs[0]);
+    expect(ops.loadSession.mock.calls[1]?.[0]).not.toBe(cmdCtx);
   });
 
   it("injects the anti-peek prompt (followUp) before compaction inside the loaded session", async () => {
     const ops = makeFakeOps();
-    const pi = makeFakePi();
-    await runPhase1(makeDeps({ ops, pi, proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A1"] }));
-    expect(pi.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
+    await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A1"] }));
+    expect(ops.freshPis[0]?.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
     expect(ops.trigger).toHaveBeenCalled();
   });
 
@@ -193,27 +255,10 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
       compactionEntry: makeCompactionEntry({ usage: makeUsage(2000, 800) }),
       wallMs: 9999,
     });
-    const bases = await runPhase1(
-      makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A2"] }),
-    );
+    const bases = await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A2"] }));
     expect((bases[0] as ArmBase).wallMs).toBe(9999);
     expect((bases[0] as ArmBase).usage).toEqual(makeUsage(2000, 800));
     expect((bases[0] as ArmBase).ver).toBe("gabc123"); // A2 has a toolVersions entry
-  });
-
-  it("uses the SAME command ctx for every arm (inline loop — no reload, no fresh-ctx gymnastics)", async () => {
-    const ops = makeFakeOps();
-    const ctx = { id: "single-inline-ctx" } as unknown as ExtensionCommandContext;
-    const deps: Phase1Deps = {
-      ...makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A1", "A3"] }),
-      cmdCtx: ctx,
-    };
-    await runPhase1(deps);
-    // every loadSession call received the SAME ctx (inline loop reuses it; reload would invalidate it)
-    for (const call of ops.loadSession.mock.calls) {
-      expect(call[0]).toBe(ctx);
-    }
-    expect(ops.loadSession).toHaveBeenCalledTimes(2);
   });
 
   it("fork is idempotent — a base branch that already exists is not re-forked (branchExists guard)", async () => {
@@ -222,10 +267,15 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     // round-trip in storage/repo.test.ts. Here we only assert the guard is present
     // (the branch is forked exactly once when it does not yet exist).
     const ops = makeFakeOps();
-    await runPhase1(
-      makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A1"] }),
-    );
+    await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A1"] }));
     expect(ops.fork).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the per-arm env on completion (clearArmConfig in finally — no leak past the run)", async () => {
+    // writeArmConfig sets process.env keys; clearArmConfig (runPhase1's finally) clears them.
+    process.env.PI_OBSERVATIONAL_MEMORY_ENABLED = "stale-from-run";
+    await runPhase1(makeDeps({ ops: makeFakeOps(), scenarioRepo: repo, armsEnabled: ["A1"] }));
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
   });
 });
 
@@ -241,18 +291,47 @@ describe("runPhase1 — stop-and-surface", () => {
   it("arm-cancel (CompactionCancelledError) → rejects with Phase1StoppedError(reason=cancelled) + does NOT commit", async () => {
     const ops = makeFakeOps();
     ops.trigger.mockRejectedValue(new CompactionCancelledError(new Error("hook cancelled")));
-    await expect(
-      runPhase1(makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A3"] })),
-    ).rejects.toMatchObject({ arm: "A3", reason: "cancelled" });
+    await expect(runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A3"] }))).rejects.toMatchObject({
+      arm: "A3",
+      reason: "cancelled",
+    });
     expect(ops.commit).not.toHaveBeenCalled();
   });
 
   it("degenerate empty summary → rejects with Phase1StoppedError(reason=empty-summary)", async () => {
     const ops = makeFakeOps();
     ops.trigger.mockResolvedValue({ compactionEntry: makeCompactionEntry({ summary: "   \n\t " }), wallMs: 100 });
-    await expect(
-      runPhase1(makeDeps({ ops, pi: makeFakePi(), proxies: makeProxies(), scenarioRepo: repo, armsEnabled: ["A3"] })),
-    ).rejects.toMatchObject({ arm: "A3", reason: "empty-summary" });
+    await expect(runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A3"] }))).rejects.toMatchObject({
+      arm: "A3",
+      reason: "empty-summary",
+    });
+  });
+
+  it("config-failure (ArmIsolationError — enabled arm's proxy not live) → Phase1StoppedError(reason=config-failed)", async () => {
+    const ops = makeFakeOps();
+    // Override the re-activation's fresh proxies: OM enabled (A2) but getConfig returns null.
+    ops.loadSession.mockImplementation(
+      async (_ctx: unknown, _path: string, cb: (ctx: ExtensionCommandContext) => Promise<unknown>) => {
+        const pi = makeFakePi();
+        const proxies = makeProxies();
+        proxies.om.getConfig = vi.fn(() => null); // OM not live
+        setBenchPi(pi.pi);
+        setMemoryProxies(proxies as unknown as MemoryProxies);
+        return cb({} as ExtensionCommandContext);
+      },
+    );
+    await expect(runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A2"] }))).rejects.toMatchObject({
+      arm: "A2",
+      reason: "config-failed",
+    });
+  });
+
+  it("clears the per-arm env EVEN on a stop (finally runs)", async () => {
+    process.env.PI_OBSERVATIONAL_MEMORY_ENABLED = "stale-from-run";
+    const ops = makeFakeOps();
+    ops.trigger.mockRejectedValue(new CompactionCancelledError(new Error("cancel")));
+    await expect(runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A3"] }))).rejects.toBeDefined();
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined(); // finally cleared it
   });
 });
 

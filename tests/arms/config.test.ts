@@ -210,7 +210,7 @@ describe("arms/config — clearArmConfig teardown", () => {
     expect(readSettings(repo)["observational-memory"]).toBeDefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("1");
 
-    clearArmConfig("A2", repo);
+    clearArmConfig(repo);
     expect(readSettings(repo)["observational-memory"]).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
@@ -223,7 +223,7 @@ describe("arms/config — clearArmConfig teardown", () => {
     writeFileSync(join(repo, ".pi", "settings.json"), JSON.stringify({ otherKey: "keep-me" }), "utf-8");
 
     writeArmConfig("A2", repo, OPTS);
-    clearArmConfig("A2", repo);
+    clearArmConfig(repo);
     // otherKey survives; the file is NOT removed (still has content)
     const settings = readSettings(repo);
     expect(settings["observational-memory"]).toBeUndefined();
@@ -233,7 +233,7 @@ describe("arms/config — clearArmConfig teardown", () => {
 
   it("removes the settings.json file when it would be empty after clearing", () => {
     writeArmConfig("A2", repo, OPTS); // creates .pi/settings.json with only observational-memory
-    clearArmConfig("A2", repo);
+    clearArmConfig(repo);
     expect(existsSync(join(repo, ".pi", "settings.json"))).toBe(false);
   });
 });

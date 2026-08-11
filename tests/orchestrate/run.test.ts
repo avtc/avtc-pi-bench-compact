@@ -40,12 +40,10 @@ function makeDeps(opts: {
   now?: () => Date;
   notify?: (m: string) => void;
 }): StartRunDeps {
-  const proxies = makeProxies();
+  // The fresh pi + proxies are NOT passed to startRun — runPhase1 reads them from
+  // globalThis inside each withSession (bench-ctx.ts). Only cmdCtx is threaded.
   return {
-    pi: { sendUserMessage: vi.fn(), setActiveTools: vi.fn() },
     cmdCtx: {},
-    omProxy: proxies.om,
-    mkProxy: proxies.mk,
     config: makeConfig(opts.arms),
     scenarioRepo: opts.scenarioRepo ?? "/repo/scenario-x",
     root: opts.root,
