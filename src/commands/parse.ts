@@ -114,7 +114,16 @@ export function parseResultsArgs(args: string): ResultsArgs {
           error: `trailing comma in ":arms" of "${tok}" — arms are comma-separated with no spaces (whitespace separates runs)`,
         };
       }
-      const armList = armsStr.split(",").filter((s) => s.length > 0);
+      const pieces = armsStr.split(",");
+      // A leading or internal double comma leaves an empty entry — same silent-misparse
+      // class as the trailing comma (R3-1). Reject rather than drop the empty piece.
+      if (pieces.some((s) => s.length === 0)) {
+        return {
+          runs: [],
+          error: `empty arm in ":arms" of "${tok}" — arms are comma-separated with no empty entries (leading/internal double comma)`,
+        };
+      }
+      const armList = pieces;
       if (armList.length === 0) {
         return { runs: [], error: `":arms" is empty in "${tok}" — specify arms (e.g. :A1,A3) or drop the colon` };
       }

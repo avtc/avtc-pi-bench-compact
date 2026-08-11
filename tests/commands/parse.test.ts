@@ -101,6 +101,16 @@ describe("parseResultsArgs", () => {
     expect(r.error).toMatch(/comma|space/i);
     expect(r.runs).toEqual([]);
   });
+  it("errors on a leading comma in :arms (R3-1)", () => {
+    const r = parseResultsArgs("run1:,A1");
+    expect(r.error).toMatch(/comma|empty/i);
+    expect(r.runs).toEqual([]);
+  });
+  it("errors on an internal double comma in :arms (R3-1)", () => {
+    const r = parseResultsArgs("run1:A1,,A3");
+    expect(r.error).toMatch(/comma|empty/i);
+    expect(r.runs).toEqual([]);
+  });
   it("errors when no runId is given", () => {
     expect(parseResultsArgs("").error).toMatch(/runId/i);
   });
