@@ -50,6 +50,12 @@ describe("buildSimulatorSystemPrompt", () => {
     expect(lower.match(/substantial|long build|keep going|don't rush|don't try to wrap up/)).not.toBeNull();
   });
 
+  it("targetContext below the long-build threshold (< 80000) → 'moderate build' pacing (R2.2)", () => {
+    const p = buildSimulatorSystemPrompt({ task: TASK, conditionTopics: CONDITION_TOPICS, targetContext: 40_000 });
+    expect(p.toLowerCase()).toContain("moderate build");
+    expect(p.toLowerCase()).not.toContain("long, substantial build");
+  });
+
   it("stays in character (talk like a real person pair-programming)", () => {
     expect(prompt.toLowerCase()).toMatch(/stay in character|talk like a real person|pair-program/);
   });

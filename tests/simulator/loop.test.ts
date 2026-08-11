@@ -215,6 +215,22 @@ describe("SimulatorDriver", () => {
     expect(onStop.mock.calls[0][0]).toMatchObject({ reason: "error" });
   });
 
+  it("runStage THROWS (LLM/network/rate-limit failure) → stop+surface via onStop, no unhandled rejection (R2.1)", async () => {
+    const onStop = vi.fn();
+    const seams = makeSeams({
+      runStage: async () => {
+        throw new Error("upstream LLM failed");
+      },
+    });
+    const driver = makeDriver(seams, { hooks: { onStop } });
+    driver.trackContext(10_000);
+    // must NOT reject — the thrown error is funneled into onStop
+    await expect(driver.onAgentSettled()).resolves.toBeUndefined();
+    expect(seams.inject).not.toHaveBeenCalled();
+    expect(onStop.mock.calls[0][0]).toMatchObject({ reason: "error" });
+    expect(onStop.mock.calls[0][0].error).toContain("upstream LLM failed");
+  });
+
   it("derived frontier: does NOT re-render the simulator's own previous message (R1/R3)", async () => {
     // cycle 1 branch: [seed, agent-resp-1]
     // cycle 2 branch: [seed, agent-resp-1, sim-msg-1, agent-resp-2]

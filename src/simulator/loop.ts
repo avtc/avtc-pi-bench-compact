@@ -171,74 +171,86 @@ export class SimulatorDriver {
       return;
     }
 
-    // 2. observe the agent's response since the simulator's last injection.
-    //    The frontier is DERIVED (lastUserMessageId = the simulator's last injection;
-    //    the coding agent never produces user messages), so the gap is exactly the
-    //    agent's response — never re-rendering the simulator's own previous message.
-    const branch = this.deps.seams.getBranch();
-    const frontier = lastUserMessageId(branch);
-    const unobserved = computeUnobserved(branch, frontier);
-    const chunks = buildChunks(unobserved, SIM_CHUNK_OPTS);
-    const renderedChunk = chunks.map((c: RenderedChunk) => c.text).join("\n");
+    // 2-8. observe → resolve → run stage → inject. Wrapped so ANY throw (runStage
+    //    StageRunError on LLM/network/rate-limit failure, a throwing seam) is funneled
+    //    into onStop({reason:"error"}) — never an unhandled rejection that stalls a
+    //    harness wired only to onStop (R2.1). The pacing check (step 1) stays outside.
+    try {
+      // 2. observe the agent's response since the simulator's last injection.
+      //    The frontier is DERIVED (lastUserMessageId = the simulator's last injection;
+      //    the coding agent never produces user messages), so the gap is exactly the
+      //    agent's response — never re-rendering the simulator's own previous message.
+      const branch = this.deps.seams.getBranch();
+      const frontier = lastUserMessageId(branch);
+      const unobserved = computeUnobserved(branch, frontier);
+      const chunks = buildChunks(unobserved, SIM_CHUNK_OPTS);
+      const renderedChunk = chunks.map((c: RenderedChunk) => c.text).join("\n");
 
-    // 3. resolve the simulator's local model
-    const resolved = await this.deps.seams.resolveModel();
-    if (!resolved.ok) {
-      log.warn(`simulator: model resolution failed — ${resolved.error}`);
-      this.deps.hooks?.onStop?.({ contextTokens: this._contextTokens, reason: "error", error: resolved.error });
-      return;
-    }
+      // 3. resolve the simulator's local model
+      const resolved = await this.deps.seams.resolveModel();
+      if (!resolved.ok) {
+        log.warn(`simulator: model resolution failed — ${resolved.error}`);
+        this.deps.hooks?.onStop?.({ contextTokens: this._contextTokens, reason: "error", error: resolved.error });
+        return;
+      }
 
-    // 4. build the simulator input (rendered context + the harness's step instruction)
-    const harnessInstruction = nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
-    const messages = buildSimulatorInput({ renderedChunk, harnessInstruction });
+      // 4. build the simulator input (rendered context + the harness's step instruction)
+      const harnessInstruction = nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
+      const messages = buildSimulatorInput({ renderedChunk, harnessInstruction });
 
-    // 5. run ONE stage (maxTurns:1, no tools) → the simulator's next user voice
-    const result = await this.deps.seams.runStage({
-      systemPrompt: this.deps.systemPrompt,
-      messages,
-      tools: [],
-      model: resolved.model,
-      apiKey: resolved.apiKey,
-      signal: this.deps.signal,
-      reasoning: NO_REASONING,
-      maxTurns: 1,
-      maxTokens: this.deps.maxTokens,
-      timeoutMs: null,
-      onEvent: NO_EVENT_SINK,
-      onStageEnd: NO_STAGE_END_HOOK,
-      loopFn: NO_LOOP_OVERRIDE,
-    });
-
-    // 6. aborted (run/compaction signal OR per-turn timeout) → stop+surface
-    if (result.aborted) {
-      log.warn(`simulator: stage aborted (timedOut=${result.timedOut})`);
-      this.deps.hooks?.onStop?.({
-        contextTokens: this._contextTokens,
-        reason: "error",
-        error: result.timedOut ? "simulator stage timed out" : "simulator stage aborted",
+      // 5. run ONE stage (maxTurns:1, no tools) → the simulator's next user voice
+      const result = await this.deps.seams.runStage({
+        systemPrompt: this.deps.systemPrompt,
+        messages,
+        tools: [],
+        model: resolved.model,
+        apiKey: resolved.apiKey,
+        signal: this.deps.signal,
+        reasoning: NO_REASONING,
+        maxTurns: 1,
+        maxTokens: this.deps.maxTokens,
+        timeoutMs: null,
+        onEvent: NO_EVENT_SINK,
+        onStageEnd: NO_STAGE_END_HOOK,
+        loopFn: NO_LOOP_OVERRIDE,
       });
-      return;
-    }
 
-    // 7. extract the reply + inject it as the next follow-up user message
-    const text = extractAssistantText(result.messages);
-    if (text.trim().length === 0) {
-      // no usable reply (no assistant msg / text-less response) — stop+surface,
-      // consistent with the abort/model-failure paths (don't inject an empty msg)
-      log.warn("simulator: stage produced no reply text");
-      this.deps.hooks?.onStop?.({
-        contextTokens: this._contextTokens,
-        reason: "error",
-        error: "simulator produced no reply text",
-      });
-      return;
-    }
-    this.deps.seams.inject(text);
+      // 6. aborted (run/compaction signal OR per-turn timeout) → stop+surface
+      if (result.aborted) {
+        log.warn(`simulator: stage aborted (timedOut=${result.timedOut})`);
+        this.deps.hooks?.onStop?.({
+          contextTokens: this._contextTokens,
+          reason: "error",
+          error: result.timedOut ? "simulator stage timed out" : "simulator stage aborted",
+        });
+        return;
+      }
 
-    // 8. advance the step; clear the question. (frontier is derived — no stored state.)
-    this._step += 1;
-    this._agentQuestion = undefined;
-    this.deps.hooks?.onStep?.({ step: this._step, contextTokens: this._contextTokens, injectedText: text });
+      // 7. extract the reply + inject it as the next follow-up user message
+      const text = extractAssistantText(result.messages);
+      if (text.trim().length === 0) {
+        // no usable reply (no assistant msg / text-less response) — stop+surface,
+        // consistent with the abort/model-failure paths (don't inject an empty msg)
+        log.warn("simulator: stage produced no reply text");
+        this.deps.hooks?.onStop?.({
+          contextTokens: this._contextTokens,
+          reason: "error",
+          error: "simulator produced no reply text",
+        });
+        return;
+      }
+      this.deps.seams.inject(text);
+
+      // 8. advance the step; clear the question. (frontier is derived — no stored state.)
+      this._step += 1;
+      this._agentQuestion = undefined;
+      this.deps.hooks?.onStep?.({ step: this._step, contextTokens: this._contextTokens, injectedText: text });
+    } catch (cause) {
+      // any thrown error (runStage StageRunError, a throwing seam) → stop+surface,
+      // never an unhandled rejection that stalls a harness wired only to onStop (R2.1)
+      const msg = cause instanceof Error ? cause.message : String(cause);
+      log.warn(`simulator: stage threw — ${msg}`);
+      this.deps.hooks?.onStop?.({ contextTokens: this._contextTokens, reason: "error", error: msg });
+    }
   }
 }
