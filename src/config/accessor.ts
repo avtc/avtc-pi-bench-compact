@@ -44,13 +44,13 @@ function asThinkingLevel(raw: Record<string, unknown>, key: string, fallback: Th
   return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v) ? (v as ThinkingLevel) : fallback;
 }
 
-function asBackupMode(raw: Record<string, unknown>, key: string): BackupMode {
-  return raw[key] === "extract" ? "extract" : "build";
+function asBackupMode(raw: Record<string, unknown>, key: string, fallback: BackupMode): BackupMode {
+  return raw[key] === "extract" ? "extract" : fallback;
 }
 
 /** Derive the enabled arm ids in canonical A1..A5 order from the per-arm booleans. */
 function deriveArmsEnabled(cfg: BenchConfig): ArmId[] {
-  return ARM_IDS.filter((id) => cfg[ARM_ENABLED_KEY[id] as keyof BenchConfig] === true);
+  return ARM_IDS.filter((id) => cfg[ARM_ENABLED_KEY[id]] === true);
 }
 
 /**
@@ -67,7 +67,7 @@ export function getBenchConfig(): BenchConfig {
     judgeThinkingLevel: asThinkingLevel(raw, "judgeThinkingLevel", DEFAULTS.judgeThinkingLevel),
     N: asNumber(raw, "N", DEFAULTS.N),
     compactionBoundary: asNumber(raw, "compactionBoundary", DEFAULTS.compactionBoundary),
-    backupMode: asBackupMode(raw, "backupMode"),
+    backupMode: asBackupMode(raw, "backupMode", DEFAULTS.backupMode),
     scenario: asStringOrNull(raw, "scenario", DEFAULTS.scenario),
     outputDir: asStringOrNull(raw, "outputDir", DEFAULTS.outputDir),
     armBarePiEnabled: asBoolean(raw, "armBarePiEnabled", DEFAULTS.armBarePiEnabled),

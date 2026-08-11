@@ -23,7 +23,7 @@ export const ARM_LABELS: Record<ArmId, string> = {
  * truth for the arm→setting-key binding (consumed by the schema, the accessor's
  * derived `armsEnabled`, and validation).
  */
-export const ARM_ENABLED_KEY: Record<ArmId, string> = {
+export const ARM_ENABLED_KEY: Record<ArmId, keyof BenchConfig> = {
   A1: "armBarePiEnabled",
   A2: "armOmDefaultEnabled",
   A3: "armMemkeeperObservationsRootEnabled",
