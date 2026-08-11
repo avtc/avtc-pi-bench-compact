@@ -142,7 +142,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const phase1 = deps.phase1 ?? runPhase1;
   const continuations = deps.continuations ?? runContinuations;
   try {
-    const bases = await phase1({
+    const { bases, finalCtx } = await phase1({
       cmdCtx: deps.cmdCtx,
       scenarioRepo: deps.scenarioRepo,
       date,
@@ -154,9 +154,12 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       ops: deps.ops,
     });
     // Phase-1 done → advance to Phase-2 + run the N continuation attempts per arm.
+    // Thread the FINAL fresh ctx from Phase-1: its first arm already invalidated
+    // deps.cmdCtx (switchSession invalidates the ctx it's called on). Passing the
+    // stale cmdCtx here would make the first continuation's switchSession throw.
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
     const traces = await continuations({
-      cmdCtx: deps.cmdCtx,
+      cmdCtx: finalCtx,
       armBases: bases,
       config: deps.config,
       manifest: deps.manifest,

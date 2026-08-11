@@ -7,7 +7,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
-import { type ArmBase, type Phase1Deps, type Phase1Ops, Phase1StoppedError } from "../../src/orchestrate/phase1.js";
+import {
+  type ArmBase,
+  type Phase1Deps,
+  type Phase1Ops,
+  type Phase1Result,
+  Phase1StoppedError,
+} from "../../src/orchestrate/phase1.js";
 import { type Phase2Deps, Phase2StoppedError } from "../../src/orchestrate/phase2.js";
 import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
@@ -44,7 +50,7 @@ function makeDeps(opts: {
   arms: BenchConfig["armsEnabled"];
   root: string;
   scenarioRepo?: string;
-  phase1?: ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<ArmBase[]>>>;
+  phase1?: ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<Phase1Result>>>;
   continuations?: ReturnType<typeof vi.fn<(deps: Phase2Deps) => Promise<RunTrace[]>>>;
   now?: () => Date;
   notify?: (m: string) => void;
@@ -82,10 +88,14 @@ function fakeBases(arms: BenchConfig["armsEnabled"]): ArmBase[] {
   }));
 }
 
+/** A distinct sentinel for the Phase-1 final ctx (so tests can assert it's threaded
+ * into continuations, NOT the original cmdCtx which Phase-1 invalidated). */
+const FINAL_CTX = { __finalCtx: true } as unknown as Phase1Result["finalCtx"];
+
 /** A typed Phase-1 mock so `mock.calls[0][0]` is the Phase1Deps arg (not an empty tuple). */
 function phase1Mock(
-  impl: (deps: Phase1Deps) => Promise<ArmBase[]>,
-): ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<ArmBase[]>>> {
+  impl: (deps: Phase1Deps) => Promise<Phase1Result>,
+): ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<Phase1Result>>> {
   return vi.fn(impl);
 }
 
@@ -123,7 +133,7 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
   it("computes runId = <utc-date>-<id>, sets run-state phase-1, dispatches Phase-1 then Phase-2, returns phase2-done", async () => {
     const bases = fakeBases(["A1", "A3"]);
     const traces = fakeTraces(["A1", "A3"]);
-    const phase1 = phase1Mock(async () => bases);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
     const continuations = continuationsMock(async () => traces);
     const deps = makeDeps({ arms: ["A1", "A3"], root, phase1, continuations });
 
@@ -152,18 +162,24 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
     expect(phase1Arg?.omFullReflectionThresholdTokens).toBe(4000);
     expect(phase1Arg?.scenarioRepo).toBe(deps.scenarioRepo);
 
-    // Phase-2 continuations received the bases + cmdCtx + manifest + repo + N.
+    // Phase-2 continuations received the bases + the FINAL fresh ctx threaded from
+    // Phase-1 (NOT deps.cmdCtx, which Phase-1's first arm already invalidated).
     expect(continuations).toHaveBeenCalledTimes(1);
     const phase2Arg = continuations.mock.calls[0]?.[0];
     expect(phase2Arg?.armBases).toBe(bases);
-    expect(phase2Arg?.cmdCtx).toBe(deps.cmdCtx);
+    expect(phase2Arg?.cmdCtx).toBe(FINAL_CTX);
+    expect(phase2Arg?.cmdCtx).not.toBe(deps.cmdCtx);
     expect(phase2Arg?.manifest).toBe(MANIFEST);
     expect(phase2Arg?.repo).toBe(deps.scenarioRepo);
     expect(phase2Arg?.N).toBe(3);
   });
 
   it("writes the run-config snapshot (cfgId + toolVersions) once + reserves the run dir", async () => {
-    const deps = makeDeps({ arms: ["A1"], root, phase1: phase1Mock(async () => fakeBases(["A1"])) });
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
+    });
     await startRun(deps);
     const s = getRunState();
     expect(existsSync(join(root, "configs", `${s?.cfgId}.json`))).toBe(true);
@@ -171,8 +187,20 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
   });
 
   it("same-day re-run increments the id (no collision with the reserved run dir)", async () => {
-    await startRun(makeDeps({ arms: ["A1"], root, phase1: phase1Mock(async () => fakeBases(["A1"])) }));
-    await startRun(makeDeps({ arms: ["A1"], root, phase1: phase1Mock(async () => fakeBases(["A1"])) }));
+    await startRun(
+      makeDeps({
+        arms: ["A1"],
+        root,
+        phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
+      }),
+    );
+    await startRun(
+      makeDeps({
+        arms: ["A1"],
+        root,
+        phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
+      }),
+    );
     expect(getRunState()?.runId).toBe("2026-08-11-2");
   });
 });
@@ -226,7 +254,7 @@ describe("startRun — Phase-2 stop-and-surface", () => {
 
   it("a Phase2StoppedError from runContinuations → stopped result (with attempt) + notify + run-state lastStopReason", async () => {
     const notify = vi.fn();
-    const phase1 = phase1Mock(async () => fakeBases(["A2"]));
+    const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A2"]), finalCtx: FINAL_CTX }));
     const continuations = continuationsMock(async () => {
       throw new Phase2StoppedError("A2", 2, "run-hung", "attempt 2 agent did not settle");
     });

@@ -173,7 +173,7 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     const ops = makeFakeOps();
     const deps = makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A1", "A3"] });
 
-    const bases = await runPhase1(deps);
+    const { bases } = await runPhase1(deps);
 
     expect(bases).toHaveLength(2);
     // arm 1 (bare-pi)
@@ -255,7 +255,7 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
       compactionEntry: makeCompactionEntry({ usage: makeUsage(2000, 800) }),
       wallMs: 9999,
     });
-    const bases = await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A2"] }));
+    const { bases } = await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A2"] }));
     expect((bases[0] as ArmBase).wallMs).toBe(9999);
     expect((bases[0] as ArmBase).usage).toEqual(makeUsage(2000, 800));
     expect((bases[0] as ArmBase).ver).toBe("gabc123"); // A2 has a toolVersions entry

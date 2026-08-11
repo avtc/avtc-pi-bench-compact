@@ -35,6 +35,7 @@ import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
 import { SimulatorDriver, type SimulatorHooks, type SimulatorSeams, type StopReason } from "../simulator/loop.js";
 import { buildSimulatorSystemPrompt } from "../simulator/prompt.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
+import { appendAttempt } from "../storage/branches.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
 import { getBenchPi } from "./bench-ctx.js";
 import { type ContextMonitor, makeContextMonitor } from "./context-monitor.js";
@@ -101,6 +102,9 @@ export interface Phase2Ops {
   loadSession: typeof loadSession;
   fork: typeof forkBranch;
   checkout: typeof checkout;
+  /** Check whether a branch already exists (idempotent re-run skips fork). Injectable
+   * so unit tests avoid real git + can exercise the exists-skip path. */
+  branchExists: typeof branchExists;
   commit: typeof commitAll;
   awaitSettled: typeof awaitAgentSettled;
   makeMonitor: typeof makeContextMonitor;
@@ -265,6 +269,7 @@ export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
     loadSession: deps.ops?.loadSession ?? loadSession,
     fork: deps.ops?.fork ?? forkBranch,
     checkout: deps.ops?.checkout ?? checkout,
+    branchExists: deps.ops?.branchExists ?? branchExists,
     commit: deps.ops?.commit ?? commitAll,
     awaitSettled: deps.ops?.awaitSettled ?? awaitAgentSettled,
     makeMonitor: deps.ops?.makeMonitor ?? makeContextMonitor,
@@ -272,17 +277,15 @@ export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
     makeSimulator,
   };
   const sessionPath = `${deps.repo}/session.jsonl`;
-  const targetContext = deps.config.compactionBoundary;
   const signal = deps.signal ?? NEVER_ABORT_CONTROLLER.signal;
 
   let currentCtx: ExtensionCommandContext = deps.cmdCtx;
   const traces: RunTrace[] = [];
   for (const base of deps.armBases) {
     for (let attempt = 1; attempt <= deps.N; attempt++) {
-      // The attempt branch is the arm-base branch with the attempt suffix (the same
-      // name buildAttemptBranch produces — base.branch already encodes the arm base).
-      const attemptBranch = `${base.branch}-${attempt}`;
-      if (!branchExists(deps.repo, attemptBranch)) {
+      // Attempt branch = arm-base branch + the -{attemptN} suffix (single source in branches.ts).
+      const attemptBranch = appendAttempt(base.branch, attempt);
+      if (!ops.branchExists(deps.repo, attemptBranch)) {
         ops.fork(deps.repo, base.branch, attemptBranch);
       }
       ops.checkout(deps.repo, attemptBranch);
@@ -291,6 +294,15 @@ export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
       const wallMsMap = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
         currentCtx = sessionCtx;
         const pi = getBenchPi();
+        // Phase-2 per-run budget = the model's resolved window, read live from the
+        // switched session's context usage. The simulator paces toward the window (NOT the
+        // Phase-0/1 compactionBoundary, which is strictly below it) so Phase-2 work can run
+        // long enough to trigger the natural auto-compactions the trace must capture.
+        // The context monitor (below) steers the simulator to wrap up near the same window.
+        // Fallback to compactionBoundary only if the window is unavailable (degenerate model).
+        const usage = sessionCtx.getContextUsage();
+        const window = usage?.contextWindow ?? 0;
+        const targetContext = window > 0 ? window : deps.config.compactionBoundary;
         const injectSeam = makeContinuationInject(pi);
         const stop: DriveStop = { stopped: false, reason: null, error: null };
         const onStop: NonNullable<SimulatorHooks["onStop"]> = (info) => {
@@ -308,14 +320,19 @@ export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
         const compaction = makeCompactionTimer(pi);
         try {
           // Kick-off: the simulator's first cycle injects the anti-peek-prefixed resume.
+          // Note: setAgentQuestion/trackContext are deliberately unwired — the context
+          // monitor (budgetReached) owns wrap-up pacing; the agent's own questions are
+          // answered by its own reasoning (the simulator never short-circuits to a
+          // stop on cycle 1, so the kick-off inject is always followed by a settle).
           await driveCycle(driver, stop, base.arm, attempt);
-          // Drive subsequent cycles: the agent settles (processing the last inject; the
-          // context monitor may flag the budget mid-turn) → if still under budget, the
-          // simulator observes + injects the next. Stops on a simulator stop, the
-          // context budget being reached, or an error/hung (thrown by the helpers).
-          while (!stop.stopped) {
+          // Drive until stop/budget: ALWAYS settle after an inject (even the kick-off),
+          // so the agent's response to the last inject is awaited before returning.
+          // Stops on a simulator stop, the context budget being reached, or an
+          // error/hung (thrown by the helpers). driveCycle throws on a simulator error
+          // (run-failed) before any settle, so the error path never reaches this loop.
+          while (true) {
             await awaitSettle(ops.awaitSettled, pi, signal, base.arm, attempt);
-            if (stop.stopped || budgetReached) break; // wrap up: do not inject past the budget
+            if (stop.stopped || budgetReached) break; // wrap up: do not inject past the budget/stop
             await driveCycle(driver, stop, base.arm, attempt);
           }
         } finally {

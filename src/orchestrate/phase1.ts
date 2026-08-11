@@ -160,7 +160,7 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
  * each `withSession` is threaded into the next arm's `switchSession` (switchSession
  * invalidates the ctx it's called on, the same way `reload` does).
  */
-export async function runPhase1(deps: Phase1Deps): Promise<ArmBase[]> {
+export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
   const ops = { ...DEFAULT_OPS, ...deps.ops };
   const { cmdCtx, scenarioRepo, date, id, cfgId, toolVersions, omFullReflectionThresholdTokens, armsEnabled } = deps;
   const sessionPath = `${scenarioRepo}/session.jsonl`;
@@ -249,11 +249,20 @@ export async function runPhase1(deps: Phase1Deps): Promise<ArmBase[]> {
       log.info(`phase-1: arm ${arm} compacted (${wallMs}ms) → ${branch}`);
     }
 
-    return bases;
+    return { bases, finalCtx: currentCtx };
   } finally {
     // Tear down the per-arm env (no leak into the post-bench session / next run).
     clearArmConfig(scenarioRepo);
   }
+}
+
+/** {@link runPhase1} result: the arm bases + the FINAL fresh command ctx (threaded through
+ * the last arm's `withSession`). The run driver threads `finalCtx` into Phase-2 so the
+ * first continuation's `switchSession` doesn't throw "stale after session replacement"
+ * (Phase-1's first arm already invalidated the original `cmdCtx`). */
+export interface Phase1Result {
+  readonly bases: ArmBase[];
+  readonly finalCtx: ExtensionCommandContext;
 }
 
 // Re-export so callers importing from phase1 catch the cancel error by type.

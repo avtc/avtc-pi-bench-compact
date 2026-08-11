@@ -12,6 +12,7 @@ import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
 import type { ArmBase } from "../../src/orchestrate/phase1.js";
 import {
   type ContinuationDriver,
+  createDefaultSimulatorFactory,
   type MakeSimulatorArgs,
   type Phase2Ops,
   Phase2StoppedError,
@@ -63,6 +64,7 @@ interface FakeOps {
   loadSession: ReturnType<typeof vi.fn>;
   fork: ReturnType<typeof vi.fn>;
   checkout: ReturnType<typeof vi.fn>;
+  branchExists: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   awaitSettled: ReturnType<typeof vi.fn>;
   makeMonitor: ReturnType<typeof vi.fn>;
@@ -74,6 +76,8 @@ interface FakeOps {
   simulatorArgs: MakeSimulatorArgs[];
   /** Per-call captured monitor args (fresh pi + fresh ctx per attempt). */
   monitorArgs: Array<{ pi: ExtensionAPI; ctx: ExtensionCommandContext }>;
+  /** Shared dispose spy for every monitor the fake creates (one call per attempt). */
+  monitorDisposeSpy: ReturnType<typeof vi.fn>;
   /** Per-call captured captureTrace wallMs maps (the bench-timed compaction wall time). */
   traceWallMsMaps: Map<string, number>[];
 }
@@ -85,12 +89,18 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
   const freshCtxs: ExtensionCommandContext[] = [];
   const simulatorArgs: MakeSimulatorArgs[] = [];
   const monitorArgs: Array<{ pi: ExtensionAPI; ctx: ExtensionCommandContext }> = [];
+  const monitorDisposeSpy = vi.fn();
   const traceWallMsMaps: Map<string, number>[] = [];
   let armIdx = 0;
   return {
     loadSession: vi.fn(async (_ctx: unknown, _path: string, cb: (c: ExtensionCommandContext) => Promise<unknown>) => {
       const fresh = makeFreshPi();
-      const freshCtx = { id: `fresh-ctx-${freshCtxs.length + 1}` } as unknown as ExtensionCommandContext;
+      const freshCtx = {
+        id: `fresh-ctx-${freshCtxs.length + 1}`,
+        // The real switched-session ctx exposes getContextUsage(); the fake must too so
+        // runContinuations can read the model's window for Phase-2 pacing (not compactionBoundary).
+        getContextUsage: () => ({ contextWindow: 200000, tokens: 1000 }),
+      } as unknown as ExtensionCommandContext;
       freshPis.push(fresh);
       freshCtxs.push(freshCtx);
       setBenchPi(fresh.pi); // re-activation stashes the fresh pi BEFORE withSession runs
@@ -98,11 +108,12 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
     }),
     fork: vi.fn(),
     checkout: vi.fn(),
+    branchExists: vi.fn(() => false),
     commit: vi.fn(),
     awaitSettled: vi.fn(async () => {}),
     makeMonitor: vi.fn((pi: ExtensionAPI, ctx: ExtensionCommandContext) => {
       monitorArgs.push({ pi, ctx });
-      return { dispose: () => {} };
+      return { dispose: monitorDisposeSpy };
     }),
     makeSimulator: vi.fn((args: MakeSimulatorArgs): ContinuationDriver => {
       simulatorArgs.push(args);
@@ -136,6 +147,7 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
     freshCtxs,
     simulatorArgs,
     monitorArgs,
+    monitorDisposeSpy,
     traceWallMsMaps,
   };
 }
@@ -228,6 +240,26 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     }
   });
 
+  it("is idempotent on re-run: skips fork when the attempt branch already exists", async () => {
+    // branchExists=true models a re-run where attempt branches already exist → fork is
+    // skipped (resume in place), but checkout/commit/loadSession still run.
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    await runContinuations({
+      cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+      armBases: [base],
+      config: makeConfig(2),
+      manifest: MANIFEST,
+      repo,
+      N: 2,
+      ops: ops as unknown as Phase2Ops,
+    });
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.checkout).toHaveBeenCalledTimes(2);
+    expect(ops.loadSession).toHaveBeenCalledTimes(2);
+  });
+
   it("threads the fresh ctx from each withSession into the next attempt's switchSession", async () => {
     // CR-R1-1 regression guard (mirrors phase1): switchSession invalidates the ctx
     // it's called on, so attempt 2+ MUST use the fresh ctx threaded from the prior
@@ -276,6 +308,25 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     expect(ops.simulatorArgs[1]?.pi).toBe(ops.freshPis[1]?.pi);
   });
 
+  it("paces toward the model's contextWindow, NOT the Phase-0/1 compactionBoundary (§3.8)", async () => {
+    // The fake session ctx reports contextWindow=200000; makeConfig's compactionBoundary=140000.
+    // Phase-2 must pace toward the window so the run can reach the natural auto-compactions
+    // §3.8/AC5 expect to capture (pacing at compactionBoundary would self-stop early +
+    // make the window-based monitor dead code).
+    const ops = makeFakeOps({ stopAfter: 1 });
+    await runContinuations({
+      cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+      armBases: [makeArmBase("A1", "bare-pi", undefined)],
+      config: makeConfig(1),
+      manifest: MANIFEST,
+      repo,
+      N: 1,
+      ops: ops as unknown as Phase2Ops,
+    });
+    expect(ops.simulatorArgs[0]?.targetContext).toBe(200000);
+    expect(ops.simulatorArgs[0]?.targetContext).not.toBe(140000);
+  });
+
   it("the FIRST agent-facing message carries the anti-peek preamble (prepended before the first tool-bearing turn)", async () => {
     // stopAfter=2 → two injects within attempt 1: the kick-off (anti-peek prepended)
     // + a subsequent cycle (bare resume). Anti-peek is first-inject only.
@@ -319,10 +370,14 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     expect(ops.monitorArgs[0]?.ctx).toBe(ops.freshCtxs[0]);
     expect(ops.monitorArgs[1]?.pi).toBe(ops.freshPis[1]?.pi);
     expect(ops.monitorArgs[1]?.ctx).toBe(ops.freshCtxs[1]);
+    // Each attempt's monitor is disposed in the finally (no listener leak across attempts).
+    expect(ops.monitorDisposeSpy).toHaveBeenCalledTimes(2);
   });
 
   it("awaits agent_settled between simulator cycles (multi-cycle driving hits the fresh pi)", async () => {
-    // stopAfter=2 → kick-off inject (no stop) → awaitSettled → next cycle (stop).
+    // stopAfter=2 → kick-off inject (cycle 1, no stop) → awaitSettled → cycle 2 inject +
+    // stop → awaitSettled (settles cycle 2's inject too — the agent always processes the
+    // last inject before the run returns). So awaitSettled is called once per driven cycle.
     const ops = makeFakeOps({ stopAfter: 2 });
     await runContinuations({
       cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
@@ -334,7 +389,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       ops: ops as unknown as Phase2Ops,
     });
 
-    expect(ops.awaitSettled).toHaveBeenCalledTimes(1);
+    expect(ops.awaitSettled).toHaveBeenCalledTimes(2);
     // awaitSettled received the FRESH pi (not the stale command-handler pi)
     expect(ops.awaitSettled.mock.calls[0]?.[0]).toBe(ops.freshPis[0]?.pi);
   });
@@ -485,5 +540,22 @@ describe("runContinuations — stop-and-surface (run failure / hang)", () => {
     expect(err.attempt).toBe(3);
     expect(err.reason).toBe("run-failed");
     expect(err.message).toBe("boom");
+  });
+
+  it("createDefaultSimulatorFactory wires a driver bound to the fresh pi + ctx (smoke)", () => {
+    // The default factory (used when ops.makeSimulator isn't overridden) builds the
+    // system prompt + a SimulatorDriver bound to the args. This smoke test verifies the
+    // wiring constructs without error + exposes the driver contract (onAgentSettled).
+    const factory = createDefaultSimulatorFactory(makeConfig(1), MANIFEST);
+    const args: MakeSimulatorArgs = {
+      pi: { events: { on: () => () => {} } } as unknown as MakeSimulatorArgs["pi"],
+      ctx: { sessionManager: { getBranch: () => [] } } as unknown as MakeSimulatorArgs["ctx"],
+      targetContext: 200000,
+      inject: () => {},
+      signal: new AbortController().signal,
+      onStop: () => {},
+    };
+    const driver: ContinuationDriver = factory(args);
+    expect(typeof driver.onAgentSettled).toBe("function");
   });
 });

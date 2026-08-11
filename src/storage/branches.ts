@@ -69,9 +69,14 @@ export function buildArmBaseBranch(b: BranchBase): string {
   return `bench-compact/run-${b.date}-${b.id}/${b.cfgId}/${armSegment(b.tool, b.ver)}`;
 }
 
+/** Append the `-{attemptN}` suffix to an arm-base branch. Single source for the format. */
+export function appendAttempt(baseBranch: string, attemptN: number): string {
+  return `${baseBranch}-${attemptN}`;
+}
+
 /** Phase-2 continuation branch (attemptN = 1..N), branched from the arm base. */
 export function buildAttemptBranch(b: BranchBase & { attemptN: number }): string {
-  return `${buildArmBaseBranch(b)}-${b.attemptN}`;
+  return appendAttempt(buildArmBaseBranch(b), b.attemptN);
 }
 
 /** Direct-probe branch, branched from the arm base. */

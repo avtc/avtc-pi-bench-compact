@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  appendAttempt,
   buildArmBaseBranch,
   buildAttemptBranch,
   buildCfgId,
@@ -44,6 +45,11 @@ describe("branch naming (§3.14)", () => {
   it("buildAttemptBranch for A1: arm-bare-pi-{attemptN} (no double dash)", () => {
     expect(buildAttemptBranch({ ...common, tool: "bare-pi", ver: undefined, attemptN: 3 })).toBe(
       "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-bare-pi-3",
+    );
+  });
+  it("appendAttempt: appends the -{attemptN} suffix to any base branch (single source)", () => {
+    expect(appendAttempt("bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c", 7)).toBe(
+      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c-7",
     );
   });
   it("buildProbeBranch: arm-{tool}-{ver}-probe-{probeId}", () => {
