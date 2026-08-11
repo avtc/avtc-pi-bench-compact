@@ -113,7 +113,8 @@ describe("registerBenchCommands", () => {
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
-    expect(notifies.length).toBeGreaterThan(0);
+    // R2-3: assert message content (sibling handlers all assert content, not just length)
+    expect(notifies.some((n) => /abort/i.test(n.msg))).toBe(true);
   });
 
   it("every stub command body runs preflight then notifies 'not implemented' (R4-1)", async () => {

@@ -21,6 +21,14 @@ describe("parsePrepareArgs", () => {
       error: undefined,
     });
   });
+  it("extracts --from-session=PATH (equals form, R2-2)", () => {
+    expect(parsePrepareArgs("--from-session=/sessions/real.jsonl")).toEqual({
+      idea: undefined,
+      fromSession: "/sessions/real.jsonl",
+      force: false,
+      error: undefined,
+    });
+  });
   it("extracts --force (with idea)", () => {
     expect(parsePrepareArgs("some idea --force")).toEqual({
       idea: "some idea",
@@ -39,6 +47,11 @@ describe("parsePrepareArgs", () => {
   });
   it("errors when --from-session has no path", () => {
     const r = parsePrepareArgs("--from-session");
+    expect(r.error).toMatch(/from-session/i);
+    expect(r.fromSession).toBeUndefined();
+  });
+  it("errors when --from-session is followed by another flag (R2-4)", () => {
+    const r = parsePrepareArgs("--from-session --force");
     expect(r.error).toMatch(/from-session/i);
     expect(r.fromSession).toBeUndefined();
   });
@@ -82,13 +95,19 @@ describe("parseResultsArgs", () => {
     expect(r.error).toMatch(/arm/i);
     expect(r.runs).toEqual([]);
   });
+  it("errors on a trailing comma in :arms (space-after-comma, R2-1)", () => {
+    // "run1:A1, A3" tokenizes -> "run1:A1," + "A3"; the trailing comma signals the mistake.
+    const r = parseResultsArgs("run1:A1, A3");
+    expect(r.error).toMatch(/comma|space/i);
+    expect(r.runs).toEqual([]);
+  });
   it("errors when no runId is given", () => {
     expect(parseResultsArgs("").error).toMatch(/runId/i);
   });
 });
 
 describe("parsePositional", () => {
-  it("joins all tokens into one positional value", () => {
+  it("returns the trimmed arg verbatim, preserving internal spaces (R2-5)", () => {
     expect(parsePositional("/path/with spaces/here")).toEqual({ value: "/path/with spaces/here", error: undefined });
   });
   it("empty -> undefined value, no error", () => {

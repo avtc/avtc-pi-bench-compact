@@ -36,6 +36,10 @@ export function parsePrepareArgs(args: string): PrepareArgs {
         error = "--from-session requires a session file path";
         break;
       }
+      if (next.startsWith("--")) {
+        error = "--from-session requires a session file path (got another flag)";
+        break;
+      }
       fromSession = next;
       i += 1;
     } else if (tok === "--force") {
@@ -98,11 +102,19 @@ export function parseResultsArgs(args: string): ResultsArgs {
       runId = tok;
     } else {
       runId = tok.slice(0, colon);
-      const armList = tok
-        .slice(colon + 1)
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+      const armsStr = tok.slice(colon + 1);
+      // A trailing comma signals the user put a space where a comma belonged — e.g.
+      // "run1:A1, A3" tokenizes to "run1:A1," + "A3". Whitespace SEPARATES runs, so
+      // :arms must be space-free; reject the mis-parse instead of silently producing
+      // [{run1,A1},{A3}] (R2-1). (Each `tok` is already space-free via tokenize, so the
+      // arm pieces need no trimming.)
+      if (armsStr.endsWith(",")) {
+        return {
+          runs: [],
+          error: `trailing comma in ":arms" of "${tok}" — arms are comma-separated with no spaces (whitespace separates runs)`,
+        };
+      }
+      const armList = armsStr.split(",").filter((s) => s.length > 0);
       if (armList.length === 0) {
         return { runs: [], error: `":arms" is empty in "${tok}" — specify arms (e.g. :A1,A3) or drop the colon` };
       }
@@ -121,7 +133,9 @@ export function parseResultsArgs(args: string): ResultsArgs {
   return { runs, error: undefined };
 }
 
-/** Parse a single positional value (a folder path or idea); tokens are joined. */
+/** Parse a single positional value (a scenario folder path or a session file path).
+ *  Returns the trimmed arg VERBATIM — internal whitespace is preserved (e.g. paths
+ *  with spaces). The whole arg is one positional; there is no token-joining. */
 export function parsePositional(args: string): { value: string | undefined; error: undefined } {
   const value = args.trim().length > 0 ? args.trim() : undefined;
   return { value, error: undefined };
