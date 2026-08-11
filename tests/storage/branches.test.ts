@@ -7,9 +7,9 @@ import {
   buildAttemptBranch,
   buildCfgId,
   buildProbeBranch,
+  type RunConfig,
   shortGitVersion,
   shortNpmVersion,
-  type RunConfig,
 } from "../../src/storage/branches.js";
 
 describe("version-token formatters", () => {
