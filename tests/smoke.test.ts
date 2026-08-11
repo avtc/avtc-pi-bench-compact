@@ -29,14 +29,14 @@ describe("activate", () => {
     );
   });
 
-  it("the status handler notifies 'not started'", () => {
+  it("the status handler notifies 'not started'", async () => {
     const { pi, registerCommand } = fakePi();
     activate(pi);
     const { ctx, notify } = fakeCtx();
 
     const command = registerCommand.mock.calls[0]?.[1];
     const handler = command?.handler as (args: string, ctx: ExtensionCommandContext) => Promise<void>;
-    void handler("", ctx);
+    await handler("", ctx);
 
     expect(notify).toHaveBeenCalledWith("not started", "info");
   });

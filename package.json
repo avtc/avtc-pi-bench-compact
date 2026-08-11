@@ -29,7 +29,7 @@
     "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo",
     "knip": "knip --production",
     "dupes": "jscpd src/ --exit-code --threshold 0.01",
-    "test": "biome check . && tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo && knip --production && vitest run"
+    "test": "biome check . && tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo && knip --production && npm run dupes && vitest run"
   },
   "dependencies": {
     "avtc-pi-settings-ui": "^1.0.7"
