@@ -4,15 +4,15 @@
 import type { ArmId } from "../config/types.js";
 
 /**
- * The five compaction/memory arms under test (§2.1–2.5). Every arm runs within
- * the FULL avtc-pi suite (§2.1); arms differ ONLY in the compaction-memory
+ * The five compaction/memory arms under test. Every arm runs within
+ * the FULL avtc-pi suite; arms differ ONLY in the compaction-memory
  * extension. {@link ARM_DEFS} is the single source of truth for each arm's tool
  * name + memory package + per-arm config knobs.
  */
 
 // --- package identifiers ----------------------------------------------------
 
-/** The four avtc-pi suite members active for EVERY arm (§2.1). */
+/** The four avtc-pi suite members active for EVERY arm. */
 export const SUITE_PACKAGES = [
   "avtc-pi-todo",
   "avtc-pi-user-decisions",
@@ -25,21 +25,21 @@ export const SUITE_PACKAGES = [
  * `.pi/settings.json` `packages` to isolate an arm — pi's settings deep-merge
  * treats `packages` arrays as REPLACE-not-concat (verified: settings-manager.js
  * `deepMergeObjects`), so the written list MUST include the harness or it unloads
- * ITSELF on `ctx.reload()` (G-iso, §2.4). Consumed by {@link buildPackages}
+ * ITSELF on `ctx.reload()`. Consumed by {@link buildPackages}
  * (packages.ts).
  */
 export const HARNESS_PACKAGE = "avtc-pi-bench-compact";
 
-/** The observational-memory package (the fork — A2/A5). */
+/** The observational-memory package (the fork — used by the OM-default and OM-full arms). */
 export const OM_PACKAGE = "pi-observational-memory";
-/** The memkeeper package (A3/A4). */
+/** The memkeeper package (the memkeeper-builder and memkeeper-selector arms). */
 export const MEMKEEPER_PACKAGE = "avtc-pi-memkeeper";
 
 // --- arm config shapes ------------------------------------------------------
 
-/** The memkeeper config the bench pins per arm (§2.5 A3/A4) — all stages on-compaction. */
+/** The memkeeper config the bench pins for the memkeeper-builder and memkeeper-selector arms — all stages on-compaction. */
 export interface MemkeeperArmConfig {
-  /** `observations-root` (A3, Selector OFF) or `selected-root` (A4, Selector runs). */
+  /** `observations-root` (memkeeper-builder, Selector OFF) or `selected-root` (memkeeper-selector, Selector runs). */
   renderMode: "observations-root" | "selected-root";
   observerMode: "on-compaction";
   builderMode: "on-compaction";
@@ -52,29 +52,29 @@ export interface MemkeeperArmConfig {
  */
 export interface ArmDef {
   id: ArmId;
-  /** Branch-name `{tool}` token (§3.14): `bare-pi` · `om-default` · … */
+  /** Branch-name `{tool}` token: `bare-pi` · `om-default` · … */
   tool: string;
-  /** The memory-extension package added to the suite (`null` for A1). */
+  /** The memory-extension package added to the suite (`null` for the bare-pi arm). */
   memoryPackage: string | null;
-  /** A3/A4: the memkeeper config written to `.pi/avtc-pi-memkeeper-settings.json`. */
+  /** The memkeeper-builder and memkeeper-selector arms: the memkeeper config written to `.pi/avtc-pi-memkeeper-settings.json`. */
   memkeeperSettings?: MemkeeperArmConfig;
   /**
-   * A5: force `reflectionThresholdTokens` low (the value is injected at
+   * The OM-full arm: force `reflectionThresholdTokens` low (the value is injected at
    * `buildProjectSettings` from config `omFullReflectionThresholdTokens`) so the
-   * reflector/pruner ALWAYS run. A2 OM-default leaves the author threshold intact.
+   * reflector/pruner ALWAYS run. The OM-default arm leaves the author threshold intact.
    */
   overrideReflectionThreshold?: true;
   /**
    * Static process-env the bench APPLIES for this arm at `switchArm` (env-only knobs with no
    * file equivalent). `switchArm` sets each `key=value` + clears stale keys from other arms —
-   * this field is the single source of truth for which static env the bench manages (R-2).
-   * OM `passive` (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) is env-only (OM `readEnvConfig`); A2/A5
-   * need it + the forked OM (passive catch-up). (Teardown of these env vars is Task-12 orchestration.)
+   * this field is the single source of truth for which static env the bench manages.
+   * OM `passive` (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) is env-only (OM `readEnvConfig`); the OM-default
+   * and OM-full arms need it + the forked OM (passive catch-up). (Teardown of these env vars is Task-12 orchestration.)
    */
   envPreconditions?: Readonly<Record<string, string>>;
 }
 
-/** The five arm definitions (§2.1). */
+/** The five arm definitions. */
 export const ARM_DEFS: Record<ArmId, ArmDef> = {
   A1: {
     id: "A1",

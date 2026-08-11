@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Extract a pre-compaction backup from a REAL session (§4.16 extract mode). The
+// Extract a pre-compaction backup from a REAL session (extract mode). The
 // session must be UN-compacted (no CompactionEntry) and coherent with the current
 // working directory (header.cwd === cwd — the codebase on disk IS the project
 // files, CR-4). Memory-extension custom entries (memkeeper.* / om.*) are stripped

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The `scenario-manifest-v1` schema (§4.5) + the authoring-agent's emitted shape
-// (§4.18 output contract). Two layers:
+// The `scenario-manifest-v1` schema + the authoring-agent's emitted shape
+// (the output contract). Two layers:
 //
 //   - `AuthorOutput` (+ `AUTHOR_OUTPUT_SCHEMA`): what the authoring-agent emits via
 //     `write_manifest` — the content fields only (fact/accept/entryIds/description/
@@ -13,7 +13,7 @@
 //     domain ("technical"), taskObjective, compactionBoundary.
 //
 // Probes link to their target via `targets` = the target's `entryIds` (agent-known;
-// the harness resolves to the condition id — §4.5).
+// the harness resolves to the condition id).
 
 import { type TSchema, Type } from "typebox";
 
@@ -24,7 +24,7 @@ import { type TSchema, Type } from "typebox";
 export type Lane = "embedded" | "direct-probe";
 
 /** The condition domain — fixed to "technical" (compaction-memory content, not
- *  user-decisions/portrait — §2.3 confound mitigation). */
+ *  user-decisions/portrait — confound mitigation). */
 export type Domain = "technical";
 
 // --- agent-emitted shapes (write_manifest input — no id/lanes/domain) -------
@@ -67,7 +67,7 @@ export interface AuthorTaskObjective {
   readonly testSpec: string;
 }
 
-/** The authoring-agent's `write_manifest` payload (§4.18 OUTPUT). */
+/** The authoring-agent's `write_manifest` payload (the output contract). */
 export interface AuthorOutput {
   readonly recallFacts: readonly AuthorRecallFact[];
   readonly doneOps: readonly AuthorDoneOp[];
@@ -78,7 +78,7 @@ export interface AuthorOutput {
 }
 
 // --- typebox schema for write_manifest validation --------------------------
-// entryIds is required + non-empty (every cited id must be real — §4.18 CONSTRAINTS).
+// entryIds is required + non-empty (every cited id must be real).
 // abstentions.correctRefusal is the literal `true`. Probes carry accept OR
 // correctRefusal (both optional at the schema level; validateManifest enforces the
 // exactly-one-of-{accept, correctRefusal} rule per probe downstream).
@@ -176,7 +176,7 @@ export interface TaskObjective {
   readonly description: string;
   readonly testSpec: string;
   /** Present (="embedded-test") iff testSpec is non-empty — the task has an embedded
-   *  test lane (E7). Omitted when there are no tests (E7 falls back to comparative
+   *  test lane. Omitted when there are no tests (falls back to comparative
    *  ranking only). Consistent with deriveLanes' embedded-lane rule. */
   readonly lane?: "embedded-test";
 }
@@ -194,7 +194,7 @@ export interface ScenarioContext {
   readonly compactionBoundary: CompactionBoundary;
 }
 
-/** The full `scenario-manifest-v1` (§4.5). */
+/** The full `scenario-manifest-v1`. */
 export interface ScenarioManifest {
   readonly id: string;
   readonly description: string;

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Branch-name formatters + the run-config fingerprint (cfgId) for the scenario git layout (§3.14).
+// Branch-name formatters + the run-config fingerprint (cfgId) for the scenario git layout.
 //
 // Branch model (every branch holds session.jsonl + project files at the same paths → git diff is
 // like-for-like):
 //   bench-compact/run-{date}-{id}/{cfgId}/arm-{tool}[-{ver}][-{attemptN}|-probe-{probeId}]
-// where {ver} is OMITTED for A1 (bare-pi — no memory tool → no version). {cfgId} = cfg-<6hex> is the
+// where {ver} is OMITTED for the bare-pi arm (no memory tool → no version). {cfgId} = cfg-<6hex> is the
 // complete run-condition fingerprint (any model / thinking-level / N / arm-tool-version difference
-// ⇒ a different cfgId). The full config is persisted at configs/<cfgId>.json (§3.14, configs.ts).
+// ⇒ a different cfgId). The full config is persisted at configs/<cfgId>.json (configs.ts).
 
 import { createHash } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -24,7 +24,7 @@ export interface ToolVersion {
   full: string;
 }
 
-/** The complete run-condition fingerprint inputs (snapshot at run start, §3.14). */
+/** The complete run-condition fingerprint inputs (snapshot at run start). */
 export interface RunConfig {
   evaluatedModel: string | null;
   evaluatedThinkingLevel: ThinkingLevel;
@@ -35,7 +35,7 @@ export interface RunConfig {
   armsEnabled: ArmId[];
   omFullReflectionThresholdTokens: number;
   backupMode: BackupMode;
-  /** Per-arm resolved tool versions. A1 (bare-pi) is typically absent (no memory tool). */
+  /** Per-arm resolved tool versions. The bare-pi arm is typically absent (no memory tool). */
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
 }
 
@@ -55,11 +55,11 @@ interface BranchBase {
   id: number; // 1-based, incremented per bench-run started on {date}
   cfgId: string; // cfg-<hex>
   tool: string; // arm tool name (bare-pi · om-default · memkeeper-builder · memkeeper-selector · om-full)
-  /** Short tool-version token ({ver}); undefined for A1 (bare-pi) → omitted from the branch name. */
+  /** Short tool-version token ({ver}); undefined for the bare-pi arm → omitted from the branch name. */
   ver: string | undefined;
 }
 
-/** The arm-segment with the A1 ver-omission rule: `arm-{tool}` or `arm-{tool}-{ver}`. */
+/** The arm-segment with the bare-pi ver-omission rule: `arm-{tool}` or `arm-{tool}-{ver}`. */
 function armSegment(tool: string, ver: string | undefined): string {
   return ver === undefined ? `arm-${tool}` : `arm-${tool}-${ver}`;
 }
@@ -74,7 +74,7 @@ export function buildAttemptBranch(b: BranchBase & { attemptN: number }): string
   return `${buildArmBaseBranch(b)}-${b.attemptN}`;
 }
 
-/** Direct-probe branch, branched from the arm base (§4.17). */
+/** Direct-probe branch, branched from the arm base. */
 export function buildProbeBranch(b: BranchBase & { probeId: string }): string {
   return `${buildArmBaseBranch(b)}-probe-${b.probeId}`;
 }

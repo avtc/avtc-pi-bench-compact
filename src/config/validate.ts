@@ -9,20 +9,20 @@ export type ValidationResult = { ok: true } | { ok: false; reason: string };
  *  span is too small to plant meaningful ground-truth conditions. */
 const MIN_COMPACTION_BOUNDARY = 20000;
 
-/** OM's default `reflectionThresholdTokens` (30000). A5 (om-full) exists to FORCE the
- *  reflector/pruner to run MORE than A2 (default) — so its override must be strictly
- *  below this. A value >= this silently makes A5 behave like A2, invalidating the
+/** OM's default `reflectionThresholdTokens` (30000). The OM-full arm exists to FORCE the
+ *  reflector/pruner to run MORE than the OM-default arm — so its override must be strictly
+ *  below this. A value >= this silently makes the OM-full arm behave like the OM-default arm, invalidating the
  *  arm differentiation with no error. */
 const OM_DEFAULT_REFLECTION_THRESHOLD_TOKENS = 30000;
 
 /**
- * Validate a resolved bench config (§2.12). Models may be null (= fall through to
+ * Validate a resolved bench config. Models may be null (= fall through to
  * the session default — NOT an error). Rejects:
- *  - zero arms enabled (A1 is the attribution floor; >=1 arm must run),
+ *  - zero arms enabled (the bare-pi arm is the attribution floor; >=1 arm must run),
  *  - compactionBoundary below the floor,
  *  - N < 1 (no continuation runs),
- *  - A5 (om-full) enabled with a nonsensical reflectionThresholdTokens: too low (<1)
- *    OR >= OM's default (would make A5 indistinguishable from A2).
+ *  - the OM-full arm enabled with a nonsensical reflectionThresholdTokens: too low (<1)
+ *    OR >= OM's default (would make the OM-full arm indistinguishable from the OM-default arm).
  */
 export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
   if (cfg.armsEnabled.length === 0) {

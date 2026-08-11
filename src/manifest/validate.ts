@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Manifest validation (§4.15 step 4 + §4.7 adversarial self-check). The in-span
+// Manifest validation (the adversarial self-check). The in-span
 // guarantee is structural (the harness pre-slices the compacted-away entries, so
 // every id the author sees IS in-span), but this layer DEFENDS it + checks the
 // cited content is genuinely present, the essential condition-lists are populated,
 // and the compaction precondition holds. Used by prepare-scenario (Task 10) before
-// freezing; failures STOP-and-surface (§3.8).
+// freezing; failures STOP-and-surface.
 
 import type { Abstention, DoneOp, RecallFact, ScenarioManifest, Supersession } from "./schema.js";
 
 /** Which condition lists may be required non-empty (the essential scoring axes).
- *  recallFacts + doneOps are essential (E4/E5, E2/E3); supersessions/abstentions
- *  are safeToSkip (E8/E6, E6) — see CONDITION_TOPICS (Task 8). */
+ *  recallFacts + doneOps are essential (they back the effectiveness metrics); supersessions/abstentions
+ *  are safeToSkip — see CONDITION_TOPICS (Task 8). */
 export type ConditionListName = "recallFacts" | "doneOps" | "supersessions" | "abstentions";
 
 /** Context the validator needs (all harness-supplied — no file I/O here). */
@@ -102,9 +102,9 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
   ]);
   checkConditions<Abstention>(manifest.abstentions, ctx, reasons, "abstention", (c) => [c.question]);
 
-  // Probes: each must carry exactly one of {accept, correctRefusal} (§4.5). A probe
+  // Probes: each must carry exactly one of {accept, correctRefusal}. A probe
   // with neither (unanswerable) or both (ambiguous) is invalid. Each target must
-  // be in the pre-sliced (in-span) set — defense-in-depth for §4.7's adversarial
+  // be in the pre-sliced (in-span) set — defense-in-depth for the adversarial
   // guarantee (pre-slicing prevents the author from citing out-of-span ids, but a
   // probe pointing at a kept-tail entry would defeat the recall test).
   for (const p of manifest.probes) {
@@ -120,7 +120,7 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     }
   }
 
-  // Every condition needs a probe (§4.18 PROBES). When there are NO probes at all,
+  // Every condition needs a probe. When there are NO probes at all,
   // emit ONE summary reason (not one-per-condition); otherwise require each condition
   // be targeted by ≥1 probe.
   const hasConditions = manifest.recallFacts.length + manifest.supersessions.length + manifest.abstentions.length > 0;
@@ -128,9 +128,9 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     reasons.push("manifest has conditions but no probes — every recall/supersession/abstention needs a probe");
   } else if (manifest.probes.length > 0) {
     // Each recallFact / supersession / abstention must be targeted by ≥1 probe
-    // (§4.18: "For each decision/recall-fact, each reversal, and each open-question,
-    // write a PROBE"). A condition with no targeting probe gets no direct-probe lane
-    // and cannot be scored on recall. doneOps are exempt (scored via redo E2/E3).
+    // ("For each decision/recall-fact, each reversal, and each open-question,
+    // write a probe"). A condition with no targeting probe gets no direct-probe lane
+    // and cannot be scored on recall. doneOps are exempt (scored via the redo effectiveness metrics).
     const allTargets = new Set(manifest.probes.flatMap((p) => p.targets));
     const untargetedConditions = [
       ...manifest.recallFacts.filter((c) => !c.entryIds.some((id) => allTargets.has(id))),

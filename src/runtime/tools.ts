@@ -4,14 +4,14 @@
 // Tool composition for the bench's out-of-session agent stages.
 //
 //  - `benchReadOnlyTools(cwd)` / `benchCodingTools(cwd)` thin-wrap pi's core tool
-//    factories so the manifest-authoring agent (§4.18) and the judge agentLoop
-//    (§5.12.3) operate on a real session JSONL / repo with the SAME tools a live
+//    factories so the manifest-authoring agent and the judge agentLoop
+//    operate on a real session JSONL / repo with the SAME tools a live
 //    coding agent uses (read/grep/find/ls [+ bash/edit/write]).
 //  - `makeJsonOutputTool(name, description, schema)` builds an `AgentTool` whose
 //    `execute` validates the agent's arguments against a typebox schema and
 //    accumulates the emitted JSON on `tool._captured`. This is the template the
 //    manifest-authoring agent's `write_manifest` and the judge's `grade` tools
-//    build on (§4.18, §5.12.3): one terminal JSON tool per stage whose captured
+//    build on: one terminal JSON tool per stage whose captured
 //    value is the stage's structured output.
 
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
@@ -26,7 +26,7 @@ export function benchReadOnlyTools(cwd: string): AgentTool[] {
   return createReadOnlyTools(cwd);
 }
 
-/** Authoring tool set (§4.18): read-only core tools (read/grep/find/ls) + `bash`
+/** Authoring tool set: read-only core tools (read/grep/find/ls) + `bash`
  *  (for JSONL parsing via jq) + the stage's terminal JSON tool is added by the
  *  caller. Used by the manifest-authoring agent on the pre-sliced session JSONL. */
 export function benchAuthoringTools(cwd: string): AgentTool[] {

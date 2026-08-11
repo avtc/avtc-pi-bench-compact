@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The bench-compact storage layout (§3.14). All paths derive from a single root:
+// The bench-compact storage layout. All paths derive from a single root:
 //   root = outputDir ?? ~/.pi/bench-compact/
 // Under root:
 //   scenarios/<id>/repo/        — the scenario git repo (session.jsonl + project files) [AGENT-VISIBLE]
@@ -27,7 +27,7 @@ export function benchRoot(outputDir: string | null | undefined): string {
 function assertChildPath(parent: string, child: string, kind: string): string {
   // path.join normalizes separators + "..", so a malicious id (e.g. "../scenarios/s1/repo/evil")
   // could escape its subdir into a sibling (a scenario repo — the agent's cwd). Enforce the
-  // invariant at the sink: the resolved path must stay strictly under `parent` (R1-3).
+  // invariant at the sink: the resolved path must stay strictly under `parent`.
   const resolved = path.join(parent, child);
   const rel = path.relative(parent, resolved);
   if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
@@ -71,7 +71,7 @@ export function isInsideRepo(target: string, repo: string): boolean {
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
-/** Assert `target` is NOT inside the agent-visible `repo` working dir (contamination rule, §3.14).
+/** Assert `target` is NOT inside the agent-visible `repo` working dir (contamination rule).
  *  Throws on violation (a bench artifact about to be written into the agent's cwd). */
 export function assertNotInRepo(target: string, repo: string): void {
   if (isInsideRepo(target, repo)) {

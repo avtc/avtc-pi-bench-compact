@@ -50,7 +50,7 @@ function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
 }
 
 // ---------------------------------------------------------------------------
-// SETTINGS — the §2.12 rows across three tabs (Models / Run / Arms).
+// SETTINGS — the schema rows across three tabs (Models / Run / Arms).
 // ---------------------------------------------------------------------------
 
 const SETTINGS: readonly SettingSchema[] = [
@@ -179,7 +179,7 @@ const TABS: readonly SettingsTabSchema[] = [
 
 const { globalPath, projectPath } = settingsFilePaths("avtc-pi-bench-compact");
 
-/** The full settings-ui schema for /bench-compact:settings (§2.12). */
+/** The full settings-ui schema for /bench-compact:settings. */
 export const BENCH_SCHEMA: SettingsSchema = {
   settings: [...SETTINGS],
   tabs: [...TABS],

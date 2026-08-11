@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Pre-slice the compacted-away span (all entries before `firstKeptEntryId`) into a
-// standalone JSONL for the manifest-authoring agent (§4.18 pre-sliced input). This
+// standalone JSONL for the manifest-authoring agent (the pre-sliced input). This
 // STRUCTURALLY guarantees every entry-id the author cites is in-span, so validation
 // (Task 9) only needs the cited-content-present check — no boundary logic in the
 // authoring prompt.

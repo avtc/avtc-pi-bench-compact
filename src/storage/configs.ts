@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Persists the full run config (the run-condition fingerprint) at `configs/<cfgId>.json` (§3.14) —
+// Persists the full run config (the run-condition fingerprint) at `configs/<cfgId>.json` —
 // the single source of truth that makes runs comparable (one model vs another, one tool version vs
 // another). The path is structurally under `<root>/configs/`, a sibling of `scenarios/`, so a
 // config can never land inside a scenario repo (the agent's cwd) — the contamination rule holds by

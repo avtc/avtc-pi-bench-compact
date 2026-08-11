@@ -8,27 +8,27 @@ import type { ArmId } from "../config/types.js";
 import { ARM_DEFS, type ArmDef, type MemkeeperArmConfig } from "./definitions.js";
 import { buildPackages } from "./packages.js";
 
-/** Options carrying the A5 threshold value (from bench config `omFullReflectionThresholdTokens`). */
+/** Options carrying the OM-full arm's threshold value (from bench config `omFullReflectionThresholdTokens`). */
 export interface BuildProjectSettingsOpts {
   omFullReflectionThresholdTokens: number;
 }
 
 /**
  * The `.pi/settings.json` content for one arm: `packages` (the isolated suite+harness+arm
- * set) + the `observational-memory` section for A5 (threshold override). pi's settings
+ * set) + the `observational-memory` section for the OM-full arm (threshold override). pi's settings
  * deep-merge treats `packages` arrays as REPLACE-not-concat, so this set fully defines
  * what loads on `ctx.reload()`.
  */
 export interface ProjectSettings {
   packages: PackageSource[];
-  /** A5 only — the low threshold forcing the OM reflector/pruner to run. */
+  /** OM-full arm only — the low threshold forcing the OM reflector/pruner to run. */
   "observational-memory"?: { reflectionThresholdTokens: number };
 }
 
 /**
- * Build the project `.pi/settings.json` content for an arm (§2.5). Pure — the I/O is in
- * {@link switchArm}. A5 injects `reflectionThresholdTokens` from config (the harness owns
- * that one value); A2 OM-default leaves the author threshold intact (no section written).
+ * Build the project `.pi/settings.json` content for an arm. Pure — the I/O is in
+ * {@link switchArm}. The OM-full arm injects `reflectionThresholdTokens` from config (the harness owns
+ * that one value); the OM-default arm leaves the author threshold intact (no section written).
  */
 export function buildProjectSettings(arm: ArmId, opts: BuildProjectSettingsOpts): ProjectSettings {
   const def = ARM_DEFS[arm];
@@ -40,7 +40,7 @@ export function buildProjectSettings(arm: ArmId, opts: BuildProjectSettingsOpts)
 }
 
 /**
- * The memkeeper config for an arm (A3/A4), or `null` (no memkeeper settings file) otherwise.
+ * The memkeeper config for an arm (the memkeeper-builder and memkeeper-selector arms), or `null` (no memkeeper settings file) otherwise.
  * Written to `.pi/avtc-pi-memkeeper-settings.json` (the avtc-pi-settings-ui file for
  * `avtc-pi-memkeeper`). Pure.
  */
@@ -73,13 +73,13 @@ const MANAGED_STATIC_ENV_KEYS = new Set(
 
 /**
  * Isolate an arm: write its project settings (packages + arm-specific config) + `reload()`
- * so pi loads exactly the suite + harness + this arm's memory extension (§2.4/§3.2/UD33).
+ * so pi loads exactly the suite + harness + this arm's memory extension.
  *
- * **Env transport (R1-2/R1-5/R-2):** avtc-pi-settings-ui reads `PI_SETTINGS_MEMKEEPER` env FIRST
+ * **Env transport:** avtc-pi-settings-ui reads `PI_SETTINGS_MEMKEEPER` env FIRST
  * (factory.ts:184) + a stale value from a prior arm survives `ctx.reload()` (process env is
- * not cleared), so a stale A3 env would silently override A4's FILE. OM `passive` is env-only
- * (no file equivalent). So switchArm sets the memkeeper env per arm (A3/A4) + applies the arm's
- * `envPreconditions` (OM passive=1 for A2/A5) + DELETES all managed env keys for arms that
+ * not cleared), so a stale memkeeper-builder env would silently override the memkeeper-selector arm's FILE. OM `passive` is env-only
+ * (no file equivalent). So switchArm sets the memkeeper env per memkeeper arm (builder/selector) + applies the arm's
+ * `envPreconditions` (OM passive=1 for the OM-default and OM-full arms) + DELETES all managed env keys for arms that
  * don't use them — isolation is deterministic. `envPreconditions` is the single source of truth
  * for static env; the memkeeper env is dynamic config switchArm computes from memkeeperSettings.
  *
@@ -104,10 +104,10 @@ export async function switchArm(
   const piDir = join(repoCwd, ".pi");
   mkdirSync(piDir, { recursive: true });
 
-  // 1. project .pi/settings.json — packages + (A5) observational-memory threshold
+  // 1. project .pi/settings.json — packages + (OM-full) observational-memory threshold
   writeFileSync(join(piDir, "settings.json"), `${JSON.stringify(buildProjectSettings(arm, opts), null, 2)}\n`, "utf-8");
 
-  // 2. memkeeper config — file + env transport (A3/A4); remove both otherwise (no stale override)
+  // 2. memkeeper config — file + env transport (memkeeper-builder/selector); remove both otherwise (no stale override)
   const mk = buildMemkeeperSettings(arm);
   const mkPath = join(piDir, MEMKEEPER_SETTINGS_FILE);
   if (mk) {

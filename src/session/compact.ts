@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// `triggerCompact` — the bench's typed wrapper around `ctx.compact()` (§3.5).
+// `triggerCompact` — the bench's typed wrapper around `ctx.compact()`.
 //
 // The public `ctx.compact({onError})` is fire-and-forget: success arrives via the
 // `session_compact` event (carrying the persisted `CompactionEntry`); every failure —
@@ -81,7 +81,7 @@ export async function triggerCompact(
 
   // Race session_compact (success) vs signal-abort vs onError (failure). The compaction
   // is fired inside `extra` so its onError joins the same idempotent race; a pre-aborted
-  // signal short-circuits in awaitOnce BEFORE ctx.compact is ever called (R4-6).
+  // signal short-circuits in awaitOnce BEFORE ctx.compact is ever called.
   const event = await awaitOnce<SessionCompactEvent>(pi, "session_compact", {
     signal,
     makeAbortedError: (reason) => new CompactAbortedError(reason),
@@ -96,7 +96,7 @@ export async function triggerCompact(
   });
 
   const wallMs = Date.now() - start;
-  // R4-1: isolate onCompacted so a throwing callback cannot hang the promise.
+  // Isolate onCompacted so a throwing callback cannot hang the promise.
   try {
     onCompacted?.(event.compactionEntry, wallMs);
   } catch (err) {

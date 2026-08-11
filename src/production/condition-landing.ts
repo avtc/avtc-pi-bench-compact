@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Condition-landing classification + action decision (§4.17). After the trial
+// Condition-landing classification + action decision. After the trial
 // compaction finds `firstKeptEntryId`, each manifest condition is checked: did it
 // land in the compacted-away span (before the cut), sit in the kept tail (needs
 // auto-continue to slide into the span), or never materialize (needs user decision)?

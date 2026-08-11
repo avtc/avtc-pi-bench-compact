@@ -6,7 +6,7 @@ import type { ArmId } from "../config/types.js";
 import { ARM_DEFS, HARNESS_PACKAGE, SUITE_PACKAGES } from "./definitions.js";
 
 /**
- * Build the exact `packages` set for one arm (§2.1/§2.4): the full avtc-pi suite
+ * Build the exact `packages` set for one arm: the full avtc-pi suite
  * + the harness + the arm's memory extension (if any).
  *
  * The list ALWAYS includes {@link HARNESS_PACKAGE}: pi's settings deep-merge

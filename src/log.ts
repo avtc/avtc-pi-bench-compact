@@ -12,7 +12,7 @@
  * Logs land at `~/.pi/logs/avtc-pi-bench-compact/<YYYY-MM-DD>.log` (date-partitioned,
  * size roll-over + age-based retention — all handled by the library). Best-effort:
  * a logging failure never throws to the host. This file backend is load-bearing for
- * the design's §3.8 stop-and-surface model (the operator inspects logs when a run
+ * the design's stop-and-surface model (the operator inspects logs when a run
  * stops on failure); pi's Ink-based TUI does not surface `console.*` output, so a
  * console logger would silently drop every diagnostic.
  *

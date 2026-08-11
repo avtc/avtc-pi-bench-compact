@@ -3,7 +3,7 @@
 
 // The user-simulator's observation primitives — adapted from avtc-pi-memkeeper
 // (`format/chunk.ts` + `triggers.ts`), which the simulator reuses to read the
-// coding agent's output (design §4.15/§4.17). Unlike memkeeper (which renders to
+// coding agent's output. Unlike memkeeper (which renders to
 // cite source ids for an Observer), the simulator renders a readable transcript
 // of the agent's recent work to decide its next user message, so it calls
 // `buildChunks` with `includeEntryId: false` (it never cites).

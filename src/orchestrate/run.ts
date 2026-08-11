@@ -81,7 +81,7 @@ function nextRunId(root: string, date: string): number {
  * Start a bench run. Resolves the run identity, persists the run-config snapshot, sets
  * the run-state to `phase-1`, runs Phase-1, and on success advances to `phase-2`
  * (Tasks 13a/13b continue from there). On a Phase-1 stop, records the reason, notifies
- * the operator, and returns `{ kind: "stopped" }` — never auto-retries (§3.8).
+ * the operator, and returns `{ kind: "stopped" }` — never auto-retries.
  */
 export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const root = deps.root ?? benchRoot(deps.config.outputDir);
@@ -90,7 +90,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const id = nextRunId(root, date);
   const runId = `${date}-${id}`;
 
-  // Reserve the run dir immediately (R1-3): a Phase-1 stop creates no result yet, but the
+  // Reserve the run dir immediately: a Phase-1 stop creates no result yet, but the
   // identity is taken — so a same-day retry/scan sees this run + picks the next id (no collision).
   mkdirSync(runDir(root, runId), { recursive: true });
 

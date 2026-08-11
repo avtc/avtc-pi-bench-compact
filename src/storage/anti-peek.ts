@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The anti-peek prompt (§3.14). Belt-and-suspenders on branch-scoped cwd: the agent's cwd IS the
+// The anti-peek prompt. Belt-and-suspenders on branch-scoped cwd: the agent's cwd IS the
 // scenario repo working dir (on its own branch), so it can see the repo files + git history. Latest
 // LLMs are curious and may browse. This instruction forbidding it is injected at each run start
 // (before the agent's first tool-bearing turn) by Tasks 12/13a/13b. Branch-scoped cwd is the

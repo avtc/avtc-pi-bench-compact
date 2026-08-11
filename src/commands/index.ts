@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Registers every `/bench-compact:*` command (§3.13) EXCEPT `settings` (wired in
+// Registers every `/bench-compact:*` command EXCEPT `settings` (wired in
 // Task 2 via registerBenchSettings). Each handler closes over `pi` (for
 // sendUserMessage) and receives `(args, ctx)` from pi.
 //
@@ -62,7 +62,7 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // abort: real-minimal now (not a stub — §3.13 lists it as a real handler). No
+  // abort: real-minimal now (not a stub — it is a real handler). No
   // run-state or widget exists yet (Tasks 18/19), so this just signals abort intent
   // without crashing. `preflight` is not applicable (abort needs no args/config).
   pi.registerCommand("bench-compact:abort", {

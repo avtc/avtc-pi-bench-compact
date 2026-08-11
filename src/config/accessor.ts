@@ -48,13 +48,13 @@ function asBackupMode(raw: Record<string, unknown>, key: string, fallback: Backu
   return raw[key] === "extract" ? "extract" : fallback;
 }
 
-/** Derive the enabled arm ids in canonical A1..A5 order from the per-arm booleans. */
+/** Derive the enabled arm ids in canonical order from the per-arm booleans. */
 function deriveArmsEnabled(cfg: BenchConfig): ArmId[] {
   return ARM_IDS.filter((id) => cfg[ARM_ENABLED_KEY[id]] === true);
 }
 
 /**
- * Read the live bench config (§2.12). Reads `handle.getSettings()` each call so a
+ * Read the live bench config. Reads `handle.getSettings()` each call so a
  * `/reload` or in-panel edit is picked up immediately; falls back to DEFAULTS for
  * any absent/mistyped key. `armsEnabled` is derived here (not stored in settings).
  */

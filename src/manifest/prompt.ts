@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The manifest-authoring agent's system prompt — the §4.18 prompt VERBATIM.
+// The manifest-authoring agent's system prompt — the authoring prompt VERBATIM.
 // `runAuthoringAgent` substitutes `<PATH>` with the pre-sliced JSONL path +
 // appends the `knownConditions` list (build mode) before passing to runBenchStage.
 // The author emits its findings via the `write_manifest` tool (validated against

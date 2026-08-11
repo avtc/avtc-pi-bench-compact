@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-/** `awaitAgentSettled` — the bench's job-done signal (§3.6).
+/** `awaitAgentSettled` — the bench's job-done signal.
  *
  * `agent_settled` fires once both the message and tool queues have fully drained
  * (the agent finished its run, including any compaction-resumed turn). This resolves
@@ -9,7 +9,7 @@
  *
  * Runaway bound: the `avtc-pi-notification` extension's 2-min idle-alert fires when
  * the agent stalls (no activity) or fails to resume within 2 min after a manual compact
- * — that is the bench's stop-and-surface safety net for hung runs (§3.8). It is NOT
+ * — that is the bench's stop-and-surface safety net for hung runs. It is NOT
  * reimplemented here; the operator (and the notification channel) own it.
  */
 

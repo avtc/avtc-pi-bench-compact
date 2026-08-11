@@ -4,12 +4,12 @@
 // Phase-1 orchestration: compact the frozen pre-compaction backup ONCE PER ARM,
 // producing each arm's compacted base branch (the Phase-2 fork point).
 //
-// Per enabled arm (§3.1, §3.5): switchArm (isolate) → fork main→arm-base →
+// Per enabled arm: switchArm (isolate) → fork main→arm-base →
 // checkout arm-base → loadSession(inject ANTI_PEEK + triggerCompact) → commit.
-// The compaction's `usage` (UD32: every arm patched to emit per-stage usage; A1
-// native) + bench-timed `wallMs` flow into the run's C4 cost record.
+// The compaction's `usage` (every arm patched to emit per-stage usage; the bare-pi arm emits
+// natively) + bench-timed `wallMs` flow into the run's compaction-cost record.
 //
-// Stop-and-surface (§3.8): an arm-cancel (CompactionCancelledError) or a
+// Stop-and-surface: an arm-cancel (CompactionCancelledError) or a
 // degenerate empty summary HALTS the run — the operator inspects + decides. No
 // auto-retry, no silent skip. Surfaced via {@link Phase1StoppedError}.
 
@@ -29,21 +29,21 @@ import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.j
 /** One arm's compacted base (Phase-1 result). Consumed by Phase-2 forking (Task 13a). */
 export interface ArmBase {
   arm: ArmId;
-  /** Branch-name `{tool}` token (§3.14): `bare-pi` · `om-default` · … */
+  /** Branch-name `{tool}` token: `bare-pi` · `om-default` · … */
   tool: string;
-  /** Short tool-version token (`g<6hex>`/`npm<ver>`); `undefined` for A1 (omitted from branch name). */
+  /** Short tool-version token (`g<6hex>`/`npm<ver>`); `undefined` for the bare-pi arm (omitted from branch name). */
   ver: string | undefined;
   /** The run-config fingerprint `cfg-<hex>` (shared across all arms of this run). */
   cfgId: string;
   /** The arm compacted-base branch (Phase-2 fork point). */
   branch: string;
-  /** Bench-timed compaction wall-clock (ms). Carried into C4 (the JSONL has no duration). */
+  /** Bench-timed compaction wall-clock (ms). Carried into the compaction-cost metric (the JSONL has no duration). */
   wallMs: number;
   /** Per-stage LLM usage from the compaction (UD32); `undefined` only if the arm emitted none. */
   usage: CompactionEntry["usage"];
 }
 
-/** Why Phase-1 halted on an arm (§3.8 stop-and-surface). */
+/** Why Phase-1 halted on an arm (stop-and-surface). */
 export type Phase1StopReason = "cancelled" | "empty-summary";
 
 /** Thrown when Phase-1 must stop-and-surface. The run driver (Task 12c) catches it,
@@ -94,14 +94,14 @@ export interface Phase1Deps {
   id: number;
   /** Pre-computed run-config fingerprint (`cfg-<hex>`) — shared across all arms of this run. */
   cfgId: string;
-  /** Per-arm resolved tool versions (from {@link buildRunConfig}; A1 absent). */
+  /** Per-arm resolved tool versions (from {@link buildRunConfig}; the bare-pi arm is absent). */
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
   /** Injectable seams (defaults = real implementations). */
   ops?: Partial<Phase1Ops>;
 }
 
 /**
- * Assemble the run-config snapshot (resolving every enabled arm's tool version; A1 → null).
+ * Assemble the run-config snapshot (resolving every enabled arm's tool version; the bare-pi arm → null).
  * Pure transformation of {@link BenchConfig} + a {@link VersionResolver}. The run driver
  * calls this once to compute `cfgId` (`buildCfgId(rc)`) + persist the snapshot, then passes
  * `cfgId` + `rc.toolVersions` into {@link runPhase1}.
@@ -129,8 +129,8 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
 
 /**
  * Run Phase-1: compact the frozen backup once per enabled arm. Returns each arm's
- * compacted base. Throws {@link Phase1StoppedError} on arm-cancel or empty summary
- * (§3.8 — the caller stops + surfaces, never auto-retries).
+ * compacted base. Throws {@link Phase1StoppedError} on arm-cancel or empty summary;
+ * the caller stops + surfaces, never auto-retries.
  *
  * The run-config fingerprint (`cfgId`) + tool-version map are pre-computed by the run
  * driver ({@link buildRunConfig} + `buildCfgId`) and passed in — this function is purely

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Copy a real session's codebase (extract mode, §4.16 step 2) into the scenario repo
+// Copy a real session's codebase (extract mode) into the scenario repo
 // so the project files are committed to `main` alongside `session.jsonl` (CR-4). The
 // codebase at `session.cwd` IS the project files; this makes them repo-resident so the
-// agent resumes work on them in the repo cwd (§3.14).
+// agent resumes work on them in the repo cwd.
 //
 // `.git` is excluded (the repo has its own) + `node_modules` is excluded (bloat — the
 // operator reinstalls deps in the repo before Phase 2 if tests need them). Everything

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Build a pre-compaction backup (§4.15 build mode): drive the user-simulator to the
+// Build a pre-compaction backup: drive the user-simulator to the
 // compaction boundary, capture the un-compacted session, run a trial compaction to
 // find the cut, pre-slice the compacted-away span, author the manifest, + check
 // condition-landing. Tail conditions auto-continue (re-drive → re-capture → re-trial
@@ -72,10 +72,10 @@ export const ESSENTIAL_LISTS: ReadonlySet<ConditionListName> = new Set(
   CONDITION_TOPICS.filter((t) => t.tag === "essential").map((t) => `${t.metricAxis}s` as ConditionListName),
 );
 
-/** §4.15 step 4 — structural validation gate shared by build (after condition-landing
+/** Structural validation gate shared by build (after condition-landing
  *  'proceed') + extract (after authoring). The source backup is pre-compaction by
  *  construction (build captures before trial; extract guards none) → expected 0.
- *  Failures stop-and-surface (§3.8). Throws on validation failure. */
+ *  Failures stop-and-surface. Throws on validation failure. */
 export function validateAuthoredManifest(
   manifest: ScenarioManifest,
   preSliced: { readonly entryIds: readonly string[]; readonly entryTextById: ReadonlyMap<string, string> },
@@ -96,7 +96,7 @@ export function validateAuthoredManifest(
 /**
  * Drive the build flow: simulator → capture → trial-compaction → (pre-slice → author →
  * condition-landing) loop. Returns when all conditions land in the compacted-away span
- * AND the final manifest passes structural validation (§4.15 step 4).
+ * AND the final manifest passes structural validation.
  *
  * @throws {SurfaceConditionsError} when a condition never materialized (user decides).
  * @throws when the final manifest fails validation, or the continue loop exceeds `maxAttempts`.

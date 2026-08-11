@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Probe-branch lifecycle (§3.14). A probe fork is ALWAYS created (the agent's response is
+// Probe-branch lifecycle. A probe fork is ALWAYS created (the agent's response is
 // non-deterministic — it may tool-call or edit files even for a "simple" question). After the probe
 // settles: if the branch differs from its arm base ONLY by Q&A message entries (no tool-call /
 // file-mutating entries), the harness DELETES it (clean Q&A-only branch); otherwise (the agent made
@@ -48,8 +48,8 @@ export function isQaOnlyBranch(repo: string, baseBranch: string, probeBranch: st
 
   // 2. Parse the ADDED session.jsonl lines; any mutating entry → not Q&A-only. ALSO: any
   // `-` line (a removal/modification — session JSONL is append-only, so a removal is
-  // unexpected) or any unparseable `+` line → conservative keep (§3.14: "anything
-  // unexpected is kept"). (R1-4)
+  // unexpected) or any unparseable `+` line → conservative keep (anything
+  // unexpected is kept).
   const diff = diffFile(repo, baseBranch, probeBranch, "session.jsonl");
   for (const line of diff.split("\n")) {
     if (line.startsWith("-") && !line.startsWith("---")) return false; // unexpected removal/modification

@@ -20,7 +20,7 @@ export function readMessageEndUsage(event: MessageEndEvent): MessageUsage | null
 }
 
 /** Register a `turn_end` handler; returns a disposer to stop listening. Used by the
- *  live-progress widget (§3.15) and the Phase-2 context monitor. */
+ *  live-progress widget and the Phase-2 context monitor. */
 export function onTurnEnd(pi: ExtensionAPI, fn: (event: TurnEndEvent) => void): () => void {
   return pi.events.on("turn_end", (data) => {
     fn(data as TurnEndEvent);
@@ -88,7 +88,7 @@ export function awaitOnce<T>(
     };
     const dispose = once(pi, channel, (data) => settle(() => resolve(data as T)));
     if (signal !== undefined) signal.addEventListener("abort", onAbort, { once: true });
-    // R2-1: if `extra` throws synchronously (e.g. ctx.compact on a stale ctx — a real
+    // If `extra` throws synchronously (e.g. ctx.compact on a stale ctx — a real
     // hazard since loadSession invalidates the old ctx), settle via reject so BOTH
     // listeners are torn down (no leak) instead of escaping via the Promise ctor.
     try {

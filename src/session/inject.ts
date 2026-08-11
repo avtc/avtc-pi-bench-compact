@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-/** `inject` — typed wrapper over `pi.sendUserMessage(text, {deliverAs})` (§3.2).
+/** `inject` — typed wrapper over `pi.sendUserMessage(text, {deliverAs})`.
  *
  * On the `ExtensionAPI` (`pi`), NOT the context. `deliverAs` selects how the message
  * is queued relative to an in-flight agent turn:

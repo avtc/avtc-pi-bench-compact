@@ -3,7 +3,7 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-/** The five compaction/memory arms under test (§2). */
+/** The five compaction/memory arms under test. */
 export type ArmId = "A1" | "A2" | "A3" | "A4" | "A5";
 
 /** Canonical arm order. */
@@ -34,7 +34,7 @@ export const ARM_ENABLED_KEY: Record<ArmId, keyof BenchConfig> = {
 export type BackupMode = "build" | "extract";
 
 /**
- * The fully-resolved bench configuration (§2.12). `armsEnabled` is DERIVED from
+ * The fully-resolved bench configuration. `armsEnabled` is DERIVED from
  * the five per-arm booleans by the accessor (not stored in settings).
  *
  * The bench configures ONLY evaluated + judge `thinkingLevel` + model selection;
@@ -61,6 +61,6 @@ export interface BenchConfig {
   armMemkeeperSelectedRootEnabled: boolean;
   armOmFullEnabled: boolean;
   omFullReflectionThresholdTokens: number;
-  /** Derived: enabled arm ids in canonical order (A1..A5). */
+  /** Derived: enabled arm ids in canonical order. */
   armsEnabled: ArmId[];
 }

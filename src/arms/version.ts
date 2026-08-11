@@ -15,7 +15,7 @@ const nodeRequire = createRequire(import.meta.url);
  * Injectable version-resolution seams (so {@link resolveToolVersion} is unit-testable
  * without a real filesystem / git). The DEFAULT uses `require.resolve` + git rev-parse
  * + package.json; Task 12 supplies a resolver that prefers the extension's resolved
- * path from the live pi runtime. Returns {@link ToolVersion} (§3.14 — the shape
+ * path from the live pi runtime. Returns {@link ToolVersion} (the shape
  * `buildCfgId` consumes via `RunConfig.toolVersions`).
  */
 export interface VersionResolver {
@@ -36,7 +36,7 @@ function tryResolveRoot(pkg: string): string | null {
 }
 
 /**
- * CRITICAL (R1-1): `git rev-parse HEAD` walks UP to the nearest ancestor repo, so an
+ * CRITICAL: `git rev-parse HEAD` walks UP to the nearest ancestor repo, so an
  * npm-installed package nested inside a git repo (e.g. node_modules under the bench
  * repo, or a monorepo) would silently resolve to the PARENT's hash. Require the dir to
  * BE the git toplevel (the package is its own repo) before trusting the hash; otherwise
@@ -74,10 +74,10 @@ export const DEFAULT_VERSION_RESOLVER: VersionResolver = {
 };
 
 /**
- * Resolve the memory-tool version for an arm. Returns `null` for A1 (no memory
+ * Resolve the memory-tool version for an arm. Returns `null` for the bare-pi arm (no memory
  * tool). A local-folder (git) install yields the commit hash; an npm install
  * yields the package version. Throws if the package cannot be resolved or its
- * version determined (the harness must surface this — §3.8 stop-and-surface).
+ * version determined (the harness must surface this via stop-and-surface).
  */
 export function resolveToolVersion(
   arm: ArmId,
@@ -85,7 +85,7 @@ export function resolveToolVersion(
 ): ToolVersion | null {
   const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const def = ARM_DEFS[arm];
-  if (def.memoryPackage === null) return null; // A1 — bare-pi carries no tool version
+  if (def.memoryPackage === null) return null; // the bare-pi arm carries no tool version
   const root = r.resolveRoot(def.memoryPackage);
   if (root === null) {
     throw new Error(`resolveToolVersion(${arm}): cannot resolve install root of "${def.memoryPackage}"`);

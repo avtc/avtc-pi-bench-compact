@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-/** `loadSession` — typed wrapper over `cmdCtx.switchSession(path, {withSession})` (§3.2).
+/** `loadSession` — typed wrapper over `cmdCtx.switchSession(path, {withSession})`.
  *
  * switchSession loads a session file IN-PLACE: the old `ctx` is invalidated, so ALL
  * work against the new context must happen inside the `withSession` callback (which

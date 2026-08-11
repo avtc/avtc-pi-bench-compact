@@ -10,10 +10,10 @@
 
 import type { ArmId } from "../config/types.js";
 
-/** The bench pipeline phases (§3.1). */
+/** The bench pipeline phases. */
 export type BenchPhase = "phase-1" | "phase-2" | "phase-3";
 
-/** The harness run-state. One active run per process (TUI-primary, §3.4). */
+/** The harness run-state. One active run per process (TUI-primary). */
 export interface BenchRunState {
   /** `<date>-<id>` (e.g. `2026-08-11-1`). */
   runId: string;
@@ -21,7 +21,7 @@ export interface BenchRunState {
   date: string;
   /** 1-based, incremented per run started on `date`. */
   id: number;
-  /** Run-config fingerprint `cfg-<hex>` (§3.14). */
+  /** Run-config fingerprint `cfg-<hex>`. */
   cfgId: string;
   /** The scenario repo path (holds `main` + per-arm branches). */
   scenarioRepo: string;
@@ -31,7 +31,7 @@ export interface BenchRunState {
   currentArm: ArmId | null;
   /** Phase-2 attempt index (1-based; null outside phase-2). */
   currentAttempt: number | null;
-  /** Set on stop-and-surface (§3.8) — surfaces the reason to the operator. */
+  /** Set on stop-and-surface — surfaces the reason to the operator. */
   lastStopReason: string | null;
 }
 

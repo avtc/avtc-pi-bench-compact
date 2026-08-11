@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The user-simulator driver (§4.17). One cycle per coding-agent run:
+// The user-simulator driver. One cycle per coding-agent run:
 //   on `agent_settled` (the agent finished responding to the simulator's last
 //   message) → pace (context vs boundary) → observe the unobserved gap since the
 //   last injection (reusing memkeeper's computeUnobserved + buildChunks) → run ONE
-//   `runBenchStage` (maxTurns:1, no tools) with the §4.17 system prompt → read the
+//   `runBenchStage` (maxTurns:1, no tools) with the system prompt → read the
 //   assistant reply → inject it via `pi.sendUserMessage({deliverAs:"followUp"})`.
 //
-// **Trigger = agent_settled, not turn_end.** §4.15 cites `turn_end` as the
+// **Trigger = agent_settled, not turn_end.** The design cites `turn_end` as the
 // observation-mechanism heritage (memkeeper observes every turn_end); but the
 // simulator must produce exactly ONE user message per agent RUN (injecting on every
-// turn_end would queue multiple followUps mid-run). §4.17 control flow is
+// turn_end would queue multiple followUps mid-run). The control flow is
 // authoritative: "agent works → agent_end → harness measures context." So the
 // driver's cycle fires on agent_settled; the harness (Task 10/12) wires pi events
 // to `onAgentSettled` / `trackContext` / `setAgentQuestion`.
@@ -110,7 +110,7 @@ export interface SimulatorSeams {
 
 export interface SimulatorDriverDeps {
   readonly seams: SimulatorSeams;
-  /** The §4.17 system prompt (from `buildSimulatorSystemPrompt`). */
+  /** The system prompt (from `buildSimulatorSystemPrompt`). */
   readonly systemPrompt: string;
   /** The Phase-0 compaction target (tokens) — the pacing boundary. */
   readonly targetContext: number;

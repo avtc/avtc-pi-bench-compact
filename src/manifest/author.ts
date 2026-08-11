@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The manifest-authoring agent runner (§4.18). An out-of-session LLM agent with
+// The manifest-authoring agent runner. An out-of-session LLM agent with
 // pi's CORE tools (read/grep/find/ls + bash) pointed at the pre-sliced
 // compacted-away JSONL + a `write_manifest` terminal tool. The agent discovers
 // recallFacts / doneOps / supersessions / abstentions + writes probes, emits the
@@ -169,7 +169,7 @@ export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext):
 }
 
 /**
- * Build the authoring system prompt: the §4.18 prompt with `<PATH>` substituted
+ * Build the authoring system prompt: the authoring prompt with `<PATH>` substituted
  * by the pre-sliced JSONL path, plus the `knownConditions` list appended when the
  * session was designed with anchors (build mode). Extract mode omits the data.
  */
@@ -189,7 +189,7 @@ export function buildAuthoringSystemPrompt(deps: {
 
 /**
  * Compose the authoring tool set: pi's core read-only tools (read/grep/find/ls) +
- * `bash` (for JSONL parsing — §4.18) bound to `cwd` + the `write_manifest` terminal
+ * `bash` (for JSONL parsing) bound to `cwd` + the `write_manifest` terminal
  * tool (validated against `AUTHOR_OUTPUT_SCHEMA`, captures payloads on `._captured`).
  */
 export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeManifest: JsonOutputTool } {
@@ -204,7 +204,7 @@ export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeMan
  * then post-process the captured payload into a full `ScenarioManifest`.
  *
  * @throws when the model cannot be resolved OR the agent never called
- *   `write_manifest` (no capture) — caller STOP-and-surfaces (§3.8).
+ *   `write_manifest` (no capture) — caller STOP-and-surfaces.
  */
 export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<ScenarioManifest> {
   const { tools, writeManifest } = buildAuthoringTools(deps.cwd);
@@ -241,7 +241,7 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
   });
 
   // A timed-out / aborted stage may have left a partial `write_manifest` capture —
-  // do NOT silently post-process it; surface the failure (§3.8 stop-and-surface).
+  // do NOT silently post-process it; surface the failure (stop-and-surface).
   if (result.timedOut) {
     throw new Error("authoring stage timed out before completing the manifest");
   }

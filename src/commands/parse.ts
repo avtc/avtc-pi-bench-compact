@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Argument parsing for the `/bench-compact:*` commands (§3.13). Pure functions —
+// Argument parsing for the `/bench-compact:*` commands. Pure functions —
 // no I/O, no config. Each parser extracts structured args + sets `error` on a
 // malformed flag/value (completeness — e.g. a missing idea/path — is preflight's
 // job in validate.ts, not the parser's).
@@ -64,10 +64,10 @@ export function parsePrepareArgs(args: string): PrepareArgs {
   };
 }
 
-/** A single results run reference: a runId + optional arm subset (`:A1,A3`). */
+/** A single results run reference: a runId + optional arm subset (`:<armids>` — comma-separated). */
 export interface RunRef {
   runId: string;
-  /** Arm subset (`A1,A3`); undefined = all arms of that run. */
+  /** Arm subset (comma-separated arm ids); undefined = all arms of that run. */
   arms?: ArmId[];
 }
 
@@ -87,7 +87,7 @@ function tokenize(args: string): string[] {
 }
 
 /** Parse results args: one or more `<runId>[:arms]` tokens (whitespace-separated).
- *  `:arms` is a comma-separated subset of A1..A5. */
+ *  `:arms` is a comma-separated subset of the five arm ids. */
 export function parseResultsArgs(args: string): ResultsArgs {
   const tokens = tokenize(args);
   if (tokens.length === 0) {
@@ -104,9 +104,9 @@ export function parseResultsArgs(args: string): ResultsArgs {
       runId = tok.slice(0, colon);
       const armsStr = tok.slice(colon + 1);
       // A trailing comma signals the user put a space where a comma belonged — e.g.
-      // "run1:A1, A3" tokenizes to "run1:A1," + "A3". Whitespace SEPARATES runs, so
-      // :arms must be space-free; reject the mis-parse instead of silently producing
-      // [{run1,A1},{A3}] (R2-1). (Each `tok` is already space-free via tokenize, so the
+      // `run1:<arm>, <arm>` tokenizes to `run1:<arm>,` + `<arm>`. Whitespace SEPARATES runs, so
+      // :arms must be space-free; reject the mis-parse instead of silently splitting one
+      // run+arm-subset into two runs. (Each `tok` is already space-free via tokenize, so the
       // arm pieces need no trimming.)
       if (armsStr.endsWith(",")) {
         return {
@@ -116,7 +116,7 @@ export function parseResultsArgs(args: string): ResultsArgs {
       }
       const pieces = armsStr.split(",");
       // A leading or internal double comma leaves an empty entry — same silent-misparse
-      // class as the trailing comma (R3-1). Reject rather than drop the empty piece.
+      // class as the trailing comma. Reject rather than drop the empty piece.
       if (pieces.some((s) => s.length === 0)) {
         return {
           runs: [],

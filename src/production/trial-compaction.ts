@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Trial compaction: find where the native cut lands on a COPY of the backup (no
-// memory extension — A1-style), so the manifest-authoring agent gets the exact
+// memory extension — bare-pi-style), so the manifest-authoring agent gets the exact
 // compacted-away span it will be tested on. The copy is NOT the real backup — the
 // real backup stays un-compacted (the bench performs the first compaction per arm
 // in Task 12).

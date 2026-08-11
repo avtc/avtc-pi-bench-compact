@@ -13,7 +13,7 @@
  *
  * Adapted from avtc-pi-memkeeper's `runtime/agent-loop.ts` (renamed
  * `runStage`→`runBenchStage`; `StageUsage` extended with `cacheWrite` for the
- * bench's C4 cost breakdown). Owns NOTHING about the prompt, tools, or model —
+ * bench's compaction-cost breakdown). Owns NOTHING about the prompt, tools, or model —
  * each caller provides those. This module is pure plumbing.
  */
 
@@ -43,7 +43,7 @@ export const NO_LOOP_OVERRIDE = null;
 export const SEQUENTIAL = "sequential" as const;
 
 /** Per-run usage accumulated by a stage. `cacheWrite` is the bench extension over
- *  memkeeper (the C4 cost breakdown attributes cache-write tokens + $ per arm). */
+ *  memkeeper (the compaction-cost breakdown attributes cache-write tokens + $ per arm). */
 export interface StageUsage {
   input: number;
   output: number;

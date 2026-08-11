@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Thin git wrappers for the scenario repo (§3.14). The repo tracks `session.jsonl` + the project
+// Thin git wrappers for the scenario repo. The repo tracks `session.jsonl` + the project
 // files; a branch per (arm × attempt | probe) lets states coexist + be diffed (the judge inspects
 // via plain `git diff`/`git log`). These run `git` via the bench's OWN exec (node:child_process),
 // NOT the agent's bash tool — the harness drives git directly at phase boundaries.
 //
-// Sequential, single worktree (§3.14): the harness `checkout`s the active branch, the agent works
+// Sequential, single worktree: the harness `checkout`s the active branch, the agent works
 // in the repo cwd, and the harness commits ONLY at agent_settled / phase boundary (the live file is
 // uncommitted mid-run). One branch live at a time → no worktrees.
 
@@ -17,7 +17,7 @@ import { join } from "node:path";
 /** Bench-internal, never tracked scenario content: `.pi/` holds the arm-isolation settings
  *  (`settings.json` packages + memkeeper config) that `switchArm` writes per arm. Committing them
  *  would (a) reveal the active arm to the agent (anti-peek violation) + (b) pollute every arm
- *  branch's diff vs `main` (R1-2). `.git/info/exclude` is local-only + doesn't survive a fresh
+ *  branch's diff vs `main`. `.git/info/exclude` is local-only + doesn't survive a fresh
  *  clone, so a committed `.gitignore` is the robust choice. */
 const SCENARIO_GITIGNORE = ".pi/\n";
 
@@ -42,7 +42,7 @@ function runGit(cwd: string, args: string[]): string {
  * Sets a local git identity so commits succeed in a fresh repo.
  */
 export function initScenarioRepo(repoPath: string, opts: { message?: string } = {}): string {
-  // Ignore bench-internal `.pi/` BEFORE the first add (R1-2) — persists across forks/branches.
+  // Ignore bench-internal `.pi/` BEFORE the first add — persists across forks/branches.
   writeFileSync(join(repoPath, ".gitignore"), SCENARIO_GITIGNORE, "utf-8");
   runGit(repoPath, ["init", "-b", "main"]);
   // local identity — a fresh repo has none, so commits would fail without this.
@@ -65,7 +65,7 @@ export function checkout(repo: string, branch: string): void {
 
 /** Stage all changes + commit them with `message` (called at agent_settled / phase boundary).
  *  `--allow-empty`: a boundary may have no working-tree changes (the agent only read files); the
- *  harness still records the boundary as a commit. (R1-9) */
+ *  harness still records the boundary as a commit. */
 export function commitAll(repo: string, message: string): void {
   runGit(repo, ["add", "-A"]);
   runGit(repo, ["commit", "--allow-empty", "-m", message]);

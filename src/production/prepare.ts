@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The prepare-scenario orchestrator (§4.15): build OR extract a pre-compaction
+// The prepare-scenario orchestrator: build OR extract a pre-compaction
 // backup, author + validate the manifest, then freeze. Reusable by the
 // `/bench-compact:prepare-scenario` command (Task 10h) AND Task 19's `run <idea>`
 // Phase-0 entry point.
@@ -57,7 +57,7 @@ function validateDeps(deps: PrepareDeps): void {
   if (extractMode && !deps.extractOutputPath) {
     throw new Error("extract mode requires `extractOutputPath`");
   }
-  // R1-3: contamination guards on intermediate artifact paths.
+  // Contamination guards on intermediate artifact paths.
   assertNotInRepo(deps.preSliceDir, deps.repoPath);
   if (deps.extractOutputPath !== undefined) {
     assertNotInRepo(deps.extractOutputPath, deps.repoPath);
@@ -90,8 +90,8 @@ export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: st
     const trial = await deps.seams.trialCompact(backupPath);
     const preSliced = preSlice(backupPath, trial.firstKeptEntryId, join(deps.preSliceDir, "extract-sliced.jsonl"));
     manifest = await deps.seams.author(preSliced.jsonlPath);
-    // §4.15 step 4 — structural validation gate (extract: stricter since ground truth is
-    // discovered). Failures stop-and-surface (§3.8).
+    // Structural validation gate (extract: stricter since ground truth is
+    // discovered). Failures stop-and-surface.
     validateAuthoredManifest(manifest, preSliced, backupPath);
   } else {
     // build mode: simulator → capture → trial → pre-slice → author → condition-landing loop.

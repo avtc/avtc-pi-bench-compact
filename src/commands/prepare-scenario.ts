@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The `/bench-compact:prepare-scenario` command (§3.13). Thin wrapper: parse args,
+// The `/bench-compact:prepare-scenario` command. Thin wrapper: parse args,
 // preflight, compute the scenario id + paths, then call `prepareScenario` (Task 10g).
 // All orchestration lives in prepare.ts for reuse by Task 19's `run <idea>` Phase-0.
 //

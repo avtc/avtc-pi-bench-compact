@@ -10,18 +10,18 @@
 // chars/4 over deltas when the provider reports no usage).
 //
 // Copied from avtc-pi-memkeeper's `runtime/streaming-tokens.ts` and EXTENDED:
-// `MessageUsage` carries `cacheWrite` (memkeeper lacks it) so the bench's C4
-// compaction-cost breakdown can attribute cache-write tokens + $ per arm. The
-// chars/4 token estimate is inlined here (single source — Task-14's C1 metric
+// `MessageUsage` carries `cacheWrite` (memkeeper lacks it) so the bench's compaction-cost
+// breakdown can attribute cache-write tokens + $ per arm. The
+// chars/4 token estimate is inlined here (single source — the footprint metric
 // reuses `estimateContentTokens`).
 
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 
-/** chars-per-token estimate (the fallback-tier unit + the C1 tokenizer). */
+/** chars-per-token estimate (the fallback-tier unit + the footprint tokenizer). */
 export const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 /** Estimate the token count for a content/summary string (chars/4). Shared by the
- *  fallback output tier and the C1 footprint metric (Task 14). */
+ *  fallback output tier and the footprint metric (Task 14). */
 export function estimateContentTokens(content: string): number {
   return Math.ceil(content.length / CHARS_PER_TOKEN_ESTIMATE);
 }
@@ -35,7 +35,7 @@ export interface MessageUsage {
   output: number;
   cacheRead: number;
   /** Prompt-cache WRITE tokens (cache-fill). Memkeeper's slice lacks this; the
-   *  bench's C4 cost breakdown attributes cacheWrite $ per arm. */
+   *  bench's compaction-cost breakdown attributes cacheWrite $ per arm. */
   cacheWrite: number;
   cost: number;
   totalTokens: number;

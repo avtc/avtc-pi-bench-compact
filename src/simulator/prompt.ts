@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The user-simulator's system prompt (§4.17). The simulator is an LLM playing the
+// The user-simulator's system prompt. The simulator is an LLM playing the
 // USER / project designer; the harness paces + stops on context (the simulator
 // can't measure tokens). The project THEME is a PARAMETER (`task`) — the prompt
 // contains no scenario-specific assumptions, so it works for any `<idea>` in
@@ -21,7 +21,7 @@ export interface SimulatorSystemPromptInput {
   readonly conditionTopics: readonly ConditionTopic[];
   /** The Phase-0 compaction target in tokens. Used ONLY for qualitative pacing
    *  guidance (the simulator can't act on a raw token count; the harness owns the
-   *  stop). §4.17. */
+   *  stop). */
   readonly targetContext: number;
 }
 
@@ -37,7 +37,7 @@ function pacingClause(targetContext: number): string {
 }
 
 /**
- * Build the user-simulator's system prompt (§4.17). Plain role-play instructions;
+ * Build the user-simulator's system prompt. Plain role-play instructions;
  * no bench jargon, no `[STOP]`, no tool, no metric ids. The harness stops on
  * context — the simulator never decides to stop.
  */

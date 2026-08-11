@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Pre-flight validation for `/bench-compact:*` commands (§3.13). Runs BEFORE any
+// Pre-flight validation for `/bench-compact:*` commands. Runs BEFORE any
 // work starts; on failure the command refuses with a one-line reason (no run started).
 //
 // Two layers: (1) the bench CONFIG rules (delegated to `validateBenchConfig` from
-// Task 2 — ≥1 arm, compactionBoundary ≥20K, A5 threshold sane) applied to every
+// Task 2 — ≥1 arm, compactionBoundary ≥20K, OM-full threshold sane) applied to every
 // command; (2) per-command arg/path checks (idea-or-path presence, path existence
 // via an injectable `exists` checker so the unit is pure-testable).
 
@@ -25,10 +25,10 @@ export type CommandKind = "prepare" | "run" | "run-scenario" | "run-session-file
 /**
  * Validate that a command may proceed.
  *
- * @param cfg — the resolved bench config (config rules: ≥1 arm, boundary, A5).
+ * @param cfg — the resolved bench config (config rules: ≥1 arm, boundary, OM-full threshold).
  * @param kind — which command is asking.
  * @param args — the parsed command args.
- * @param exists — path-existence checker (default `fs.existsSync`; injected for tests).
+ * @param exists — path-existence checker (pass null to use `fs.existsSync`; injected for tests).
  */
 export function preflight(
   cfg: BenchConfig,
@@ -46,7 +46,7 @@ export function preflight(
     case "prepare":
     case "run": {
       const a = args as PrepareArgs;
-      // build vs extract are mutually exclusive (§3.13 — distinct modes).
+      // build vs extract are mutually exclusive (distinct modes).
       if (a.fromSession !== undefined && a.idea !== undefined && a.idea.length > 0) {
         return { ok: false, reason: "provide a build idea OR --from-session <path>, not both" };
       }
