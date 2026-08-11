@@ -11,7 +11,8 @@
 // ⇒ a different cfgId). The full config is persisted at configs/<cfgId>.json (§3.14, configs.ts).
 
 import { createHash } from "node:crypto";
-import type { ArmId, BackupMode, ThinkingLevel } from "../config/types.js";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ArmId, BackupMode } from "../config/types.js";
 
 /** A resolved memory-tool version for one arm. */
 export interface ToolVersion {
