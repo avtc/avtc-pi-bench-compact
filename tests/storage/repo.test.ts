@@ -78,4 +78,11 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     initScenarioRepo(repo);
     expect(() => commitAll(repo, "no-op phase boundary")).not.toThrow();
   });
+
+  it("git failures throw a contextual error with the command (R2-1, §3.8 stop-and-surface)", () => {
+    initScenarioRepo(repo);
+    // checkout a non-existent branch -> git fails; runGit must surface the command + failure
+    expect(() => checkout(repo, "no-such-branch")).toThrow(/failed/i);
+    expect(() => checkout(repo, "no-such-branch")).toThrow(/checkout no-such-branch/);
+  });
 });

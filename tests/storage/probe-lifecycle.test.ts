@@ -85,4 +85,11 @@ describe("isQaOnlyBranch (real git, synthetic JSONL)", () => {
     commitAll(repo, "probe modify");
     expect(isQaOnlyBranch(repo, base, br)).toBe(false);
   });
+
+  it("false when an added session.jsonl line is unparseable (defensive keep — Issue #1)", () => {
+    const br = probeBranch("p-bad");
+    appendSession(["this is not valid json"]);
+    commitAll(repo, "probe malformed");
+    expect(isQaOnlyBranch(repo, base, br)).toBe(false);
+  });
 });
