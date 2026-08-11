@@ -73,7 +73,7 @@ const entryText = new Map<string, string>([
   ["e4", "user: which renderer should we use?"],
 ]);
 
-function cleanCtx(overrides: Partial<ManifestValidationContext> = {}): ManifestValidationContext {
+function cleanCtx(overrides: Partial<ManifestValidationContext>): ManifestValidationContext {
   return {
     preSlicedEntryIds: new Set(["e1", "e2", "e3", "e4"]),
     entryTextById: entryText,
@@ -86,13 +86,13 @@ function cleanCtx(overrides: Partial<ManifestValidationContext> = {}): ManifestV
 
 describe("validateManifest — accept", () => {
   it("accepts a clean manifest with all conditions in-span + content present", () => {
-    const r = validateManifest(cleanManifest(), cleanCtx());
+    const r = validateManifest(cleanManifest(), cleanCtx({}));
     expect(r.ok).toBe(true);
   });
 
   it("accepts when a non-essential list (supersessions/abstentions) is empty", () => {
     const m = cleanManifest();
-    const r = validateManifest({ ...m, supersessions: [], abstentions: [] }, cleanCtx());
+    const r = validateManifest({ ...m, supersessions: [], abstentions: [] }, cleanCtx({}));
     expect(r.ok).toBe(true);
   });
 });
@@ -100,7 +100,7 @@ describe("validateManifest — accept", () => {
 describe("validateManifest — reject", () => {
   it("rejects an entryId not in the pre-sliced (in-span) set", () => {
     const m = withFirstRecallFact(cleanManifest(), { entryIds: ["e1", "e99"] }); // e99 not in span
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.reasons.join("\n")).toMatch(/e99/);
@@ -114,21 +114,21 @@ describe("validateManifest — reject", () => {
       fact: "totally unrelated hallucinated fact xyz",
       entryIds: ["e2"],
     });
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/content|present|e2/i);
   });
 
   it("rejects when an essential list (recallFacts) is empty", () => {
     const m = cleanManifest();
-    const r = validateManifest({ ...m, recallFacts: [] }, cleanCtx());
+    const r = validateManifest({ ...m, recallFacts: [] }, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/recallFacts|essential|empty/i);
   });
 
   it("rejects when doneOps essential list is empty", () => {
     const m = cleanManifest();
-    const r = validateManifest({ ...m, doneOps: [] }, cleanCtx());
+    const r = validateManifest({ ...m, doneOps: [] }, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/doneOps|essential|empty/i);
   });
@@ -141,7 +141,7 @@ describe("validateManifest — reject", () => {
 
   it("accumulates multiple reasons (not just the first)", () => {
     const m = withFirstRecallFact(cleanManifest(), { entryIds: ["e99"] }); // out-of-span
-    const r = validateManifest({ ...m, doneOps: [] }, cleanCtx()); // + essential empty
+    const r = validateManifest({ ...m, doneOps: [] }, cleanCtx({})); // + essential empty
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.length).toBeGreaterThanOrEqual(2);
   });
@@ -150,7 +150,7 @@ describe("validateManifest — reject", () => {
 describe("validateManifest — probe checks", () => {
   it("rejects a probe with neither accept nor correctRefusal", () => {
     const m = { ...cleanManifest(), probes: [{ question: "q?", targets: ["e1"], lanes: ["direct-probe"] }] as Probe[] };
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/accept|correctRefusal|exactly one/i);
   });
@@ -162,14 +162,14 @@ describe("validateManifest — probe checks", () => {
         { question: "q?", accept: ["x"], correctRefusal: true, targets: ["e1"], lanes: ["direct-probe"] },
       ] as Probe[],
     };
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/exactly one/i);
   });
 
   it("rejects a manifest with conditions but NO probes", () => {
     const m = { ...cleanManifest(), probes: [] };
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/probe/i);
   });
@@ -248,14 +248,14 @@ describe("validateManifest — probe checks", () => {
         { question: "extra?", accept: ["x"], targets: ["e99"], lanes: ["direct-probe"] } as Probe,
       ],
     };
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/e99/);
   });
 
   it("R3-1: when probes is empty, emits ONE summary reason (not N+1 redundant per-condition reasons)", () => {
     const m = { ...cleanManifest(), probes: [] };
-    const r = validateManifest(m, cleanCtx());
+    const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) {
       const probeReasons = r.reasons.filter((x) => /probe|target/i.test(x));
@@ -274,6 +274,6 @@ describe("validateManifest — content check is lenient (any search-term matches
       accept: ["~/.scores.json"],
       entryIds: ["e1"],
     });
-    expect(validateManifest(m, cleanCtx()).ok).toBe(true);
+    expect(validateManifest(m, cleanCtx({})).ok).toBe(true);
   });
 });

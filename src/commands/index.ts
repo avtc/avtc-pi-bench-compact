@@ -12,6 +12,7 @@
 // refines run-stop semantics.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { existsSync } from "node:fs";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
 import { parsePositional, parsePrepareArgs, parseResultsArgs } from "./parse.js";
@@ -98,7 +99,7 @@ function stub(
         ctx.ui.notify(parsed.error, "warning");
         return;
       }
-      const check = preflight(getBenchConfig(), kind, parsed);
+      const check = preflight(getBenchConfig(), kind, parsed, existsSync);
       if (!check.ok) {
         ctx.ui.notify(check.reason, "warning");
         return;

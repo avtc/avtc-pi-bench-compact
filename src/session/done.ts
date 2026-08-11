@@ -35,9 +35,10 @@ export interface AwaitSettledOptions {
  *  `AgentSettledAbortedError` on `signal` abort. The one-shot `agent_settled` listener
  *  AND the signal abort listener are both removed on settle (no accumulation across
  *  multiple awaits on the long-lived run signal) — handled by the shared `awaitOnce`. */
-export async function awaitAgentSettled(pi: ExtensionAPI, options: AwaitSettledOptions = {}): Promise<void> {
+export async function awaitAgentSettled(pi: ExtensionAPI, options: AwaitSettledOptions | null): Promise<void> {
+  const opts = options ?? {};
   await awaitOnce(pi, "agent_settled", {
-    signal: options.signal,
+    signal: opts.signal,
     makeAbortedError: (reason) => new AgentSettledAbortedError(reason),
   });
 }

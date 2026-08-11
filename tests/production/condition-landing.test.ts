@@ -30,7 +30,7 @@ describe("classifyLanding", () => {
       recallFacts: [{ id: "rf1", fact: "x", accept: ["x"], entryIds: ["e1"], domain: "technical", lanes: [] }],
       doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const byId = Object.fromEntries(cls.map((c) => [c.topic.id, c.status]));
     expect(byId["key-decision"]).toBe("landed"); // e1 < e4
     expect(byId["completed-system"]).toBe("landed"); // e2 < e4
@@ -42,7 +42,7 @@ describe("classifyLanding", () => {
       recallFacts: [{ id: "rf1", fact: "x", accept: ["x"], entryIds: ["e5"], domain: "technical", lanes: [] }], // e5 >= e4 → tail
       doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const byId = Object.fromEntries(cls.map((c) => [c.topic.id, c.status]));
     expect(byId["key-decision"]).toBe("tail");
     expect(byId["completed-system"]).toBe("landed");
@@ -55,7 +55,7 @@ describe("classifyLanding", () => {
       doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
       // supersessions + abstentions empty → change-mind + open-question missing
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const byId = Object.fromEntries(cls.map((c) => [c.topic.id, c.status]));
     expect(byId["change-mind"]).toBe("missing");
     expect(byId["open-question"]).toBe("missing");
@@ -86,7 +86,7 @@ describe("decideLandingAction", () => {
       supersessions: [{ id: "ss1", subject: "x", oldValue: "a", latestValue: "b", entryIds: ["e3"], lanes: [] }],
       abstentions: [{ id: "ab1", question: "q?", correctRefusal: true, entryIds: ["e3"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     expect(decideLandingAction(cls)).toEqual({ kind: "proceed" });
   });
 
@@ -98,7 +98,7 @@ describe("decideLandingAction", () => {
       supersessions: [{ id: "ss1", subject: "x", oldValue: "a", latestValue: "b", entryIds: ["e3"], lanes: [] }],
       abstentions: [{ id: "ab1", question: "q?", correctRefusal: true, entryIds: ["e3"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const action = decideLandingAction(cls);
     expect(action.kind).toBe("continue");
   });
@@ -111,7 +111,7 @@ describe("decideLandingAction", () => {
       supersessions: [{ id: "ss1", subject: "x", oldValue: "a", latestValue: "b", entryIds: ["e3"], lanes: [] }],
       abstentions: [{ id: "ab1", question: "q?", correctRefusal: true, entryIds: ["e3"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const action = decideLandingAction(cls);
     expect(action.kind).toBe("surface");
     if (action.kind === "surface") expect(action.skipOffered).toBe(false); // essential missing → no skip
@@ -124,7 +124,7 @@ describe("decideLandingAction", () => {
       doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
       // change-mind + open-question (both safeToSkip) missing
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const action = decideLandingAction(cls);
     expect(action.kind).toBe("surface");
     if (action.kind === "surface") expect(action.skipOffered).toBe(true);
@@ -137,7 +137,7 @@ describe("decideLandingAction", () => {
       doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
       abstentions: [{ id: "ab1", question: "q?", correctRefusal: true, entryIds: ["e3"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     const action = decideLandingAction(cls);
     if (action.kind === "surface") expect(action.skipOffered).toBe(false);
   });
@@ -150,7 +150,7 @@ describe("decideLandingAction", () => {
       supersessions: [{ id: "ss1", subject: "x", oldValue: "a", latestValue: "b", entryIds: ["e3"], lanes: [] }],
       abstentions: [{ id: "ab1", question: "q?", correctRefusal: true, entryIds: ["e3"], lanes: [] }],
     };
-    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS);
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
     expect(decideLandingAction(cls).kind).toBe("surface"); // missing wins over tail
   });
 });

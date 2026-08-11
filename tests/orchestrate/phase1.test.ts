@@ -38,7 +38,7 @@ function makeUsage(input: number, output: number): Usage {
   };
 }
 
-function makeCompactionEntry(overrides: Partial<CompactionEntry> = {}): CompactionEntry {
+function makeCompactionEntry(overrides: Partial<CompactionEntry>): CompactionEntry {
   return {
     type: "compaction",
     id: "c1",
@@ -67,7 +67,7 @@ interface FakeOps {
 function makeFakeOps(): FakeOps {
   return {
     switchArm: vi.fn(async () => {}),
-    trigger: vi.fn(async () => ({ compactionEntry: makeCompactionEntry(), wallMs: 4200 })),
+    trigger: vi.fn(async () => ({ compactionEntry: makeCompactionEntry({}), wallMs: 4200 })),
     loadSession: vi.fn(),
     resolveVersion: vi.fn((arm: string) => {
       if (arm === "A1") return null;

@@ -81,19 +81,20 @@ export const DEFAULT_VERSION_RESOLVER: VersionResolver = {
  */
 export function resolveToolVersion(
   arm: ArmId,
-  resolver: VersionResolver = DEFAULT_VERSION_RESOLVER,
+  resolver: VersionResolver | null,
 ): ToolVersion | null {
+  const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const def = ARM_DEFS[arm];
   if (def.memoryPackage === null) return null; // A1 — bare-pi carries no tool version
-  const root = resolver.resolveRoot(def.memoryPackage);
+  const root = r.resolveRoot(def.memoryPackage);
   if (root === null) {
     throw new Error(`resolveToolVersion(${arm}): cannot resolve install root of "${def.memoryPackage}"`);
   }
   // Local-folder (git) takes precedence — a git checkout is the authoritative version.
-  const git = resolver.gitHead(root);
+  const git = r.gitHead(root);
   if (git) return { source: "git", commit: shortGitVersion(git), full: git };
   // npm install — fall back to the package.json version.
-  const version = resolver.npmVersion(root);
+  const version = r.npmVersion(root);
   if (version) return { source: "npm", commit: shortNpmVersion(version), full: version };
   throw new Error(`resolveToolVersion(${arm}): cannot determine version of "${def.memoryPackage}" at ${root}`);
 }

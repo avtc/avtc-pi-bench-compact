@@ -106,10 +106,11 @@ export interface Phase1Deps {
  * calls this once to compute `cfgId` (`buildCfgId(rc)`) + persist the snapshot, then passes
  * `cfgId` + `rc.toolVersions` into {@link runPhase1}.
  */
-export function buildRunConfig(config: BenchConfig, resolver: VersionResolver = DEFAULT_VERSION_RESOLVER): RunConfig {
+export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | null): RunConfig {
+  const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const toolVersions: Partial<Record<ArmId, ToolVersion>> = {};
   for (const arm of config.armsEnabled) {
-    const tv = resolveToolVersion(arm, resolver);
+    const tv = resolveToolVersion(arm, r);
     if (tv) toolVersions[arm] = tv;
   }
   return {
@@ -168,7 +169,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<ArmBase[]> {
     try {
       ({ compactionEntry, wallMs } = await ops.loadSession(deps.cmdCtx, sessionPath, async (sessionCtx) => {
         inject(deps.pi, ANTI_PEEK_PROMPT, "followUp");
-        return ops.trigger(deps.pi, sessionCtx);
+        return ops.trigger(deps.pi, sessionCtx, {});
       }));
     } catch (err) {
       if (err instanceof CompactionCancelledError) {

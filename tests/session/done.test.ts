@@ -8,7 +8,7 @@ import { fakeBus, fakeSignal } from "./helpers.js";
 describe("awaitAgentSettled", () => {
   it("resolves when agent_settled fires", async () => {
     const { pi, emit } = fakeBus();
-    const p = awaitAgentSettled(pi);
+    const p = awaitAgentSettled(pi, null);
     emit("agent_settled", { type: "agent_settled" });
     await expect(p).resolves.toBeUndefined();
   });

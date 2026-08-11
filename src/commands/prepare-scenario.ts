@@ -11,6 +11,7 @@
 // defers live-seam construction to Task 19.
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
@@ -54,7 +55,7 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       notify(parsed.error, "warning");
       return;
     }
-    const check = preflight(getBenchConfig(), "prepare", parsed);
+    const check = preflight(getBenchConfig(), "prepare", parsed, existsSync);
     if (!check.ok) {
       notify(check.reason, "warning");
       return;

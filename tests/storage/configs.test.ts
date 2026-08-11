@@ -9,7 +9,7 @@ import type { RunConfig } from "../../src/storage/branches.js";
 import { writeRunConfig } from "../../src/storage/configs.js";
 import { configPath } from "../../src/storage/paths.js";
 
-function sampleRunConfig(over: Partial<RunConfig> = {}): RunConfig {
+function sampleRunConfig(over: Partial<RunConfig>): RunConfig {
   return {
     evaluatedModel: "zai/glm-5.1",
     evaluatedThinkingLevel: "high",
@@ -37,7 +37,7 @@ describe("writeRunConfig", () => {
   });
 
   it("writes the full run config to configs/<cfgId>.json + returns the path", () => {
-    const rc = sampleRunConfig();
+    const rc = sampleRunConfig({});
     const file = writeRunConfig("cfg-a3f2c1", rc, root);
     expect(file).toBe(configPath(root, "cfg-a3f2c1"));
     expect(existsSync(file)).toBe(true);
@@ -46,13 +46,13 @@ describe("writeRunConfig", () => {
   });
 
   it("creates the configs/ dir if missing", () => {
-    const rc = sampleRunConfig();
+    const rc = sampleRunConfig({});
     const file = writeRunConfig("cfg-deadbe", rc, root);
     expect(existsSync(path.dirname(file))).toBe(true);
   });
 
   it("contamination: the config path is exactly root/configs/<cfgId>.json, never in a repo", () => {
-    const rc = sampleRunConfig();
+    const rc = sampleRunConfig({});
     const file = writeRunConfig("cfg-xyz123", rc, root);
     // exact path (R1-5: strengthen beyond substring checks)
     expect(file).toBe(path.join(root, "configs", "cfg-xyz123.json"));

@@ -59,15 +59,16 @@ export function classifyLanding(
   firstKeptEntryId: string,
   entryOrder: Map<string, number>,
   topics: readonly ConditionTopic[],
-  tailContentTopics: ReadonlySet<string> = new Set(),
+  tailContentTopics: ReadonlySet<string> | null,
 ): TopicLanding[] {
+  const tail = tailContentTopics ?? new Set<string>();
   const cutIndex = entryOrder.get(firstKeptEntryId);
   return topics.map((topic) => {
     const conditions = manifest[listKey(topic.metricAxis)] as readonly CitedCondition[];
     if (conditions.length === 0) {
       // No condition authored (the author found nothing in the span). The harness's
       // tail-check decides: content-in-tail → auto-continue; else → surface.
-      return { topic, status: tailContentTopics.has(topic.id) ? ("tail" as const) : ("missing" as const) };
+      return { topic, status: tail.has(topic.id) ? ("tail" as const) : ("missing" as const) };
     }
     // tail if ANY condition cites an entry at/after the cut (in the kept tail).
     const hasTail = conditions.some((c) =>

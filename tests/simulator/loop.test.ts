@@ -98,7 +98,7 @@ function fakeStageResult(text: string) {
   };
 }
 
-function makeSeams(overrides: Partial<SimulatorSeams> = {}): SimulatorSeams {
+function makeSeams(overrides: Partial<SimulatorSeams>): SimulatorSeams {
   return {
     getBranch: () => [],
     resolveModel: async () => ({ ok: true, model: { id: "fake" } as unknown as Model<Api>, apiKey: "k" }),
@@ -131,7 +131,7 @@ describe("SimulatorDriver", () => {
 
   it("context ≥ boundary → signals stop, does NOT inject (harness captures backup)", async () => {
     const onStop = vi.fn();
-    const seams = makeSeams();
+    const seams = makeSeams({});
     const driver = makeDriver(seams, { targetContext: 140_000, hooks: { onStop } });
     driver.trackContext(150_000);
     await driver.onAgentSettled();
@@ -168,7 +168,7 @@ describe("SimulatorDriver", () => {
   });
 
   it("advances the step counter across cycles", async () => {
-    const seams = makeSeams();
+    const seams = makeSeams({});
     const driver = makeDriver(seams);
     driver.trackContext(10_000);
     await driver.onAgentSettled();

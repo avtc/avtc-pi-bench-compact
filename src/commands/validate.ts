@@ -34,8 +34,9 @@ export function preflight(
   cfg: BenchConfig,
   kind: CommandKind,
   args: CommandArgs,
-  exists: (path: string) => boolean = existsSync,
+  exists: ((path: string) => boolean) | null,
 ): PreflightResult {
+  const existsFn = exists ?? existsSync;
   // (1) config rules — every command.
   const cfgResult = validateBenchConfig(cfg);
   if (!cfgResult.ok) return cfgResult;
@@ -50,7 +51,7 @@ export function preflight(
         return { ok: false, reason: "provide a build idea OR --from-session <path>, not both" };
       }
       if (a.fromSession !== undefined) {
-        if (!exists(a.fromSession)) return { ok: false, reason: `--from-session path not found: ${a.fromSession}` };
+        if (!existsFn(a.fromSession)) return { ok: false, reason: `--from-session path not found: ${a.fromSession}` };
         return { ok: true };
       }
       if (a.idea !== undefined && a.idea.length > 0) return { ok: true };
@@ -59,13 +60,13 @@ export function preflight(
     case "run-scenario": {
       const folder = (args as { value: string | undefined }).value;
       if (folder === undefined) return { ok: false, reason: "provide a scenario folder path" };
-      if (!exists(folder)) return { ok: false, reason: `scenario folder not found: ${folder}` };
+      if (!existsFn(folder)) return { ok: false, reason: `scenario folder not found: ${folder}` };
       return { ok: true };
     }
     case "run-session-file": {
       const path = (args as { value: string | undefined }).value;
       if (path === undefined) return { ok: false, reason: "provide a session file path" };
-      if (!exists(path)) return { ok: false, reason: `session file not found: ${path}` };
+      if (!existsFn(path)) return { ok: false, reason: `session file not found: ${path}` };
       return { ok: true };
     }
     case "results": {

@@ -25,7 +25,7 @@ import {
  *  final messages. */
 function fakeLoop(
   events: AgentEvent[],
-  finalMessages: AgentMessage[] = [],
+  finalMessages: AgentMessage[],
 ): typeof import("@earendil-works/pi-agent-core").agentLoop {
   const fn = (
     _messages: AgentMessage[],
@@ -71,7 +71,7 @@ const TURN_END = { type: "turn_end" } as unknown as AgentEvent;
 const STUB_MODEL = { id: "m", name: "m", api: "test" as Api } as unknown as Model<Api>;
 
 /** Build a StageRunInput with sensible test defaults; override per-test. */
-function baseInput(over: Partial<StageRunInput> = {}): StageRunInput {
+function baseInput(over: Partial<StageRunInput>): StageRunInput {
   return {
     systemPrompt: "",
     messages: [],
@@ -98,7 +98,7 @@ describe("runBenchStage", () => {
       msgEnd({ input: 200, output: 60, cacheRead: 20, cacheWrite: 8, cost: { total: 0.02 } }),
       TURN_END,
     ];
-    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events) }));
+    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events, []) }));
     expect(r.usage).toMatchObject({ input: 300, output: 100, cacheRead: 30, cacheWrite: 13, cost: 0.03, turns: 2 });
     // provider reports output -> authoritative outputTokens = sum of usage.output
     expect(r.outputTokens).toBe(100);
@@ -109,7 +109,7 @@ describe("runBenchStage", () => {
 
   it("outputTokens falls back to chars/4 over streamed deltas when the provider reports no output usage", async () => {
     const events = [textDelta("abcdefgh"), textDelta("abcd"), TURN_END]; // 8+4 chars = 12 -> 3 tokens
-    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events) }));
+    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events, []) }));
     expect(r.usage.output).toBe(0); // no usage.output
     expect(r.outputTokens).toBe(3); // ceil(12/4)
   });
@@ -120,7 +120,7 @@ describe("runBenchStage", () => {
     const events = [msgEnd({ input: 1, output: 2 }), TURN_END];
     await runBenchStage(
       baseInput({
-        loopFn: fakeLoop(events),
+        loopFn: fakeLoop(events, []),
         onEvent: (e) => seen.push(e),
         onStageEnd: (u) => {
           ended = { turns: u.turns };
@@ -134,7 +134,7 @@ describe("runBenchStage", () => {
   it("returns aborted:true when the run signal is already aborted", async () => {
     const ac = new AbortController();
     ac.abort(new Error("user cancelled"));
-    const r = await runBenchStage(baseInput({ signal: ac.signal, loopFn: fakeLoop([TURN_END]) }));
+    const r = await runBenchStage(baseInput({ signal: ac.signal, loopFn: fakeLoop([TURN_END], []) }));
     expect(r.aborted).toBe(true);
     expect(r.timedOut).toBe(false); // aborted by the RUN signal, not the per-turn timer
   });
@@ -173,7 +173,7 @@ describe("runBenchStage", () => {
   it("stops after maxTurns completed turns (shouldStopAfterTurn wiring)", async () => {
     // 5 turn_ends scripted; maxTurns=3 -> stops after the 3rd
     const events = [TURN_END, TURN_END, TURN_END, TURN_END, TURN_END];
-    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events), maxTurns: 3 }));
+    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events, []), maxTurns: 3 }));
     expect(r.usage.turns).toBe(3);
     expect(r.aborted).toBe(false);
   });

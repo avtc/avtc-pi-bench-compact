@@ -11,10 +11,10 @@ import {
   streamedOutputUsage,
 } from "../../src/runtime/streaming-tokens.js";
 
-/** Build a minimal assistant message; pass `usage` to attach one, or omit it for the no-usage case. */
-function msgWithUsage(usage?: Record<string, unknown>): AgentMessage {
+/** Build a minimal assistant message; pass `usage` to attach one, or null for the no-usage case. */
+function msgWithUsage(usage: Record<string, unknown> | null): AgentMessage {
   const base: Record<string, unknown> = { role: "assistant", content: [] };
-  if (usage !== undefined) base.usage = usage;
+  if (usage !== null) base.usage = usage;
   return base as unknown as AgentMessage;
 }
 
@@ -52,7 +52,7 @@ describe("streaming-tokens", () => {
     });
 
     it("returns null when the message carries no usage", () => {
-      expect(messageEndUsage(msgWithUsage())).toBeNull();
+      expect(messageEndUsage(msgWithUsage(null))).toBeNull();
     });
   });
 

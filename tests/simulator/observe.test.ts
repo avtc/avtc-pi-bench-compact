@@ -44,7 +44,7 @@ function asstToolCall(id: string, callId: string, name: string, args: string): S
   } as unknown as SessionEntry;
 }
 
-function toolResult(id: string, callId: string, text: string, isError = false): SessionEntry {
+function toolResult(id: string, callId: string, text: string, isError: boolean): SessionEntry {
   return {
     type: "message",
     ...base(id),
@@ -174,7 +174,7 @@ describe("buildChunks", () => {
   });
 
   it("pairs a tool call with its tool result inside one block sequence", () => {
-    const entries = [asstToolCall("a1", "call1", "read", '"file.ts"'), toolResult("r1", "call1", "file contents")];
+    const entries = [asstToolCall("a1", "call1", "read", '"file.ts"'), toolResult("r1", "call1", "file contents", false)];
     const [chunk] = buildChunks(entries, OPTS_NO_IDS);
     expect(chunk.text).toContain("<TOOLCALL:read>");
     expect(chunk.text).toContain("<TOOLRESULT>");
@@ -213,7 +213,7 @@ describe("buildChunks", () => {
 
   it("toolBlockCapTokens truncates a long tool result (head + tail + marker)", () => {
     const long = "y".repeat(400);
-    const entries = [asstToolCall("a1", "call1", "read", '"f"'), toolResult("r1", "call1", long)];
+    const entries = [asstToolCall("a1", "call1", "read", '"f"'), toolResult("r1", "call1", long, false)];
     const [chunk] = buildChunks(entries, { ...OPTS_NO_IDS, toolBlockCapTokens: 10 });
     expect(chunk.text).toContain("[…truncated…]");
   });

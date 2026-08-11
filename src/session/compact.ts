@@ -74,9 +74,9 @@ export interface CompactResult {
 export async function triggerCompact(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  options: TriggerCompactOptions = {},
+  options: TriggerCompactOptions | null,
 ): Promise<CompactResult> {
-  const { signal, onCompacted } = options;
+  const { signal, onCompacted } = options ?? {};
   const start = Date.now();
 
   // Race session_compact (success) vs signal-abort vs onError (failure). The compaction
