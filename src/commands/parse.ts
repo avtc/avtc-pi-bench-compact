@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+// Argument parsing for the `/bench-compact:*` commands (§3.13). Pure functions —
+// no I/O, no config. Each parser extracts structured args + sets `error` on a
+// malformed flag/value (completeness — e.g. a missing idea/path — is preflight's
+// job in validate.ts, not the parser's).
+
+import { ARM_IDS, type ArmId } from "../config/types.js";
+
+/** Parsed `prepare-scenario` / `run` / `run-session-file` args. */
+export interface PrepareArgs {
+  /** Build-mode task idea (the user-simulator's brief). Undefined for extract mode. */
+  idea: string | undefined;
+  /** Extract-mode source session path (`--from-session <path>`). */
+  fromSession: string | undefined;
+  /** `--force`: re-prepare over an existing scenario folder. */
+  force: boolean;
+  /** Set when a flag is malformed (e.g. `--from-session` with no path). */
+  error: string | undefined;
+}
+
+/** Parse prepare/run args: `--from-session <path>`, `--force`, else the build idea. */
+export function parsePrepareArgs(args: string): PrepareArgs {
+  const tokens = args
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  const positionals: string[] = [];
+  let fromSession: string | undefined;
+  let force = false;
+  let error: string | undefined;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok === "--from-session") {
+      const next = tokens[i + 1];
+      if (next === undefined) {
+        error = "--from-session requires a session file path";
+        break;
+      }
+      fromSession = next;
+      i += 1;
+    } else if (tok === "--force") {
+      force = true;
+    } else if (tok.startsWith("--from-session=")) {
+      fromSession = tok.slice("--from-session=".length);
+    } else {
+      positionals.push(tok);
+    }
+  }
+
+  return {
+    idea: positionals.length > 0 ? positionals.join(" ") : undefined,
+    fromSession,
+    force,
+    error,
+  };
+}
+
+/** A single results run reference: a runId + optional arm subset (`:A1,A3`). */
+export interface RunRef {
+  runId: string;
+  /** Arm subset (`A1,A3`); undefined = all arms of that run. */
+  arms?: ArmId[];
+}
+
+export interface ResultsArgs {
+  runs: RunRef[];
+  error: string | undefined;
+}
+
+const VALID_ARMS = new Set<string>(ARM_IDS);
+
+/** Parse results args: one or more `<runId>[:arms]` tokens (whitespace-separated).
+ *  `:arms` is a comma-separated subset of A1..A5. */
+export function parseResultsArgs(args: string): ResultsArgs {
+  const tokens = args
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) {
+    return { runs: [], error: "results requires at least one runId" };
+  }
+  const runs: RunRef[] = [];
+  for (const tok of tokens) {
+    const colon = tok.indexOf(":");
+    let runId: string;
+    let arms: ArmId[] | undefined;
+    if (colon === -1) {
+      runId = tok;
+    } else {
+      runId = tok.slice(0, colon);
+      const armList = tok
+        .slice(colon + 1)
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      for (const a of armList) {
+        if (!VALID_ARMS.has(a)) {
+          return { runs: [], error: `"${a}" is not a valid arm id (expected one of ${ARM_IDS.join(",")})` };
+        }
+      }
+      arms = armList as ArmId[];
+    }
+    runs.push({ runId, arms });
+  }
+  return { runs, error: undefined };
+}
+
+/** Parse a single positional value (a folder path or idea); tokens are joined. */
+export function parsePositional(args: string): { value: string | undefined; error: undefined } {
+  const value = args.trim().length > 0 ? args.trim() : undefined;
+  return { value, error: undefined };
+}

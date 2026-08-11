@@ -64,16 +64,21 @@ describe("activate", () => {
     );
   });
 
-  it("the status handler notifies 'not started'", async () => {
+  it("the status handler reports config validity + 'not started'", async () => {
     const { pi, registerCommand } = fakePi();
     activate(pi);
     const { ctx, notify } = fakeCtx();
 
-    const command = registerCommand.mock.calls[0]?.[1];
-    const handler = command?.handler as (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+    // find the status command by name (activate now registers many commands)
+    const statusCall = registerCommand.mock.calls.find((c) => c[0] === "bench-compact:status");
+    const handler = statusCall?.[1]?.handler as (args: string, ctx: ExtensionCommandContext) => Promise<void>;
     await handler("", ctx);
 
-    expect(notify).toHaveBeenCalledWith("not started", "info");
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [msg, type] = notify.mock.calls[0];
+    expect(type).toBe("info");
+    expect(msg).toMatch(/not started/i);
+    expect(msg).toMatch(/config/i);
   });
 
   it("registers /bench-compact:settings via registerSettingsCommand with the bench schema", () => {

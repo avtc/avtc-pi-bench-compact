@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+// Pre-flight validation for `/bench-compact:*` commands (§3.13). Runs BEFORE any
+// work starts; on failure the command refuses with a one-line reason (no run started).
+//
+// Two layers: (1) the bench CONFIG rules (delegated to `validateBenchConfig` from
+// Task 2 — ≥1 arm, compactionBoundary ≥20K, A5 threshold sane) applied to every
+// command; (2) per-command arg/path checks (idea-or-path presence, path existence
+// via an injectable `exists` checker so the unit is pure-testable).
+
+import { existsSync } from "node:fs";
+import type { BenchConfig } from "../config/types.js";
+import { validateBenchConfig } from "../config/validate.js";
+import type { PrepareArgs, ResultsArgs } from "./parse.js";
+
+export type PreflightResult = { ok: true } | { ok: false; reason: string };
+
+/** The structured args a command carries (union of the parser outputs). */
+export type CommandArgs = PrepareArgs | ResultsArgs | { value: string | undefined };
+
+/** Command kinds that run preflight. */
+export type CommandKind = "prepare" | "run" | "run-scenario" | "run-session-file" | "results";
+
+/**
+ * Validate that a command may proceed.
+ *
+ * @param cfg — the resolved bench config (config rules: ≥1 arm, boundary, A5).
+ * @param kind — which command is asking.
+ * @param args — the parsed command args.
+ * @param exists — path-existence checker (default `fs.existsSync`; injected for tests).
+ */
+export function preflight(
+  cfg: BenchConfig,
+  kind: CommandKind,
+  args: CommandArgs,
+  exists: (path: string) => boolean = existsSync,
+): PreflightResult {
+  // (1) config rules — every command.
+  const cfgResult = validateBenchConfig(cfg);
+  if (!cfgResult.ok) return cfgResult;
+
+  // (2) per-command arg/path checks.
+  switch (kind) {
+    case "prepare":
+    case "run": {
+      const a = args as PrepareArgs;
+      if (a.fromSession !== undefined) {
+        if (!exists(a.fromSession)) return { ok: false, reason: `--from-session path not found: ${a.fromSession}` };
+        return { ok: true };
+      }
+      if (a.idea !== undefined && a.idea.length > 0) return { ok: true };
+      return { ok: false, reason: "provide a build idea or --from-session <path>" };
+    }
+    case "run-scenario": {
+      const folder = (args as { value: string | undefined }).value;
+      if (folder === undefined) return { ok: false, reason: "provide a scenario folder path" };
+      if (!exists(folder)) return { ok: false, reason: `scenario folder not found: ${folder}` };
+      return { ok: true };
+    }
+    case "run-session-file": {
+      const path = (args as { value: string | undefined }).value;
+      if (path === undefined) return { ok: false, reason: "provide a session file path" };
+      if (!exists(path)) return { ok: false, reason: `session file not found: ${path}` };
+      return { ok: true };
+    }
+    case "results": {
+      const runs = (args as ResultsArgs).runs;
+      if (runs.length === 0) return { ok: false, reason: "results requires at least one runId" };
+      return { ok: true };
+    }
+  }
+}
