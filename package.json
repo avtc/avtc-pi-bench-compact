@@ -15,6 +15,7 @@
       "./index.ts"
     ],
     "allowedCodeDeps": [
+      "avtc-pi-logger",
       "avtc-pi-settings-ui"
     ]
   },
@@ -32,6 +33,7 @@
     "test": "biome check . && tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo && knip --production && npm run dupes && vitest run"
   },
   "dependencies": {
+    "avtc-pi-logger": "^1.0.3",
     "avtc-pi-settings-ui": "^1.0.7"
   },
   "devDependencies": {

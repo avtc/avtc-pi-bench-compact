@@ -12,6 +12,7 @@
     "**/docs/**"
   ],
   "ignoreDependencies": [
+    "avtc-pi-logger",
     "avtc-pi-settings-ui"
   ]
 }
