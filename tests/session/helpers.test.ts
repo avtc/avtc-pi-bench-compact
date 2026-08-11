@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Contract tests for the shared session-test fakes (tests/session/helpers.ts). These
-// enforce that the fakes match the REAL pi/Node dispatch semantics the SUT relies on
-// (snapshot dispatch — a listener that removes itself or a sibling during dispatch must
-// not cause later listeners to be skipped, matching Node EventEmitter + AbortSignal).
+// enforce that the fakes match the REAL pi/Node dispatch semantics the SUT exercises:
+// snapshot dispatch so a listener that removes ITSELF during dispatch (the `once` /
+// `awaitOnce.settle` pattern) does not skip later listeners — matching Node EventEmitter
+// + AbortSignal for that case. (Real EventTarget uses a removed-FLAG for sibling removal
+// during dispatch — a different edge the SUT does not trigger; not modeled here.)
 
 import { describe, expect, it } from "vitest";
 import { fakeBus, fakeSignal } from "./helpers.js";
