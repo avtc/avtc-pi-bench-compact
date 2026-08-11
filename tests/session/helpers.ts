@@ -34,7 +34,7 @@ export function fakeBus(): {
     pi: { events: { on } } as unknown as ExtensionAPI,
     emit: (channel, data) => {
       const arr = handlers.get(channel);
-      if (arr) for (const h of arr) h(data);
+      if (arr) for (const h of [...arr]) h(data); // snapshot — a self-removing listener must not skip later ones (R3-1)
     },
     listenerCount: (channel) => handlers.get(channel)?.length ?? 0,
   };
@@ -62,7 +62,7 @@ export function fakeSignal(): AbortSignal & { listenerCount: () => number; abort
     abort: (reason?: unknown) => {
       state.aborted = true;
       state.reason = reason ?? new Error("aborted");
-      for (const fn of listeners) fn();
+      for (const fn of [...listeners]) fn(); // snapshot — matches AbortSignal dispatch (R3-1)
     },
   } as unknown as AbortSignal & { listenerCount: () => number; abort: (reason?: unknown) => void };
 }
