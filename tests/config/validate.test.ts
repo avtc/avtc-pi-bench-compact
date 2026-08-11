@@ -113,4 +113,26 @@ describe("validateBenchConfig", () => {
     cfg.omFullReflectionThresholdTokens = 4000;
     expect(validateBenchConfig(cfg)).toEqual({ ok: true });
   });
+
+  it("rejects when A5 threshold >= compactionBoundary (pool never reaches it -> A5 == A2)", () => {
+    const cfg = validConfig();
+    cfg.armOmFullEnabled = true;
+    cfg.armsEnabled = ["A5"];
+    cfg.compactionBoundary = 25000; // low boundary (e.g. a smoke run)
+    cfg.omFullReflectionThresholdTokens = 28000; // < 30000 (passes the OM-default check) but >= boundary
+    const result = validateBenchConfig(cfg);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/compactionBoundary|pool|indistinguishable/i);
+    }
+  });
+
+  it("accepts A5 threshold below a low compactionBoundary (reflector can fire)", () => {
+    const cfg = validConfig();
+    cfg.armOmFullEnabled = true;
+    cfg.armsEnabled = ["A5"];
+    cfg.compactionBoundary = 25000;
+    cfg.omFullReflectionThresholdTokens = 4000; // < 25000 AND < 30000
+    expect(validateBenchConfig(cfg)).toEqual({ ok: true });
+  });
 });

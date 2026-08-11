@@ -50,6 +50,12 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
         reason: `omFullReflectionThresholdTokens must be < OM's default ${OM_DEFAULT_REFLECTION_THRESHOLD_TOKENS} when A5 is enabled — otherwise A5 is indistinguishable from A2 (got ${cfg.omFullReflectionThresholdTokens}).`,
       };
     }
+    if (cfg.omFullReflectionThresholdTokens >= cfg.compactionBoundary) {
+      return {
+        ok: false,
+        reason: `omFullReflectionThresholdTokens must be < compactionBoundary (${cfg.compactionBoundary}) when A5 is enabled — the observation pool at Phase-1 compaction is bounded by the compacted span, so a threshold at/above the boundary is never reached and A5 is indistinguishable from A2 (got ${cfg.omFullReflectionThresholdTokens}).`,
+      };
+    }
   }
   return { ok: true };
 }
