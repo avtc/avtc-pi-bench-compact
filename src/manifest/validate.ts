@@ -54,6 +54,12 @@ function checkConditions<T extends CitedCondition>(
     const citedTexts = c.entryIds
       .filter((id) => ctx.entryTextById.has(id))
       .map((id) => ctx.entryTextById.get(id)?.toLowerCase() ?? "");
+    // If NO cited entry is present in entryTextById, the content check cannot run
+    // (the harness may not have rendered those entries) — skip rather than flag a
+    // misleading "not present". The in-span check above is the structural guarantee.
+    if (citedTexts.length === 0) {
+      return;
+    }
     const terms = searchTerms(c).map((t) => t.toLowerCase());
     const present = citedTexts.some((text) => terms.some((term) => term.length > 0 && text.includes(term)));
     if (!present) {
@@ -93,6 +99,23 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     c.latestValue,
   ]);
   checkConditions<Abstention>(manifest.abstentions, ctx, reasons, "abstention", (c) => [c.question]);
+
+  // Probes: each must carry exactly one of {accept, correctRefusal} (§4.5). A probe
+  // with neither (unanswerable) or both (ambiguous) is invalid.
+  for (const p of manifest.probes) {
+    const hasAccept = p.accept !== undefined && p.accept.length > 0;
+    const hasRefusal = p.correctRefusal === true;
+    if (hasAccept === hasRefusal) {
+      reasons.push(`probe "${p.question}": must have exactly one of accept or correctRefusal`);
+    }
+  }
+
+  // Every condition needs a probe (§4.18 PROBES): a manifest with conditions but no
+  // probes cannot be scored on recall/abstention.
+  const hasConditions = manifest.recallFacts.length + manifest.supersessions.length + manifest.abstentions.length > 0;
+  if (hasConditions && manifest.probes.length === 0) {
+    reasons.push("manifest has conditions but no probes — every recall/supersession/abstention needs a probe");
+  }
 
   for (const list of ctx.essentialLists) {
     if ((manifest[list] as readonly unknown[]).length === 0) {

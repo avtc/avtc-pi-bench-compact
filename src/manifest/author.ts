@@ -20,7 +20,7 @@ import {
   type StageRunResult,
 } from "../runtime/agent-loop.js";
 import type { ResolvedBenchModel } from "../runtime/model.js";
-import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import { benchAuthoringTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
 import { AUTHORING_SYSTEM_PROMPT } from "./prompt.js";
 import {
   type Abstention,
@@ -180,7 +180,9 @@ export function buildAuthoringSystemPrompt(deps: {
   preSlicedJsonlPath: string;
   knownConditions?: readonly KnownCondition[];
 }): string {
-  let prompt = AUTHORING_SYSTEM_PROMPT.replace("<PATH>", deps.preSlicedJsonlPath);
+  // Use a replacement function (not a replacement string) so `$` in the JSONL path
+  // is treated literally — String.replace's replacement string mangles `$&`/`$1`/etc.
+  let prompt = AUTHORING_SYSTEM_PROMPT.replaceAll("<PATH>", () => deps.preSlicedJsonlPath);
   if (deps.knownConditions && deps.knownConditions.length > 0) {
     const list = deps.knownConditions.map((kc) => `- ${kc.name} — entry ${kc.entryId}`).join("\n");
     prompt += `\n\nKNOWN CONDITIONS (the session was designed to contain these — use as anchors):\n${list}\nRead each cited entry and extract the exact content.`;
@@ -195,7 +197,7 @@ export function buildAuthoringSystemPrompt(deps: {
  */
 export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeManifest: JsonOutputTool } {
   const writeManifest = makeJsonOutputTool("write_manifest", WRITE_MANIFEST_DESCRIPTION, AUTHOR_OUTPUT_SCHEMA);
-  const tools: AgentTool[] = [...benchReadOnlyTools(cwd), writeManifest];
+  const tools: AgentTool[] = [...benchAuthoringTools(cwd), writeManifest];
   return { tools, writeManifest };
 }
 
@@ -225,7 +227,7 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     timestamp: Date.now(),
   };
 
-  await deps.seams.runStage({
+  const result = await deps.seams.runStage({
     systemPrompt,
     messages: [userMessage],
     tools,
@@ -240,6 +242,15 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     onStageEnd: NO_STAGE_END_HOOK,
     loopFn: NO_LOOP_OVERRIDE,
   });
+
+  // A timed-out / aborted stage may have left a partial `write_manifest` capture —
+  // do NOT silently post-process it; surface the failure (§3.8 stop-and-surface).
+  if (result.timedOut) {
+    throw new Error("authoring stage timed out before completing the manifest");
+  }
+  if (result.aborted) {
+    throw new Error("authoring stage was aborted before completing the manifest");
+  }
 
   const captured = writeManifest._captured;
   if (captured.length === 0) {

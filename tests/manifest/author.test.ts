@@ -4,13 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
   type AuthoringSeams,
-  buildAuthoringSystemPrompt,
   buildAuthoringTools,
   postProcessManifest,
   runAuthoringAgent,
   type ScenarioContext,
 } from "../../src/manifest/author.js";
-import { AUTHORING_SYSTEM_PROMPT } from "../../src/manifest/prompt.js";
 import type { AuthorOutput } from "../../src/manifest/schema.js";
 
 const cannedAuthor: AuthorOutput = {
@@ -98,37 +96,14 @@ describe("postProcessManifest (pure)", () => {
   });
 });
 
-describe("buildAuthoringSystemPrompt", () => {
-  it("substitutes the <PATH> placeholder with the JSONL path", () => {
-    const p = buildAuthoringSystemPrompt({ preSlicedJsonlPath: "/tmp/sliced.jsonl" });
-    expect(p).toContain("/tmp/sliced.jsonl");
-    expect(p).not.toContain("<PATH>");
-  });
-
-  it("appends the knownConditions list when provided (build-mode anchors)", () => {
-    const p = buildAuthoringSystemPrompt({
-      preSlicedJsonlPath: "/tmp/x.jsonl",
-      knownConditions: [{ name: "key-decision", entryId: "e1" }],
-    });
-    expect(p).toMatch(/KNOWN CONDITIONS/i);
-    expect(p).toContain("e1");
-    expect(p).toContain("key-decision");
-  });
-
-  it("does not append knownConditions section data when absent (extract mode)", () => {
-    const p = buildAuthoringSystemPrompt({ preSlicedJsonlPath: "/tmp/x.jsonl" });
-    // the prompt's guidance section "KNOWN CONDITIONS (if provided)" stays, but no data list
-    expect(p.startsWith(AUTHORING_SYSTEM_PROMPT.slice(0, 50))).toBe(true);
-  });
-});
-
 describe("buildAuthoringTools", () => {
-  it("composes benchReadOnlyTools (read/grep/find/ls) + a write_manifest tool", () => {
+  it("composes read-only core tools (read/grep/find/ls) + bash + a write_manifest tool", () => {
     const { tools, writeManifest } = buildAuthoringTools(process.cwd());
     const names = tools.map((t) => t.name);
     expect(names).toContain("read");
     expect(names).toContain("grep");
     expect(names).toContain("find");
+    expect(names).toContain("bash"); // §4.18: bash for JSONL parsing (jq)
     expect(names).toContain("write_manifest");
     expect(writeManifest.name).toBe("write_manifest");
   });
@@ -239,5 +214,82 @@ describe("runAuthoringAgent", () => {
         maxTokens: 2000,
       }),
     ).rejects.toThrow(/model/i);
+  });
+
+  it("throws when the stage timed out (even if write_manifest left a capture) — R1-1", async () => {
+    // a timed-out stage that left a partial capture must NOT be silently post-processed
+    const fakeSeams: AuthoringSeams = {
+      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      runStage: async (input) => {
+        const wm = input.tools.find((t) => t.name === "write_manifest");
+        if (!wm) throw new Error("write_manifest not composed");
+        await wm.execute("call1", {
+          recallFacts: [{ fact: "partial", accept: ["partial"], entryIds: ["e1"] }],
+          doneOps: [],
+          supersessions: [],
+          abstentions: [],
+          probes: [],
+        });
+        return {
+          messages: [],
+          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
+          outputTokens: 5,
+          aborted: false,
+          timedOut: true, // per-turn timeout fired
+        };
+      },
+    };
+    await expect(
+      runAuthoringAgent({
+        seams: fakeSeams,
+        cwd: process.cwd(),
+        preSlicedJsonlPath: "/tmp/x.jsonl",
+        scenarioCtx,
+        signal: new AbortController().signal,
+        maxTokens: 2000,
+      }),
+    ).rejects.toThrow(/timed.?out|timeout/i);
+  });
+
+  it("takes the LAST capture when write_manifest was called multiple times — R1-9", async () => {
+    const fakeSeams: AuthoringSeams = {
+      resolveModel: async () => ({ ok: true, model: { id: "fake" } as never, apiKey: "k" }),
+      runStage: async (input) => {
+        const wm = input.tools.find((t) => t.name === "write_manifest");
+        if (!wm) throw new Error("write_manifest not composed");
+        // first (superseded) call
+        await wm.execute("c1", {
+          recallFacts: [{ fact: "first", accept: ["first"], entryIds: ["e1"] }],
+          doneOps: [],
+          supersessions: [],
+          abstentions: [],
+          probes: [],
+        });
+        // second (final) call — this is what the agent settled on
+        await wm.execute("c2", {
+          recallFacts: [{ fact: "second-final", accept: ["second-final"], entryIds: ["e1"] }],
+          doneOps: [],
+          supersessions: [],
+          abstentions: [],
+          probes: [],
+        });
+        return {
+          messages: [],
+          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 2, elapsedMs: 2 },
+          outputTokens: 5,
+          aborted: false,
+          timedOut: false,
+        };
+      },
+    };
+    const manifest = await runAuthoringAgent({
+      seams: fakeSeams,
+      cwd: process.cwd(),
+      preSlicedJsonlPath: "/tmp/x.jsonl",
+      scenarioCtx,
+      signal: new AbortController().signal,
+      maxTokens: 2000,
+    });
+    expect(manifest.recallFacts[0].fact).toBe("second-final");
   });
 });

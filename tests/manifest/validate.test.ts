@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { describe, expect, it } from "vitest";
-import type { RecallFact, ScenarioManifest } from "../../src/manifest/schema.js";
+import type { Probe, RecallFact, ScenarioManifest } from "../../src/manifest/schema.js";
 
 /** Replace manifest.recallFacts[0] with a patched copy (readonly arrays → rebuild). */
 function withFirstRecallFact(m: ScenarioManifest, patch: Partial<RecallFact>): ScenarioManifest {
@@ -146,6 +146,48 @@ describe("validateManifest — reject", () => {
     const r = validateManifest({ ...m, doneOps: [] }, cleanCtx()); // + essential empty
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("validateManifest — probe checks", () => {
+  it("rejects a probe with neither accept nor correctRefusal", () => {
+    const m = { ...cleanManifest(), probes: [{ question: "q?", targets: ["e1"], lanes: ["direct-probe"] }] as Probe[] };
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/accept|correctRefusal|exactly one/i);
+  });
+
+  it("rejects a probe with BOTH accept and correctRefusal", () => {
+    const m = {
+      ...cleanManifest(),
+      probes: [
+        { question: "q?", accept: ["x"], correctRefusal: true, targets: ["e1"], lanes: ["direct-probe"] },
+      ] as Probe[],
+    };
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/exactly one/i);
+  });
+
+  it("rejects a manifest with conditions but NO probes", () => {
+    const m = { ...cleanManifest(), probes: [] };
+    const r = validateManifest(m, cleanCtx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/probe/i);
+  });
+
+  it("accepts a manifest with no conditions AND no probes (edge: empty session)", () => {
+    const m = {
+      ...cleanManifest(),
+      recallFacts: [],
+      doneOps: [],
+      supersessions: [],
+      abstentions: [],
+      probes: [],
+    };
+    // no essential lists required (essentialLists only has recallFacts+doneOps here → would fail)
+    const r = validateManifest(m, cleanCtx({ essentialLists: new Set() }));
+    expect(r.ok).toBe(true);
   });
 });
 

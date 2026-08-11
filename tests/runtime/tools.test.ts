@@ -3,7 +3,12 @@
 
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { benchCodingTools, benchReadOnlyTools, makeJsonOutputTool } from "../../src/runtime/tools.js";
+import {
+  benchAuthoringTools,
+  benchCodingTools,
+  benchReadOnlyTools,
+  makeJsonOutputTool,
+} from "../../src/runtime/tools.js";
 
 const TMP = import.meta.dirname ?? ".";
 
@@ -13,6 +18,16 @@ describe("benchReadOnlyTools", () => {
     expect(names).toEqual(expect.arrayContaining(["read", "grep", "find", "ls"]));
     // mutating tools must NOT be present in the read-only set
     expect(names).not.toContain("bash");
+    expect(names).not.toContain("edit");
+    expect(names).not.toContain("write");
+  });
+});
+
+describe("benchAuthoringTools", () => {
+  it("returns read-only core tools (read/grep/find/ls) + bash for JSONL parsing (§4.18)", () => {
+    const names = benchAuthoringTools(TMP).map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(["read", "grep", "find", "ls", "bash"]));
+    // the authoring agent must NOT get edit/write (it only reads + writes the manifest)
     expect(names).not.toContain("edit");
     expect(names).not.toContain("write");
   });

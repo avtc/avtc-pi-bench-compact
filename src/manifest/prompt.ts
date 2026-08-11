@@ -7,7 +7,9 @@
 // The author emits its findings via the `write_manifest` tool (validated against
 // `AUTHOR_OUTPUT_SCHEMA`); the harness post-processes into a full ScenarioManifest.
 
-export const AUTHORING_SYSTEM_PROMPT = `A long coding session eventually gets "compacted": the older messages are replaced by a
+export const AUTHORING_SYSTEM_PROMPT = `SYSTEM
+
+A long coding session eventually gets "compacted": the older messages are replaced by a
 short summary, and the agent continues with only that summary plus the most recent messages.
 We are building a test of whether the agent still remembers specific things from BEFORE the
 compaction. Your job: read one pre-compaction session and list the specific things worth

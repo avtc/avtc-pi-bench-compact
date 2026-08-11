@@ -15,15 +15,22 @@
 //    value is the stage's structured output.
 
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { createCodingTools, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
+import { createBashTool, createCodingTools, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 /** Read-only core tools (read/grep/find/ls) bound to a working directory. Used by
- *  the manifest-authoring agent and the judge when they must not mutate files. */
+ *  the judge agentLoop when it must not mutate files. */
 export function benchReadOnlyTools(cwd: string): AgentTool[] {
   return createReadOnlyTools(cwd);
+}
+
+/** Authoring tool set (§4.18): read-only core tools (read/grep/find/ls) + `bash`
+ *  (for JSONL parsing via jq) + the stage's terminal JSON tool is added by the
+ *  caller. Used by the manifest-authoring agent on the pre-sliced session JSONL. */
+export function benchAuthoringTools(cwd: string): AgentTool[] {
+  return [...createReadOnlyTools(cwd), createBashTool(cwd)];
 }
 
 /** Full coding tool set (read/grep/find/ls + bash/edit/write) bound to a cwd. */

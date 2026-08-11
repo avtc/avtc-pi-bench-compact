@@ -71,45 +71,46 @@ export interface AuthorOutput {
 // entryIds is required + non-empty (every cited id must be real — §4.18 CONSTRAINTS).
 // abstentions.correctRefusal is the literal `true`. Probes carry accept OR
 // correctRefusal (both optional at the schema level; validateManifest enforces the
-// mutual-exclusion/shape per condition-type downstream).
+// exactly-one-of-{accept, correctRefusal} rule per probe downstream).
 
-const NonEmptyStringArray = Type.Array(Type.String(), { minItems: 1 });
+const NonEmptyString = Type.String({ minLength: 1 });
+const NonEmptyStringArray = Type.Array(NonEmptyString, { minItems: 1 });
 
 /** typebox schema validating the authoring-agent's `write_manifest` payload. */
 export const AUTHOR_OUTPUT_SCHEMA: TSchema = Type.Object({
   recallFacts: Type.Array(
     Type.Object({
-      fact: Type.String(),
+      fact: NonEmptyString,
       accept: NonEmptyStringArray,
       entryIds: NonEmptyStringArray,
     }),
   ),
   doneOps: Type.Array(
     Type.Object({
-      description: Type.String(),
-      artifact: Type.String(),
+      description: NonEmptyString,
+      artifact: NonEmptyString,
       reworkable: Type.Boolean(),
       entryIds: NonEmptyStringArray,
     }),
   ),
   supersessions: Type.Array(
     Type.Object({
-      subject: Type.String(),
-      oldValue: Type.String(),
-      latestValue: Type.String(),
+      subject: NonEmptyString,
+      oldValue: NonEmptyString,
+      latestValue: NonEmptyString,
       entryIds: NonEmptyStringArray,
     }),
   ),
   abstentions: Type.Array(
     Type.Object({
-      question: Type.String(),
+      question: NonEmptyString,
       correctRefusal: Type.Literal(true),
       entryIds: NonEmptyStringArray,
     }),
   ),
   probes: Type.Array(
     Type.Object({
-      question: Type.String(),
+      question: NonEmptyString,
       accept: Type.Optional(NonEmptyStringArray),
       correctRefusal: Type.Optional(Type.Literal(true)),
       targets: NonEmptyStringArray,

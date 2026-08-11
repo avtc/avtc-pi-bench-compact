@@ -77,6 +77,37 @@ describe("AUTHOR_OUTPUT_SCHEMA (write_manifest input)", () => {
     const bad = { recallFacts: [], doneOps: [], supersessions: [], abstentions: [] }; // no probes
     expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, bad)).toBe(false);
   });
+
+  it("rejects empty-string content fields (fact/description/subject/question/artifact)", () => {
+    const badFact = { ...goodAuthor, recallFacts: [{ fact: "", accept: ["x"], entryIds: ["e1"] }] };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badFact)).toBe(false);
+    const badDesc = {
+      ...goodAuthor,
+      doneOps: [{ description: "", artifact: "f", reworkable: false, entryIds: ["e2"] }],
+    };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badDesc)).toBe(false);
+    const badArtifact = {
+      ...goodAuthor,
+      doneOps: [{ description: "d", artifact: "", reworkable: false, entryIds: ["e2"] }],
+    };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badArtifact)).toBe(false);
+    const badSubject = {
+      ...goodAuthor,
+      supersessions: [{ subject: "", oldValue: "a", latestValue: "b", entryIds: ["e3"] }],
+    };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badSubject)).toBe(false);
+    const badQuestion = { ...goodAuthor, abstentions: [{ question: "", correctRefusal: true, entryIds: ["e4"] }] };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badQuestion)).toBe(false);
+  });
+
+  it("rejects empty-string elements in accept/entryIds/targets arrays", () => {
+    const badAccept = { ...goodAuthor, recallFacts: [{ fact: "x", accept: [""], entryIds: ["e1"] }] };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badAccept)).toBe(false);
+    const badEntryId = { ...goodAuthor, recallFacts: [{ fact: "x", accept: ["x"], entryIds: [""] }] };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badEntryId)).toBe(false);
+    const badTarget = { ...goodAuthor, probes: [{ question: "q?", accept: ["x"], targets: [""] }] };
+    expect(Value.Check(AUTHOR_OUTPUT_SCHEMA, badTarget)).toBe(false);
+  });
 });
 
 describe("ScenarioManifest / Lane types (structural)", () => {
