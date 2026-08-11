@@ -108,6 +108,38 @@ describe("registerBenchCommands", () => {
     expect(sent).toContainEqual({ text: "wait, stop", deliverAs: "steer" });
   });
 
+  it("abort is a real minimal handler that notifies without throwing (R1-1)", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    const { ctx, notifies } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx);
+    expect(notifies.length).toBeGreaterThan(0);
+  });
+
+  it("every stub command body runs preflight then notifies 'not implemented' (R4-1)", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    const { ctx, notifies } = fakeCtx();
+    // run-scenario/run-session-file need a real existing path (preflight checks
+    // existence via existsSync); use this test file's own dir/file.
+    const dir = import.meta.dirname;
+    const file = import.meta.filename;
+    const cases: [string, string][] = [
+      ["bench-compact:run", "an incremental game idea"],
+      ["bench-compact:run-scenario", dir],
+      ["bench-compact:run-session-file", file],
+      ["bench-compact:results", "run-2026-08-10-1"],
+    ];
+    for (const [name, args] of cases) {
+      notifies.length = 0;
+      await handlerOf(commands, name)(args, ctx);
+      expect(
+        notifies.some((n) => /not implemented/i.test(n.msg)),
+        `${name} should notify 'not implemented'`,
+      ).toBe(true);
+    }
+  });
+
   it("resume sends 'continue' to the agent", async () => {
     const { pi, commands, sent } = fakePi();
     registerBenchCommands(pi);

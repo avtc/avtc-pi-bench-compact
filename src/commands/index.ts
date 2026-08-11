@@ -5,16 +5,17 @@
 // Task 2 via registerBenchSettings). Each handler closes over `pi` (for
 // sendUserMessage) and receives `(args, ctx)` from pi.
 //
-// Stub commands (prepare/run/run-scenario/run-session-file/results/abort) run
-// `preflight` then notify "not implemented yet: <kind>" — later phase tasks replace
-// the stub with the real implementation. `pause`/`resume` are real-minimal now
-// (steer/continue the agent); `status` reports config validity + run state.
+// Stub commands (prepare/run/run-scenario/run-session-file/results) run `preflight`
+// then notify "not implemented yet: <kind>" — later phase tasks replace the stub with
+// the real implementation. `pause`/`resume`/`abort`/`status` are real-minimal now
+// (steer/continue/stop/report); Task 18 wires the widget teardown for `abort`, Task 19
+// refines run-stop semantics.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
 import { parsePositional, parsePrepareArgs, parseResultsArgs } from "./parse.js";
-import { type CommandKind, preflight } from "./validate.js";
+import { type CommandArgs, type CommandKind, preflight } from "./validate.js";
 
 /** Register all bench-compact commands (except settings) on `pi`. Called from activate. */
 export function registerBenchCommands(pi: ExtensionAPI): void {
@@ -44,7 +45,6 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     "results",
     (args) => parseResultsArgs(args),
   );
-  stub(pi, "bench-compact:abort", "Stop the run cleanly (tears down the progress widget).", "abort", () => ({}));
 
   // --- real-minimal control commands ---------------------------------------
   pi.registerCommand("bench-compact:pause", {
@@ -64,6 +64,16 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     },
   });
 
+  // abort: real-minimal now (not a stub — §3.13 lists it as a real handler). No
+  // run-state or widget exists yet (Tasks 18/19), so this just signals abort intent
+  // without crashing. `preflight` is not applicable (abort needs no args/config).
+  pi.registerCommand("bench-compact:abort", {
+    description: "Stop the run cleanly (tears down the progress widget).",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("aborted (no run in progress)", "info");
+    },
+  });
+
   pi.registerCommand("bench-compact:status", {
     description: "Show current run state (arm / attempt / phase / ctx) + last config validity.",
     handler: async (_args, ctx) => {
@@ -80,18 +90,18 @@ function stub(
   pi: ExtensionAPI,
   name: string,
   description: string,
-  kind: CommandKind | "abort",
-  parse: (args: string) => { error?: string } | undefined,
+  kind: CommandKind,
+  parse: (args: string) => CommandArgs & { error?: string },
 ): void {
   pi.registerCommand(name, {
     description,
     handler: async (args, ctx) => {
-      const parsed = parse(args) ?? {};
+      const parsed = parse(args);
       if (parsed.error !== undefined) {
         ctx.ui.notify(parsed.error, "warning");
         return;
       }
-      const check = preflight(getBenchConfig(), kind as CommandKind, parsed as never);
+      const check = preflight(getBenchConfig(), kind, parsed);
       if (!check.ok) {
         ctx.ui.notify(check.reason, "warning");
         return;

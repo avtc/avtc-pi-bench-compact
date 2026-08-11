@@ -42,6 +42,11 @@ describe("parsePrepareArgs", () => {
     expect(r.error).toMatch(/from-session/i);
     expect(r.fromSession).toBeUndefined();
   });
+  it("errors when --from-session= has an empty value (R5-4)", () => {
+    const r = parsePrepareArgs("--from-session=");
+    expect(r.error).toMatch(/from-session/i);
+    expect(r.fromSession).toBeUndefined();
+  });
   it("empty args -> nothing set, no error (completeness is preflight's job)", () => {
     expect(parsePrepareArgs("")).toEqual({ idea: undefined, fromSession: undefined, force: false, error: undefined });
   });
@@ -66,6 +71,16 @@ describe("parseResultsArgs", () => {
   it("errors on an invalid arm id in :arms", () => {
     const r = parseResultsArgs("run1:A1,A9");
     expect(r.error).toMatch(/arm/i);
+  });
+  it("errors when runId is empty (:A1 — R5-1)", () => {
+    const r = parseResultsArgs(":A1");
+    expect(r.error).toMatch(/runId/i);
+    expect(r.runs).toEqual([]);
+  });
+  it("errors when :arms is empty (run1: — R5-1)", () => {
+    const r = parseResultsArgs("run1:");
+    expect(r.error).toMatch(/arm/i);
+    expect(r.runs).toEqual([]);
   });
   it("errors when no runId is given", () => {
     expect(parseResultsArgs("").error).toMatch(/runId/i);

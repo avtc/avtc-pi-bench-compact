@@ -45,6 +45,10 @@ export function preflight(
     case "prepare":
     case "run": {
       const a = args as PrepareArgs;
+      // build vs extract are mutually exclusive (§3.13 — distinct modes).
+      if (a.fromSession !== undefined && a.idea !== undefined && a.idea.length > 0) {
+        return { ok: false, reason: "provide a build idea OR --from-session <path>, not both" };
+      }
       if (a.fromSession !== undefined) {
         if (!exists(a.fromSession)) return { ok: false, reason: `--from-session path not found: ${a.fromSession}` };
         return { ok: true };
@@ -69,5 +73,9 @@ export function preflight(
       if (runs.length === 0) return { ok: false, reason: "results requires at least one runId" };
       return { ok: true };
     }
+    default:
+      // Unknown kinds pass config validation only (defense-in-depth: never return
+      // undefined, which would crash the caller's `if (!check.ok)`).
+      return { ok: true };
   }
 }

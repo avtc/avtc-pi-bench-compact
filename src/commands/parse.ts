@@ -22,10 +22,7 @@ export interface PrepareArgs {
 
 /** Parse prepare/run args: `--from-session <path>`, `--force`, else the build idea. */
 export function parsePrepareArgs(args: string): PrepareArgs {
-  const tokens = args
-    .trim()
-    .split(/\s+/)
-    .filter((t) => t.length > 0);
+  const tokens = tokenize(args);
   const positionals: string[] = [];
   let fromSession: string | undefined;
   let force = false;
@@ -44,7 +41,12 @@ export function parsePrepareArgs(args: string): PrepareArgs {
     } else if (tok === "--force") {
       force = true;
     } else if (tok.startsWith("--from-session=")) {
-      fromSession = tok.slice("--from-session=".length);
+      const val = tok.slice("--from-session=".length);
+      if (val.length === 0) {
+        error = "--from-session= requires a non-empty session file path";
+        break;
+      }
+      fromSession = val;
     } else {
       positionals.push(tok);
     }
@@ -72,13 +74,18 @@ export interface ResultsArgs {
 
 const VALID_ARMS = new Set<string>(ARM_IDS);
 
-/** Parse results args: one or more `<runId>[:arms]` tokens (whitespace-separated).
- *  `:arms` is a comma-separated subset of A1..A5. */
-export function parseResultsArgs(args: string): ResultsArgs {
-  const tokens = args
+/** Split raw args into non-empty whitespace tokens (shared by the parsers). */
+function tokenize(args: string): string[] {
+  return args
     .trim()
     .split(/\s+/)
     .filter((t) => t.length > 0);
+}
+
+/** Parse results args: one or more `<runId>[:arms]` tokens (whitespace-separated).
+ *  `:arms` is a comma-separated subset of A1..A5. */
+export function parseResultsArgs(args: string): ResultsArgs {
+  const tokens = tokenize(args);
   if (tokens.length === 0) {
     return { runs: [], error: "results requires at least one runId" };
   }
@@ -96,12 +103,18 @@ export function parseResultsArgs(args: string): ResultsArgs {
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
+      if (armList.length === 0) {
+        return { runs: [], error: `":arms" is empty in "${tok}" — specify arms (e.g. :A1,A3) or drop the colon` };
+      }
       for (const a of armList) {
         if (!VALID_ARMS.has(a)) {
           return { runs: [], error: `"${a}" is not a valid arm id (expected one of ${ARM_IDS.join(",")})` };
         }
       }
       arms = armList as ArmId[];
+    }
+    if (runId.length === 0) {
+      return { runs: [], error: `runId is empty in "${tok}"` };
     }
     runs.push({ runId, arms });
   }
