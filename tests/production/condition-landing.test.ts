@@ -60,6 +60,21 @@ describe("classifyLanding", () => {
     expect(byId["change-mind"]).toBe("missing");
     expect(byId["open-question"]).toBe("missing");
   });
+
+  it("marks a MISSING topic as TAIL when tailContentTopics reports its content is in the kept tail (content-in-tail, not never-materialized)", () => {
+    // The author sees only the pre-sliced span, so it can't cite a tail entry. When a topic has
+    // NO condition, the harness's separate tail-check (tailContentTopics) decides tail vs missing.
+    const m: ScenarioManifest = {
+      ...baseManifest,
+      recallFacts: [{ id: "rf1", fact: "x", accept: ["x"], entryIds: ["e1"], domain: "technical", lanes: [] }],
+      doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
+      // change-mind + open-question have NO conditions (the author found nothing in the span)
+    };
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, new Set(["change-mind"]));
+    const byId = Object.fromEntries(cls.map((c) => [c.topic.id, c.status]));
+    expect(byId["change-mind"]).toBe("tail"); // content exists in kept tail → auto-continue
+    expect(byId["open-question"]).toBe("missing"); // content nowhere → surface
+  });
 });
 
 describe("decideLandingAction", () => {

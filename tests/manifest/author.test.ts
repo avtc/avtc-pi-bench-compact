@@ -20,13 +20,13 @@ const cannedAuthor: AuthorOutput = {
     { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"] }, // targets recallFact e1
     { question: "renderer?", correctRefusal: true, targets: ["e5"] }, // targets abstention e5
   ],
+  taskObjective: { description: "build the game", testSpec: "npm test" },
 };
 
 const scenarioCtx: ScenarioContext = {
   id: "tycoon-1",
   description: "AI tycoon",
   compactionBoundary: { phaseATokenBudget: 140000, plan: "build to target" },
-  taskObjective: { description: "build the game", testSpec: "npm test", lane: "embedded-test" },
 };
 
 describe("postProcessManifest (pure)", () => {
@@ -62,16 +62,18 @@ describe("postProcessManifest (pure)", () => {
     expect(m.supersessions[0].lanes).toEqual(["embedded"]);
   });
 
-  it("omits embedded lane when scenario has no embedded testSpec", () => {
-    const noEmbedded: ScenarioContext = {
-      ...scenarioCtx,
-      taskObjective: { ...scenarioCtx.taskObjective, testSpec: "" },
+  it("omits embedded lane when the authored taskObjective has no testSpec", () => {
+    const noTestSpec: AuthorOutput = {
+      ...cannedAuthor,
+      taskObjective: { ...cannedAuthor.taskObjective, testSpec: "" },
     };
-    const m = postProcessManifest(cannedAuthor, noEmbedded);
+    const m = postProcessManifest(noTestSpec, scenarioCtx);
     // recallFact e1 is targeted → direct-probe only (no embedded)
     expect(m.recallFacts[0].lanes).toEqual(["direct-probe"]);
     // doneOp e2 not targeted, no embedded → no lanes
     expect(m.doneOps[0].lanes).toEqual([]);
+    // taskObjective is discovered from the author output (description + testSpec), lane set by harness
+    expect(m.taskObjective).toEqual({ description: "build the game", testSpec: "", lane: "embedded-test" });
   });
 
   it("probes always get lanes=['direct-probe']", () => {
@@ -90,6 +92,7 @@ describe("postProcessManifest (pure)", () => {
       supersessions: [],
       abstentions: [],
       probes: [],
+      taskObjective: { description: "x", testSpec: "npm test" },
     };
     const m = postProcessManifest(multi, scenarioCtx);
     expect(m.recallFacts.map((r) => r.id)).toEqual(["rf1", "rf2"]);
@@ -116,6 +119,7 @@ describe("buildAuthoringTools", () => {
       supersessions: [],
       abstentions: [],
       probes: [],
+      taskObjective: { description: "x", testSpec: "npm test" },
     });
     expect(writeManifest._captured).toHaveLength(1);
     expect(res.terminate).toBe(true); // signals the agent to stop
@@ -144,6 +148,7 @@ describe("runAuthoringAgent", () => {
           supersessions: [],
           abstentions: [],
           probes: [{ question: "scores?", accept: ["~/.scores.json"], targets: ["e1"] }],
+          taskObjective: { description: "build the game", testSpec: "npm test" },
         });
         return {
           messages: [],
@@ -229,6 +234,7 @@ describe("runAuthoringAgent", () => {
           supersessions: [],
           abstentions: [],
           probes: [],
+          taskObjective: { description: "x", testSpec: "npm test" },
         });
         return {
           messages: [],
@@ -263,6 +269,7 @@ describe("runAuthoringAgent", () => {
           supersessions: [],
           abstentions: [],
           probes: [],
+          taskObjective: { description: "x", testSpec: "npm test" },
         });
         return {
           messages: [],
@@ -298,6 +305,7 @@ describe("runAuthoringAgent", () => {
           supersessions: [],
           abstentions: [],
           probes: [],
+          taskObjective: { description: "x", testSpec: "npm test" },
         });
         // second (final) call — this is what the agent settled on
         await wm.execute("c2", {
@@ -306,6 +314,7 @@ describe("runAuthoringAgent", () => {
           supersessions: [],
           abstentions: [],
           probes: [],
+          taskObjective: { description: "x", testSpec: "npm test" },
         });
         return {
           messages: [],

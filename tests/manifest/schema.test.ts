@@ -19,6 +19,7 @@ const goodAuthor: AuthorOutput = {
     { question: "how are scores stored?", accept: ["~/.scores.json"], targets: ["e1"] },
     { question: "was the renderer decided?", correctRefusal: true, targets: ["e4"] },
   ],
+  taskObjective: { description: "build the game", testSpec: "npm test" },
 };
 
 describe("AUTHOR_OUTPUT_SCHEMA (write_manifest input)", () => {
@@ -34,6 +35,7 @@ describe("AUTHOR_OUTPUT_SCHEMA (write_manifest input)", () => {
         supersessions: [],
         abstentions: [],
         probes: [],
+        taskObjective: { description: "x", testSpec: "npm test" },
       }),
     ).toBe(true);
   });

@@ -96,7 +96,11 @@ When done, call write_manifest with a JSON object of this shape:
       "accept": ["...", "..."],          // for recall/supersession
       "correctRefusal": true,            // for abstention (omit accept)
       "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }
-  ]
+  ],
+  "taskObjective": {
+    "description": "<what was built / the project's goal, as a short statement>",
+    "testSpec": "<the shell command that runs the project's tests, e.g. 'npm test' — empty string if there are no tests>"
+  }
 }
 
 CONSTRAINTS

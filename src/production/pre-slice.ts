@@ -25,6 +25,9 @@ export interface PreSliceResult {
   readonly jsonlPath: string;
   /** entry-ids in the span (the validation context's `preSlicedEntryIds`). */
   readonly entryIds: readonly string[];
+  /** entry-id → its raw JSON line (for the cited-content-present substring check in
+   *  validateManifest — the raw line contains the entry's content text). */
+  readonly entryTextById: ReadonlyMap<string, string>;
 }
 
 /**
@@ -56,7 +59,12 @@ export function preSlice(backupPath: string, firstKeptEntryId: string, outputPat
     return entry.type !== "session";
   });
   const entryIds = spanLines.map((line) => (JSON.parse(line) as EntryLike).id);
+  const entryTextById = new Map<string, string>();
+  for (const line of spanLines) {
+    const entry = JSON.parse(line) as EntryLike;
+    entryTextById.set(entry.id, line);
+  }
 
   writeFileSync(outputPath, spanLines.join("\n"));
-  return { jsonlPath: outputPath, entryIds };
+  return { jsonlPath: outputPath, entryIds, entryTextById };
 }

@@ -16,26 +16,54 @@ const scenarioCtx = {
   id: "t",
   description: "d",
   compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
-  taskObjective: { description: "b", testSpec: "npm test", lane: "embedded-test" as const },
 };
 
-const cannedManifest: ScenarioManifest = {
-  id: "t",
-  description: "d",
-  compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
-  recallFacts: [{ id: "rf1", fact: "x", accept: ["x"], entryIds: ["e1"], domain: "technical", lanes: [] }],
-  doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
-  supersessions: [{ id: "ss1", subject: "x", oldValue: "a", latestValue: "b", entryIds: ["e3"], lanes: [] }],
-  abstentions: [{ id: "ab1", question: "q?", correctRefusal: true, entryIds: ["e3"], lanes: [] }],
-  taskObjective: { description: "b", testSpec: "npm test", lane: "embedded-test" },
-  probes: [],
-};
+/** Every backup entry's content contains all condition search-terms so the cited-content-present
+ *  check passes. Terms: decision / work / mind / question / a / b. */
+const ENTRY_CONTENT = "decision work mind question a b";
 
-function setup() {
+/** A valid manifest (all 4 conditions + 3 probes) citing the given entry-ids. */
+function cannedManifest(rfId: string, doId: string, ssId: string, abId: string): ScenarioManifest {
+  return {
+    id: "t",
+    description: "d",
+    compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
+    recallFacts: [
+      { id: "rf1", fact: "decision", accept: ["decision"], entryIds: [rfId], domain: "technical", lanes: [] },
+    ],
+    doneOps: [{ id: "do1", description: "work", artifact: "work", reworkable: false, entryIds: [doId], lanes: [] }],
+    supersessions: [{ id: "ss1", subject: "mind", oldValue: "a", latestValue: "b", entryIds: [ssId], lanes: [] }],
+    abstentions: [{ id: "ab1", question: "question", correctRefusal: true, entryIds: [abId], lanes: [] }],
+    taskObjective: { description: "b", testSpec: "npm test", lane: "embedded-test" },
+    probes: [
+      { question: "what decision?", accept: ["decision"], targets: [rfId], lanes: [] },
+      { question: "current value?", accept: ["b"], targets: [ssId], lanes: [] },
+      { question: "answer?", correctRefusal: true, targets: [abId], lanes: [] },
+    ],
+  };
+}
+
+/** Write a session JSONL (header + entries e1..eN, each with ENTRY_CONTENT). */
+function writeSession(path: string, cwd: string, n: number): void {
+  const lines = [
+    JSON.stringify({ type: "session", id: "s1", timestamp: "t0", cwd }),
+    ...Array.from({ length: n }, (_, i) =>
+      JSON.stringify({
+        type: "message",
+        id: `e${i + 1}`,
+        parentId: null,
+        timestamp: "t",
+        message: { role: "user", content: ENTRY_CONTENT },
+      }),
+    ),
+  ];
+  writeFileSync(path, lines.join("\n"));
+}
+
+function setup(): { root: string; repo: string; manifestPath: string; preSliceDir: string } {
   const root = mkdtempSync(join(tmpdir(), "bench-prepare-"));
   const repo = join(root, "repo");
   mkdirSync(repo, { recursive: true });
-  writeFileSync(join(repo, "game.ts"), "export const x = 1;");
   const manifestPath = join(root, "manifest.json");
   const preSliceDir = join(root, "sliced");
   mkdirSync(preSliceDir, { recursive: true });
@@ -47,30 +75,17 @@ describe("prepareScenario — build mode", () => {
     const { root, repo, manifestPath, preSliceDir } = setup();
     try {
       const backupPath = join(root, "built.jsonl");
-      writeFileSync(
-        backupPath,
-        [
-          JSON.stringify({ type: "session", id: "s1", timestamp: "t0", cwd: repo }),
-          ...["e1", "e2", "e3", "e4", "e5"].map((id) =>
-            JSON.stringify({
-              type: "message",
-              id,
-              parentId: null,
-              timestamp: "t",
-              message: { role: "user", content: id },
-            }),
-          ),
-        ].join("\n"),
-      );
+      writeSession(backupPath, repo, 5);
       const seams: BuildSeams = {
         async driveAndCapture() {
-          return { backupPath, backupEntries: ["e1", "e2", "e3", "e4", "e5"].map((id) => ({ id })) };
+          const entries = Array.from({ length: 5 }, (_, i) => ({ id: `e${i + 1}` }));
+          return { backupPath, backupEntries: entries };
         },
         async trialCompact() {
           return { firstKeptEntryId: "e4", summary: "cut at e4" }; // e1,e2,e3 in-span
         },
         async author() {
-          return cannedManifest; // all conditions cite e1/e2/e3 (< e4) → landed
+          return cannedManifest("e1", "e2", "e3", "e3"); // all in-span → landed
         },
       };
       const result = await prepareScenario({
@@ -85,7 +100,6 @@ describe("prepareScenario — build mode", () => {
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
       const files = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n");
       expect(files).toContain("session.jsonl");
-      expect(files).toContain("game.ts");
       expect(files).not.toContain("manifest.json");
       expect(JSON.parse(readFileSync(result.manifestPath, "utf8")).recallFacts[0].id).toBe("rf1");
     } finally {
@@ -95,27 +109,16 @@ describe("prepareScenario — build mode", () => {
 });
 
 describe("prepareScenario — extract mode", () => {
-  it("extracts a real session → trial → author → freeze", async () => {
+  it("extracts + copies codebase → trial → author → validate → freeze", async () => {
     const { root, repo, manifestPath, preSliceDir } = setup();
     try {
-      // a real session file at process.cwd() (use repo as the coherent cwd)
+      const codebase = join(root, "codebase");
+      mkdirSync(codebase, { recursive: true });
+      writeFileSync(join(codebase, "main.ts"), "export const x = 1;");
       const sessionPath = join(root, "real.jsonl");
-      writeFileSync(
-        sessionPath,
-        [
-          JSON.stringify({ type: "session", id: "s1", timestamp: "t0", cwd: root }), // cwd === root (coherent)
-          ...["e1", "e2", "e3", "e4", "e5"].map((id) =>
-            JSON.stringify({
-              type: "message",
-              id,
-              parentId: null,
-              timestamp: "t",
-              message: { role: "user", content: id },
-            }),
-          ),
-        ].join("\n"),
-      );
+      writeSession(sessionPath, codebase, 5); // header cwd = codebase (coherent)
       const extractOutput = join(root, "cleaned.jsonl");
+      let copied = false;
       const seams: BuildSeams = {
         async driveAndCapture() {
           throw new Error("driveAndCapture should not be called in extract mode");
@@ -124,23 +127,76 @@ describe("prepareScenario — extract mode", () => {
           return { firstKeptEntryId: "e4", summary: "cut at e4" };
         },
         async author() {
-          return cannedManifest;
+          return cannedManifest("e1", "e2", "e3", "e3");
         },
       };
       const result = await prepareScenario({
         fromSessionPath: sessionPath,
         extractOutputPath: extractOutput,
-        extractCwd: root, // coherent with the session header cwd
+        extractCwd: codebase,
         compactionBoundary: 140000,
         repoPath: repo,
         manifestPath,
         preSliceDir,
         scenarioCtx,
         seams,
+        copyProjectFiles: (src, dest) => {
+          copied = true;
+          expect(src).toBe(codebase);
+          expect(dest).toBe(repo);
+          writeFileSync(join(dest, "main.ts"), "export const x = 1;"); // simulate copy
+        },
       });
+      expect(copied).toBe(true); // codebase copied into repo
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
-      expect(git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n")).toContain("session.jsonl");
+      const files = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n");
+      expect(files).toContain("session.jsonl");
+      expect(files).toContain("main.ts"); // project file committed (V2/R1-2 fix)
       expect(JSON.parse(readFileSync(result.manifestPath, "utf8")).id).toBe("t");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("prepareScenario — contamination guards (R1-3)", () => {
+  it("rejects preSliceDir inside the repo (agent could peek at the sliced ground truth)", async () => {
+    const { root, repo, manifestPath } = setup();
+    try {
+      const preSliceInsideRepo = join(repo, "sliced"); // INSIDE repo — contamination
+      await expect(
+        prepareScenario({
+          scenario: "tycoon",
+          compactionBoundary: 140000,
+          repoPath: repo,
+          manifestPath,
+          preSliceDir: preSliceInsideRepo,
+          scenarioCtx,
+          seams: {} as BuildSeams,
+        }),
+      ).rejects.toThrow(/contamination|inside/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects extractOutputPath inside the repo", async () => {
+    const { root, repo, manifestPath, preSliceDir } = setup();
+    try {
+      const extractInsideRepo = join(repo, "cleaned.jsonl"); // INSIDE repo
+      await expect(
+        prepareScenario({
+          fromSessionPath: join(root, "real.jsonl"),
+          extractOutputPath: extractInsideRepo,
+          extractCwd: root,
+          compactionBoundary: 140000,
+          repoPath: repo,
+          manifestPath,
+          preSliceDir,
+          scenarioCtx,
+          seams: {} as BuildSeams,
+        }),
+      ).rejects.toThrow(/contamination|inside/i);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

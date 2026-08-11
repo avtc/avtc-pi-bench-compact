@@ -31,25 +31,16 @@ import {
   type AuthorProbe,
   type AuthorRecallFact,
   type AuthorSupersession,
-  type CompactionBoundary,
   type DoneOp,
   type Lane,
   type Probe,
   type RecallFact,
+  type ScenarioContext,
   type ScenarioManifest,
   type Supersession,
-  type TaskObjective,
 } from "./schema.js";
 
-/** The scenario context the harness merges into every manifest (id, description,
- *  the planned compaction boundary, the embedded task objective). None of this
- *  is emitted by the authoring agent — it is harness-authoritative. */
-export interface ScenarioContext {
-  readonly id: string;
-  readonly description: string;
-  readonly compactionBoundary: CompactionBoundary;
-  readonly taskObjective: TaskObjective;
-}
+export type { ScenarioContext } from "./schema.js";
 
 /** A build-mode known condition anchor (name + the entry-id where it occurs).
  *  Passed to the agent as a starting point (build mode); absent in extract mode. */
@@ -112,7 +103,7 @@ function deriveLanes(
  * Pure — directly testable with no seams.
  */
 export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext): ScenarioManifest {
-  const hasEmbedded = ctx.taskObjective.testSpec.length > 0;
+  const hasEmbedded = author.taskObjective.testSpec.length > 0;
   const targetedIds = new Set(author.probes.flatMap((p) => p.targets));
   const laneCtx = { hasEmbedded, targetedIds };
 
@@ -162,7 +153,9 @@ export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext):
     id: ctx.id,
     description: ctx.description,
     compactionBoundary: ctx.compactionBoundary,
-    taskObjective: ctx.taskObjective,
+    // taskObjective is DISCOVERED by the authoring agent (what was built + how to test it),
+    // not harness-provided — makes the bench flexible for any idea + extracted sessions.
+    taskObjective: { ...author.taskObjective, lane: "embedded-test" },
     recallFacts,
     doneOps,
     supersessions,

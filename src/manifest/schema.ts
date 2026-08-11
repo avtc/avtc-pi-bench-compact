@@ -58,6 +58,15 @@ export interface AuthorProbe {
   readonly targets: readonly string[];
 }
 
+/** The authoring-agent's discovered task objective (what was built + how to test it).
+ *  The harness derives the manifest's `taskObjective.lane` (embedded-test when testSpec
+ *  is non-empty). Discovering this post-hoc makes the bench flexible for any idea +
+ *  extracted sessions (the testSpec depends on what was actually built). */
+export interface AuthorTaskObjective {
+  readonly description: string;
+  readonly testSpec: string;
+}
+
 /** The authoring-agent's `write_manifest` payload (§4.18 OUTPUT). */
 export interface AuthorOutput {
   readonly recallFacts: readonly AuthorRecallFact[];
@@ -65,6 +74,7 @@ export interface AuthorOutput {
   readonly supersessions: readonly AuthorSupersession[];
   readonly abstentions: readonly AuthorAbstention[];
   readonly probes: readonly AuthorProbe[];
+  readonly taskObjective: AuthorTaskObjective;
 }
 
 // --- typebox schema for write_manifest validation --------------------------
@@ -116,6 +126,10 @@ export const AUTHOR_OUTPUT_SCHEMA: TSchema = Type.Object({
       targets: NonEmptyStringArray,
     }),
   ),
+  taskObjective: Type.Object({
+    description: NonEmptyString,
+    testSpec: Type.String(), // may be empty (no tests → no embedded-test lane)
+  }),
 });
 
 // --- full manifest (harness-derived id/lanes/domain + scenario context) ----
@@ -166,6 +180,15 @@ export interface TaskObjective {
 export interface CompactionBoundary {
   readonly phaseATokenBudget: number;
   readonly plan: string;
+}
+
+/** The harness-known scenario context merged into every manifest (id, description,
+ *  compaction boundary). None of this is discovered by the authoring agent — it is
+ *  harness-authoritative. The `taskObjective` is discovered (AuthorOutput), not here. */
+export interface ScenarioContext {
+  readonly id: string;
+  readonly description: string;
+  readonly compactionBoundary: CompactionBoundary;
 }
 
 /** The full `scenario-manifest-v1` (§4.5). */

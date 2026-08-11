@@ -48,18 +48,26 @@ interface CitedCondition {
   readonly entryIds: readonly string[];
 }
 
-/** Classify each topic's landing against the trial cut. Pure. */
+/** Classify each topic's landing against the trial cut. Pure.
+ *  `tailContentTopics` (default empty): topic-ids whose content the harness detected in
+ *  the KEPT TAIL (not the span the author saw). A topic with no authored condition is
+ *  "tail" (auto-continue) when in this set, else "missing" (surface). This resolves the
+ *  pre-slice-vs-tail tension: the author sees only the span, so the harness's separate
+ *  tail-check (Task 19 wiring) distinguishes content-in-tail from never-materialized. */
 export function classifyLanding(
   manifest: ScenarioManifest,
   firstKeptEntryId: string,
   entryOrder: Map<string, number>,
   topics: readonly ConditionTopic[],
+  tailContentTopics: ReadonlySet<string> = new Set(),
 ): TopicLanding[] {
   const cutIndex = entryOrder.get(firstKeptEntryId);
   return topics.map((topic) => {
     const conditions = manifest[listKey(topic.metricAxis)] as readonly CitedCondition[];
     if (conditions.length === 0) {
-      return { topic, status: "missing" as const };
+      // No condition authored (the author found nothing in the span). The harness's
+      // tail-check decides: content-in-tail → auto-continue; else → surface.
+      return { topic, status: tailContentTopics.has(topic.id) ? ("tail" as const) : ("missing" as const) };
     }
     // tail if ANY condition cites an entry at/after the cut (in the kept tail).
     const hasTail = conditions.some((c) =>

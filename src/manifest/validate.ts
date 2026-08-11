@@ -18,11 +18,11 @@ export type ConditionListName = "recallFacts" | "doneOps" | "supersessions" | "a
 /** Context the validator needs (all harness-supplied — no file I/O here). */
 export interface ManifestValidationContext {
   /** The pre-sliced compacted-away entry-ids — every cited id MUST be in this set. */
-  readonly preSlicedEntryIds: Set<string>;
+  readonly preSlicedEntryIds: ReadonlySet<string>;
   /** entry-id → its rendered text (for the cited-content-present substring check). */
-  readonly entryTextById: Map<string, string>;
+  readonly entryTextById: ReadonlyMap<string, string>;
   /** Which condition lists must be non-empty (the essential scoring axes). */
-  readonly essentialLists: Set<ConditionListName>;
+  readonly essentialLists: ReadonlySet<ConditionListName>;
   /** The actual number of CompactionEntries in the source (trial=1 for build; 0 for extract). */
   readonly compactionCount: number;
   /** The expected compaction count for this mode (1 build-trial, 0 extract). */

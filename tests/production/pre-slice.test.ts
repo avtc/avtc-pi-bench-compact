@@ -64,6 +64,21 @@ describe("preSlice", () => {
     }
   });
 
+  it("returns entryTextById mapping each span id → its raw JSON line (for the cited-content-present check)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
+    try {
+      const backup = writeBackup(dir);
+      const out = join(dir, "sliced.jsonl");
+      const result = preSlice(backup, "e3", out); // span = e1, e2
+      expect(result.entryTextById.get("e1")).toContain("first");
+      expect(result.entryTextById.get("e2")).toContain("second");
+      expect(result.entryTextById.has("e3")).toBe(false); // not in span
+      expect(result.entryTextById.size).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("throws when firstKeptEntryId is not found in the backup", () => {
     const dir = mkdtempSync(join(tmpdir(), "bench-preslice-"));
     try {
