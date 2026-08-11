@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { describe, expect, it } from "vitest";
-import { resolveToolVersion, type VersionResolver } from "../../src/arms/version.js";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } from "../../src/arms/version.js";
 
 /** A fake resolver scripted per package. */
 function fakeResolver(
@@ -82,5 +86,42 @@ describe("arms/version — resolveToolVersion", () => {
   it("throws if the root resolves but neither git nor a version can be determined", () => {
     const r = fakeResolver({ "pi-observational-memory": "/p" }, { "/p": null }, { "/p": null });
     expect(() => resolveToolVersion("A2", r)).toThrow(/cannot determine version/i);
+  });
+});
+
+describe("arms/version — DEFAULT resolver git-toplevel guard (R1-1)", () => {
+  // `git rev-parse HEAD` walks UP to the nearest ancestor repo. An npm package nested in a
+  // repo must NOT resolve to the parent's hash — gitHead must return null unless the dir IS
+  // the git toplevel (so resolveToolVersion falls through to the npm version).
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-ver-"));
+    execFileSync("git", ["init", "-q", repo]);
+    execFileSync("git", ["-C", repo, "config", "user.email", "t@t.t"]);
+    execFileSync("git", ["-C", repo, "config", "user.name", "t"]);
+    writeFileSync(join(repo, "package.json"), '{"version":"9.9.9"}');
+    execFileSync("git", ["-C", repo, "add", "-A"]);
+    execFileSync("git", ["-C", repo, "commit", "-q", "-m", "init"]);
+  });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  it("returns the HEAD hash when the dir IS the git toplevel (local-folder install)", () => {
+    const head = DEFAULT_VERSION_RESOLVER.gitHead(repo);
+    expect(head).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("returns null for a nested dir inside a repo (would otherwise steal the parent hash)", () => {
+    const nested = join(repo, "sub");
+    mkdirSync(nested);
+    expect(DEFAULT_VERSION_RESOLVER.gitHead(nested)).toBeNull();
+  });
+
+  it("returns null for a dir with no git repo at all", () => {
+    const noGit = mkdtempSync(join(tmpdir(), "bench-nogit-"));
+    try {
+      expect(DEFAULT_VERSION_RESOLVER.gitHead(noGit)).toBeNull();
+    } finally {
+      rmSync(noGit, { recursive: true, force: true });
+    }
   });
 });

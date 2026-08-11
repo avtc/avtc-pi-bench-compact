@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PackageSource } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HARNESS_PACKAGE, MEMKEEPER_PACKAGE, OM_PACKAGE, SUITE_PACKAGES } from "../../src/arms/definitions.js";
 import { buildMemkeeperSettings, buildProjectSettings, type SwitchContext, switchArm } from "../../src/arms/switch.js";
@@ -75,12 +74,24 @@ describe("arms/switch — buildMemkeeperSettings (.pi/avtc-pi-memkeeper-settings
 
 describe("arms/switch — switchArm writes files + reloads", () => {
   let repo: string;
+  let savedMkEnv: string | undefined;
+  let savedOmEnv: string | undefined;
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), "bench-arm-"));
+    savedMkEnv = process.env.PI_SETTINGS_MEMKEEPER;
+    savedOmEnv = process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE;
+    delete process.env.PI_SETTINGS_MEMKEEPER;
+    delete process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE;
   });
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
+    restoreEnv("PI_SETTINGS_MEMKEEPER", savedMkEnv);
+    restoreEnv("PI_OBSERVATIONAL_MEMORY_PASSIVE", savedOmEnv);
   });
+  function restoreEnv(key: string, val: string | undefined): void {
+    if (val === undefined) delete process.env[key];
+    else process.env[key] = val;
+  }
 
   function makeCtx(): SwitchContext & { reloadCalls: number } {
     const ctx = {
@@ -137,5 +148,44 @@ describe("arms/switch — switchArm writes files + reloads", () => {
     await switchArm(ctx, "A3", repo, OPTS);
     expect(written).toBe(true);
     expect(ctx.reload).toHaveBeenCalledOnce();
+  });
+
+  // --- env transport (R1-2/R1-5): avtc-pi-settings-ui reads PI_SETTINGS_MEMKEEPER env FIRST
+  // (factory.ts:184), so a stale env from a prior arm silently overrides the file; OM passive is
+  // env-only. switchArm must set both explicitly per arm so isolation is deterministic. ---
+  it("A3/A4 set PI_SETTINGS_MEMKEEPER env to the arm's renderMode (env-first precedence)", async () => {
+    await switchArm(makeCtx(), "A3", repo, OPTS);
+    expect(JSON.parse(process.env.PI_SETTINGS_MEMKEEPER ?? "{}").renderMode).toBe("observations-root");
+    await switchArm(makeCtx(), "A4", repo, OPTS);
+    expect(JSON.parse(process.env.PI_SETTINGS_MEMKEEPER ?? "{}").renderMode).toBe("selected-root");
+  });
+
+  it("non-memkeeper arms DELETE PI_SETTINGS_MEMKEEPER (no stale override)", async () => {
+    process.env.PI_SETTINGS_MEMKEEPER = JSON.stringify({ renderMode: "stale-from-A3" });
+    await switchArm(makeCtx(), "A1", repo, OPTS);
+    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+  });
+
+  it("OM arms (A2/A5) set PI_OBSERVATIONAL_MEMORY_PASSIVE=1 (self-contained, not a forgotten precondition)", async () => {
+    await switchArm(makeCtx(), "A2", repo, OPTS);
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBe("1");
+    await switchArm(makeCtx(), "A5", repo, OPTS);
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBe("1");
+  });
+
+  it("non-OM arms DELETE PI_OBSERVATIONAL_MEMORY_PASSIVE", async () => {
+    process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE = "1";
+    await switchArm(makeCtx(), "A1", repo, OPTS);
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
+  });
+
+  it("removes a stale memkeeper settings file when switching to a non-memkeeper arm (R1-7)", async () => {
+    // run A3 first so .pi/ + the memkeeper file exist
+    await switchArm(makeCtx(), "A3", repo, OPTS);
+    const mkFile = join(repo, ".pi", "avtc-pi-memkeeper-settings.json");
+    expect(existsSync(mkFile)).toBe(true);
+    // switch to A1 — the stale memkeeper file must be removed (no lingering override)
+    await switchArm(makeCtx(), "A1", repo, OPTS);
+    expect(existsSync(mkFile)).toBe(false);
   });
 });
