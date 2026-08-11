@@ -32,7 +32,7 @@ import {
 } from "../runtime/agent-loop.js";
 import type { ResolvedBenchModel } from "../runtime/model.js";
 import { buildSimulatorInput } from "./messages.js";
-import { buildChunks, type ChunkOptions, computeUnobserved, type RenderedChunk } from "./observe.js";
+import { buildChunks, type ChunkOptions, computeUnobserved, lastUserMessageId, type RenderedChunk } from "./observe.js";
 
 // --- pure helpers (tested directly) ----------------------------------------
 
@@ -54,7 +54,7 @@ export interface NextInstructionInput {
  * The harness's per-step instruction (the "ask" the simulator answers with its next
  * user message). Generic pacing — the conditionTopics are voiced via the system
  * prompt (the simulator's creative responsibility), not steered per-step here.
- */
+ * Step 0 is the opening (the first `agent_settled`, before the simulator has spoken). */
 export function nextInstruction(input: NextInstructionInput): string {
   if (input.agentQuestion !== undefined) {
     return `The agent asked a question: "${input.agentQuestion}". Answer it as yourself (the user / project designer), then continue with the next step.`;
@@ -138,7 +138,6 @@ const SIM_CHUNK_OPTS: ChunkOptions = {
  * runs one `runBenchStage` (maxTurns:1), and injects the reply via `followUp`.
  */
 export class SimulatorDriver {
-  private _frontier: string | null = null;
   private _step = 0;
   private _contextTokens = 0;
   private _agentQuestion: string | undefined;
@@ -172,9 +171,13 @@ export class SimulatorDriver {
       return;
     }
 
-    // 2. observe the unobserved gap since the last injection
+    // 2. observe the agent's response since the simulator's last injection.
+    //    The frontier is DERIVED (lastUserMessageId = the simulator's last injection;
+    //    the coding agent never produces user messages), so the gap is exactly the
+    //    agent's response — never re-rendering the simulator's own previous message.
     const branch = this.deps.seams.getBranch();
-    const unobserved = computeUnobserved(branch, this._frontier);
+    const frontier = lastUserMessageId(branch);
+    const unobserved = computeUnobserved(branch, frontier);
     const chunks = buildChunks(unobserved, SIM_CHUNK_OPTS);
     const renderedChunk = chunks.map((c: RenderedChunk) => c.text).join("\n");
 
@@ -220,12 +223,20 @@ export class SimulatorDriver {
 
     // 7. extract the reply + inject it as the next follow-up user message
     const text = extractAssistantText(result.messages);
+    if (text.trim().length === 0) {
+      // no usable reply (no assistant msg / text-less response) — stop+surface,
+      // consistent with the abort/model-failure paths (don't inject an empty msg)
+      log.warn("simulator: stage produced no reply text");
+      this.deps.hooks?.onStop?.({
+        contextTokens: this._contextTokens,
+        reason: "error",
+        error: "simulator produced no reply text",
+      });
+      return;
+    }
     this.deps.seams.inject(text);
 
-    // 8. advance the frontier (past the gap we just rendered) + step; clear the question
-    if (unobserved.length > 0) {
-      this._frontier = unobserved[unobserved.length - 1].id;
-    }
+    // 8. advance the step; clear the question. (frontier is derived — no stored state.)
     this._step += 1;
     this._agentQuestion = undefined;
     this.deps.hooks?.onStep?.({ step: this._step, contextTokens: this._contextTokens, injectedText: text });

@@ -3,6 +3,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { UserMessage } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
   extractAssistantText,
@@ -69,6 +70,23 @@ describe("extractAssistantText", () => {
 });
 
 // --- SimulatorDriver (fake seams — no real LLM / session) -------------------
+
+// entry fixtures (well-shaped plain objects cast to the entry union)
+const eBase = (id: string) => ({ id, parentId: null as string | null, timestamp: "0" });
+function eUser(id: string, text: string): SessionEntry {
+  return {
+    type: "message",
+    ...eBase(id),
+    message: { role: "user", content: text, timestamp: 0 },
+  } as unknown as SessionEntry;
+}
+function eAsst(id: string, text: string): SessionEntry {
+  return {
+    type: "message",
+    ...eBase(id),
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  } as unknown as SessionEntry;
+}
 
 function fakeStageResult(text: string) {
   return {
@@ -176,5 +194,59 @@ describe("SimulatorDriver", () => {
     await driver.onAgentSettled();
     expect(seams.inject).not.toHaveBeenCalled();
     expect(onStop.mock.calls[0][0]).toMatchObject({ reason: "error" });
+  });
+
+  it("empty reply (no assistant text) → stop+surface, does NOT inject an empty message (R2)", async () => {
+    const onStop = vi.fn();
+    // stage returns a result with NO assistant message
+    const seams = makeSeams({
+      runStage: async () => ({
+        messages: [{ role: "user", content: "x", timestamp: 0 }] as AgentMessage[],
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 0 },
+        outputTokens: 0,
+        aborted: false,
+        timedOut: false,
+      }),
+    });
+    const driver = makeDriver(seams, { hooks: { onStop } });
+    driver.trackContext(10_000);
+    await driver.onAgentSettled();
+    expect(seams.inject).not.toHaveBeenCalled();
+    expect(onStop.mock.calls[0][0]).toMatchObject({ reason: "error" });
+  });
+
+  it("derived frontier: does NOT re-render the simulator's own previous message (R1/R3)", async () => {
+    // cycle 1 branch: [seed, agent-resp-1]
+    // cycle 2 branch: [seed, agent-resp-1, sim-msg-1, agent-resp-2]
+    const branch1 = [eUser("seed", "build it"), eAsst("a1", "made the core loop")];
+    const branch2 = [
+      eUser("seed", "build it"),
+      eAsst("a1", "made the core loop"),
+      eUser("sim1", "please add a combat system"),
+      eAsst("a2", "done, combat is in place now"),
+    ];
+    const branches = [branch1, branch2];
+    let branchIdx = 0;
+    const captured: string[] = [];
+    const seams = makeSeams({
+      getBranch: () => branches[Math.min(branchIdx++, branches.length - 1)],
+      runStage: async (input) => {
+        const content = (input.messages[0] as UserMessage).content;
+        const body = typeof content === "string" ? content : "";
+        captured.push(body);
+        return fakeStageResult("ok");
+      },
+    });
+    const driver = makeDriver(seams);
+    driver.trackContext(10_000);
+    await driver.onAgentSettled(); // cycle 1
+    driver.trackContext(20_000);
+    await driver.onAgentSettled(); // cycle 2
+    // cycle 2's input should contain ONLY agent-resp-2 ("combat is in place")
+    expect(captured[1]).toContain("combat is in place");
+    // ... NOT the simulator's own previous message
+    expect(captured[1]).not.toContain("please add a combat system");
+    // ... and NOT agent-resp-1 (already rendered in cycle 1)
+    expect(captured[1]).not.toContain("made the core loop");
   });
 });

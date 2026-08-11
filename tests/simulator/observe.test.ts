@@ -3,7 +3,13 @@
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { buildChunks, type ChunkOptions, computeUnobserved, isRenderableEntry } from "../../src/simulator/observe.js";
+import {
+  buildChunks,
+  type ChunkOptions,
+  computeUnobserved,
+  isRenderableEntry,
+  lastUserMessageId,
+} from "../../src/simulator/observe.js";
 
 // --- fixture builders (well-shaped plain objects cast to the entry union) ---
 
@@ -71,6 +77,28 @@ const OPTS_NO_IDS: ChunkOptions = {
   includeEntryId: false,
 };
 const OPTS_WITH_IDS: ChunkOptions = { ...OPTS_NO_IDS, includeEntryId: true };
+
+describe("lastUserMessageId", () => {
+  it("returns the id of the last user-role message in the branch", () => {
+    const entries = [user("u1", "seed"), asst("a1", "resp"), user("u2", "sim inject"), asst("a2", "resp2")];
+    expect(lastUserMessageId(entries)).toBe("u2");
+  });
+
+  it("returns the seed when it is the only user message (cycle 1)", () => {
+    const entries = [user("seed", "task"), asst("a1", "resp")];
+    expect(lastUserMessageId(entries)).toBe("seed");
+  });
+
+  it("returns null when there is no user message", () => {
+    expect(lastUserMessageId([asst("a1", "hi")])).toBeNull();
+    expect(lastUserMessageId([])).toBeNull();
+  });
+
+  it("ignores non-message entries (operational) when scanning", () => {
+    const entries = [user("u1", "seed"), modelChange("m"), asst("a1", "resp")];
+    expect(lastUserMessageId(entries)).toBe("u1");
+  });
+});
 
 describe("isRenderableEntry", () => {
   it("accepts message / custom_message / branch_summary", () => {

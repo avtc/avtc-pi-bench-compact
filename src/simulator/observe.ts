@@ -35,7 +35,7 @@ import { CHARS_PER_TOKEN_ESTIMATE } from "../runtime/streaming-tokens.js";
 const ANSI_ESCAPE_PATTERN = /\x1b\][^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)|\x1b\[[0-9;:?]*[A-Za-z]|\x9b[0-9;:?]*[A-Za-z]/g;
 
 /** Strip ANSI/VT escape sequences from text (applied to all rendered text). */
-export function stripAnsi(text: string): string {
+function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
@@ -52,7 +52,7 @@ export function isRenderableEntry(entry: SessionEntry): boolean {
 // --- render block / group / chunk types (verbatim from memkeeper) -----------
 
 /** One rendered tag-block in the transcript (carries entry=entryId when cited). */
-export interface RenderBlock {
+interface RenderBlock {
   readonly text: string;
   readonly entryId: string;
 }
@@ -60,7 +60,7 @@ export interface RenderBlock {
 /** One entry's rendered blocks kept together as an atomic chunking unit (a whole
  *  entry is never split across chunks). An assistant entry's tool calls absorb
  *  each matched tool-result entry into its group. */
-export interface RenderGroup {
+interface RenderGroup {
   readonly blocks: readonly RenderBlock[];
 }
 
@@ -94,15 +94,27 @@ function isUserMessageEntry(entry: SessionEntry): boolean {
 }
 
 /**
+ * The id of the last user-role message in the branch, or null if there is none.
+ * For the simulator: this is its most recent injected message (the coding agent
+ * never produces user messages), so it is the natural frontier to observe-after —
+ * the unobserved gap becomes exactly the agent's response to it. Derived fresh each
+ * cycle (no stored state — robust against inject/delivery timing).
+ */
+export function lastUserMessageId(entries: readonly SessionEntry[]): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (isUserMessageEntry(entries[i])) return entries[i].id;
+  }
+  return null;
+}
+
+/**
  * The unobserved slice: renderable entries strictly AFTER the frontier id. When
- * `frontier` is null (nothing observed yet) the slice starts strictly AFTER the
- * first user message, so the seed task is never re-rendered; with no user
- * message there is no anchor (nothing unobserved). Operational entries are never
- * unobserved sources.
+ * `frontier` is null (no user message at all) the slice is empty (no anchor).
+ * Operational entries are never unobserved sources.
  *
- * For the simulator: `frontier` = the id of the last message the simulator
- * injected (a user message), so the result is the agent's response + subsequent
- * activity since the simulator last spoke.
+ * For the simulator: pass `lastUserMessageId(branch)` — the simulator's last
+ * injection — so the result is exactly the agent's response since the simulator
+ * last spoke (never re-rendering the simulator's own previous message).
  */
 export function computeUnobserved(entries: readonly SessionEntry[], frontier: string | null): SessionEntry[] {
   if (frontier === null) {
@@ -123,7 +135,7 @@ const TRUNCATION_MARKER = "[…truncated…]";
 const THINKING_PREFIX_PATTERN = /^Thinking:\s*/;
 const ATTR_ERROR = "error";
 /** Separator between rendered blocks (each tag on its own line). */
-export const BLOCK_SEP = "\n";
+const BLOCK_SEP = "\n";
 const FIRST_INDEX = 0;
 
 function sanitizeThinking(text: string): string {
@@ -198,7 +210,7 @@ function renderBranchSummaryGroup(entry: BranchSummaryEntry, includeEntryId: boo
  * absorb their matched tool-result entries into the group (the TOOLCALL block is
  * immediately followed by its TOOLRESULT); matched results are consumed + skipped.
  */
-export function renderGroups(entries: readonly SessionEntry[], options: ChunkOptions): RenderGroup[] {
+function renderGroups(entries: readonly SessionEntry[], options: ChunkOptions): RenderGroup[] {
   const cap = options.toolBlockCapTokens;
   const includeEntryId = options.includeEntryId;
   const resultByCallId = buildResultIndex(entries);
