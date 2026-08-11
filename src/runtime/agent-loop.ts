@@ -61,7 +61,10 @@ export interface StageRunResult {
   usage: StageUsage;
   /** Final two-tier output-token count (primary usage.output, fallback chars/4). */
   outputTokens: number;
-  /** True when `input.signal` (the run/compaction signal) was aborted during the run. */
+  /** True when the run was aborted — EITHER `input.signal` (the run/compaction
+   *  signal) OR the per-turn timeout controller fired. To isolate the per-turn
+   *  timeout (an error condition to surface, not swallow), check `timedOut`;
+   *  `aborted && !timedOut` means the run/compaction signal aborted the stage. */
   aborted: boolean;
   /** True when the per-turn timeout fired (the timer covers one LLM call PLUS
    *  its tool batch — a slow tool can trip it; distinct from a run-signal abort).
