@@ -18,7 +18,7 @@ The bench compares five arms — all run within the full avtc-pi suite (todo + u
 
 ### Dependencies
 
-- **A2 / A5 require the FORKED `pi-observational-memory`.** Upstream OM has a bug where `passive` mode (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) does **not** catch up observations at compaction — the fork fixes this so A2/A5 catch up identically to non-passive. Without the fork, A2/A5 are invalid (no observations produced). The operator must set `PI_OBSERVATIONAL_MEMORY_PASSIVE=1` globally (it is env-only).
+- **A2 / A5 require the FORKED `pi-observational-memory`.** Upstream OM has a bug where `passive` mode (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) does **not** catch up observations at compaction — the fork fixes this so A2/A5 catch up identically to non-passive. Without the fork, A2/A5 are invalid (no observations produced). The harness sets `PI_OBSERVATIONAL_MEMORY_PASSIVE=1` itself at run start (env-only; no operator action needed).
 - **A3 / A4 require `avtc-pi-memkeeper`** (on-compaction mode; `renderMode` switched per arm).
 - **C4 (compaction cost) requires patching** the memory arms' `session_before_compact` hooks to emit per-stage LLM usage — see the design doc (§6.2 / UD32) + Task 11.
 

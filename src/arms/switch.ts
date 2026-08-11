@@ -5,7 +5,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PackageSource } from "@earendil-works/pi-coding-agent";
 import type { ArmId } from "../config/types.js";
-import { ARM_DEFS, type MemkeeperArmConfig, OM_PACKAGE } from "./definitions.js";
+import { ARM_DEFS, type ArmDef, type MemkeeperArmConfig } from "./definitions.js";
 import { buildPackages } from "./packages.js";
 
 /** Options carrying the A5 threshold value (from bench config `omFullReflectionThresholdTokens`). */
@@ -61,18 +61,31 @@ export interface SwitchContext {
 const MEMKEEPER_SETTINGS_FILE = "avtc-pi-memkeeper-settings.json";
 /** avtc-pi-settings-ui env transport for memkeeper (read FIRST on load — factory.ts:184). */
 const MEMKEEPER_ENV = "PI_SETTINGS_MEMKEEPER";
-/** OM `passive` mode env (env-only — OM readEnvConfig). */
-const OM_PASSIVE_ENV = "PI_OBSERVATIONAL_MEMORY_PASSIVE";
+/**
+ * Every static-env key any arm declares via `envPreconditions` — the union, so switchArm can
+ * set this arm's keys + DELETE stale keys from other arms (isolation is deterministic, not
+ * dependent on prior process state). envPreconditions is the single source of truth for which
+ * static env the bench manages (R-2).
+ */
+const MANAGED_STATIC_ENV_KEYS = new Set(
+  (Object.values(ARM_DEFS) as ArmDef[]).flatMap((d) => Object.keys(d.envPreconditions ?? {})),
+);
 
 /**
  * Isolate an arm: write its project settings (packages + arm-specific config) + `reload()`
  * so pi loads exactly the suite + harness + this arm's memory extension (§2.4/§3.2/UD33).
  *
- * **Env transport (R1-2/R1-5):** avtc-pi-settings-ui reads `PI_SETTINGS_MEMKEEPER` env FIRST
+ * **Env transport (R1-2/R1-5/R-2):** avtc-pi-settings-ui reads `PI_SETTINGS_MEMKEEPER` env FIRST
  * (factory.ts:184) + a stale value from a prior arm survives `ctx.reload()` (process env is
  * not cleared), so a stale A3 env would silently override A4's FILE. OM `passive` is env-only
- * (no file equivalent). So switchArm sets both env vars explicitly per arm + deletes them for
- * arms that don't use them — isolation is deterministic, not dependent on prior process state.
+ * (no file equivalent). So switchArm sets the memkeeper env per arm (A3/A4) + applies the arm's
+ * `envPreconditions` (OM passive=1 for A2/A5) + DELETES all managed env keys for arms that
+ * don't use them — isolation is deterministic. `envPreconditions` is the single source of truth
+ * for static env; the memkeeper env is dynamic config switchArm computes from memkeeperSettings.
+ *
+ * **Lifecycle note:** switchArm mutates process.env with NO teardown — the env persists in the
+ * operator's session post-run (only a restart clears it). Teardown is Task-12 orchestration
+ * (R-4); switchArm is the per-arm isolation primitive.
  *
  * **G-iso (verified):** `ctx.reload()` → `settingsManager.reload()` (re-reads the project
  * `.pi/settings.json` we just wrote — `packages` REPLACES global, so the harness is
@@ -105,11 +118,12 @@ export async function switchArm(
     delete process.env[MEMKEEPER_ENV];
   }
 
-  // 3. OM passive env — A2/A5 are passive (self-contained, not a forgotten operator precondition)
-  if (ARM_DEFS[arm].memoryPackage === OM_PACKAGE) {
-    process.env[OM_PASSIVE_ENV] = "1";
-  } else {
-    delete process.env[OM_PASSIVE_ENV];
+  // 3. static env preconditions (envPreconditions) — apply this arm's, clear stale keys from other arms
+  const staticEnv = ARM_DEFS[arm].envPreconditions ?? {};
+  for (const key of MANAGED_STATIC_ENV_KEYS) {
+    const val = staticEnv[key];
+    if (val !== undefined) process.env[key] = val;
+    else delete process.env[key];
   }
 
   // 4. reload — re-read project settings + re-discover extensions (the arm loads)

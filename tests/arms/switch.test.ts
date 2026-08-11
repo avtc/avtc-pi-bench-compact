@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -137,16 +137,19 @@ describe("arms/switch — switchArm writes files + reloads", () => {
     expect(mk.renderMode).toBe("selected-root");
   });
 
-  it("always reloads exactly once, after writing", async () => {
-    let written = false;
+  it("always reloads exactly once, AFTER writing files + syncing env (R1-2/R1-5/R-3)", async () => {
+    let fileWritten = false;
+    let envSynced = false;
     const ctx: SwitchContext = {
       reload: vi.fn(async () => {
-        // by the time reload runs, the settings file must already be on disk
-        written = existsSync(join(repo, ".pi", "settings.json"));
+        // by the time reload runs, BOTH the settings file AND the env must be in place
+        fileWritten = existsSync(join(repo, ".pi", "settings.json"));
+        envSynced = process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE === "1";
       }),
     };
-    await switchArm(ctx, "A3", repo, OPTS);
-    expect(written).toBe(true);
+    await switchArm(ctx, "A2", repo, OPTS); // A2 sets the OM passive env
+    expect(fileWritten).toBe(true);
+    expect(envSynced).toBe(true);
     expect(ctx.reload).toHaveBeenCalledOnce();
   });
 

@@ -65,9 +65,11 @@ export interface ArmDef {
    */
   overrideReflectionThreshold?: true;
   /**
-   * Doc-only: env the OPERATOR must set globally (the harness does not manage
-   * process env). OM `passive` is env-only (`PI_OBSERVATIONAL_MEMORY_PASSIVE`) —
-   * a precondition for A2/A5 (the forked OM fixes upstream passive-no-catch-up).
+   * Static process-env the bench APPLIES for this arm at `switchArm` (env-only knobs with no
+   * file equivalent). `switchArm` sets each `key=value` + clears stale keys from other arms —
+   * this field is the single source of truth for which static env the bench manages (R-2).
+   * OM `passive` (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) is env-only (OM `readEnvConfig`); A2/A5
+   * need it + the forked OM (passive catch-up). (Teardown of these env vars is Task-12 orchestration.)
    */
   envPreconditions?: Readonly<Record<string, string>>;
 }
