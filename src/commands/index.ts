@@ -5,42 +5,28 @@
 // Task 2 via registerBenchSettings). Each handler closes over `pi` (for
 // sendUserMessage) and receives `(args, ctx)` from pi.
 //
-// Stub commands (prepare/run/run-scenario/run-session-file/results) run `preflight`
-// then notify "not implemented yet: <kind>" — later phase tasks replace the stub with
-// the real implementation. `pause`/`resume`/`abort`/`status` are real-minimal now
-// (steer/continue/stop/report); Task 18 wires the widget teardown for `abort`, Task 19
-// refines run-stop semantics.
+// prepare-scenario + results + run/run-scenario/run-session-file are all real
+// handlers (Task 23 replaced the run-command stubs). `pause`/`resume`/`abort`/
+// `status` are real-minimal control commands (steer/continue/stop/report).
 
-import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
 import { hideActiveWidget } from "../widget/active-widget.js";
-import { parsePositional, parsePrepareArgs } from "./parse.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { registerResultsCommand } from "./results.js";
-import { type CommandArgs, type CommandKind, preflight } from "./validate.js";
+import { registerRunCommand } from "./run.js";
+import { registerRunScenarioCommand } from "./run-scenario.js";
+import { registerRunSessionFileCommand } from "./run-session-file.js";
 
 /** Register all bench-compact commands (except settings) on `pi`. Called from activate. */
 export function registerBenchCommands(pi: ExtensionAPI): void {
-  // --- real: prepare-scenario (Task 10) -------------------------------------
+  // --- real handlers -------------------------------------------------------
   registerPrepareScenarioCommand(pi);
-
-  // --- real: results -------------------------------------------------------
   registerResultsCommand(pi);
-
-  // --- stub commands: preflight -> "not implemented" ------------------------
-  stub(pi, "bench-compact:run", "Prepare + run a scenario from <idea>.", "run", (args) => parsePrepareArgs(args));
-  stub(
-    pi,
-    "bench-compact:run-scenario",
-    "Run every enabled arm from a prepared scenario folder.",
-    "run-scenario",
-    (args) => parsePositional(args),
-  );
-  stub(pi, "bench-compact:run-session-file", "Extract a real session file + run.", "run-session-file", (args) =>
-    parsePositional(args),
-  );
+  registerRunScenarioCommand(pi);
+  registerRunCommand(pi);
+  registerRunSessionFileCommand(pi);
 
   // --- real-minimal control commands ---------------------------------------
   pi.registerCommand("bench-compact:pause", {
@@ -76,33 +62,6 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
       const v = validateBenchConfig(getBenchConfig());
       const validity = v.ok ? "config OK" : `config invalid: ${v.reason}`;
       ctx.ui.notify(`${validity} · not started`, "info");
-    },
-  });
-}
-
-/** Build a stub command: parse args, preflight, then notify "not implemented" (or
- *  the preflight/parsing failure as a warning). The kind maps to a preflight branch. */
-function stub(
-  pi: ExtensionAPI,
-  name: string,
-  description: string,
-  kind: CommandKind,
-  parse: (args: string) => CommandArgs & { error?: string },
-): void {
-  pi.registerCommand(name, {
-    description,
-    handler: async (args, ctx) => {
-      const parsed = parse(args);
-      if (parsed.error !== undefined) {
-        ctx.ui.notify(parsed.error, "warning");
-        return;
-      }
-      const check = preflight(getBenchConfig(), kind, parsed, existsSync);
-      if (!check.ok) {
-        ctx.ui.notify(check.reason, "warning");
-        return;
-      }
-      ctx.ui.notify(`not implemented yet: ${name.replace("bench-compact:", "")}`, "info");
     },
   });
 }

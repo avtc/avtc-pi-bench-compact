@@ -119,28 +119,30 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /abort/i.test(n.msg))).toBe(true);
   });
 
-  it("every stub command body runs preflight then notifies 'not implemented' (R4-1)", async () => {
+  it("run/run-scenario/run-session-file are real handlers (no 'not implemented' stub) (Task 23)", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
-    // run-scenario/run-session-file need a real existing path (preflight checks
-    // existence via existsSync); use this test file's own dir/file.
+    // run-scenario with a real dir lacking a manifest → resolveScenarioLayout warns
+    // about manifest.json (real handler path, NOT a 'not implemented' stub).
     const dir = import.meta.dirname;
+    await handlerOf(commands, "bench-compact:run-scenario")(dir, ctx);
+    expect(notifies.some((n) => /manifest\.json/i.test(n.msg))).toBe(true);
+    expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(false);
+
+    // run <idea> → reaches prepare; defaultBuildPrepareDeps throws (Task 19 wires the
+    // live seams) → 'prepare failed' (real prepare→run chain, NOT a stub).
+    notifies.length = 0;
+    await handlerOf(commands, "bench-compact:run")("an incremental game idea", ctx);
+    expect(notifies.some((n) => /prepare failed/i.test(n.msg))).toBe(true);
+    expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(false);
+
+    // run-session-file <path> → same prepare path (extract mode).
+    notifies.length = 0;
     const file = import.meta.filename;
-    const cases: [string, string][] = [
-      ["bench-compact:run", "an incremental game idea"],
-      ["bench-compact:run-scenario", dir],
-      ["bench-compact:run-session-file", file],
-      // bench-compact:results is a REAL command now (registerResultsCommand), not a stub.
-    ];
-    for (const [name, args] of cases) {
-      notifies.length = 0;
-      await handlerOf(commands, name)(args, ctx);
-      expect(
-        notifies.some((n) => /not implemented/i.test(n.msg)),
-        `${name} should notify 'not implemented'`,
-      ).toBe(true);
-    }
+    await handlerOf(commands, "bench-compact:run-session-file")(file, ctx);
+    expect(notifies.some((n) => /prepare failed/i.test(n.msg))).toBe(true);
+    expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(false);
   });
 
   it("resume sends 'continue' to the agent", async () => {
