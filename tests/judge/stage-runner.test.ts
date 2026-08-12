@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { buildStageDeps, type JsonToolStageSeams, runJsonToolStage } from "../../src/judge/stage-runner.js";
 import { type JsonOutputTool, makeJsonOutputTool } from "../../src/runtime/tools.js";
-import { capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
+import { callTerminal, capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
 
 const SCHEMA = Type.Object({ value: Type.String() });
 
@@ -25,6 +25,44 @@ describe("runJsonToolStage", () => {
       signal: new AbortController().signal,
     });
     expect(payload).toEqual({ value: "hello" });
+  });
+
+  it("fires onModelResolved after resolve + forwards onEvent to runStage", async () => {
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const resolvedModels: unknown[] = [];
+    const fakeEvent = { type: "message_update" } as unknown as Parameters<
+      NonNullable<JsonToolStageSeams["onEvent"]>
+    >[0];
+    let runStageOnEvent: ((e: unknown) => void) | undefined;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => OK_MODEL,
+      runStage: async (input) => {
+        runStageOnEvent = input.onEvent as ((e: unknown) => void) | undefined;
+        runStageOnEvent?.(fakeEvent);
+        callTerminal(input, "emit", { value: "x" });
+        return cleanResult();
+      },
+      onEvent: (e) => {
+        resolvedModels.push(`event:${(e as { type: string }).type}`); // reuse the array to capture events
+      },
+      onModelResolved: (m) => {
+        resolvedModels.push(`model:${(m as { id?: string }).id ?? "?"}`);
+      },
+    };
+    await runJsonToolStage({
+      seams,
+      tools: [terminal] as AgentTool[],
+      systemPrompt: "s",
+      terminalTool: terminal,
+      label: "test-stage",
+      userMessageContent: "go",
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+    // onModelResolved fired after resolve; the forwarded onEvent reached seams.onEvent.
+    expect(resolvedModels).toContainEqual(expect.stringMatching(/^model:/));
+    expect(resolvedModels).toContainEqual("event:message_update");
+    expect(runStageOnEvent).toBeDefined();
   });
 
   it("throws when the model is unavailable, naming the stage in the message", async () => {
