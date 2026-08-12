@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   assertNotInRepo,
   benchRoot,
-  calibrationDir,
   configPath,
   isInsideRepo,
   runDir,
@@ -37,9 +36,6 @@ describe("path builders", () => {
   });
   it("config paths nest under configs/<cfgId>.json", () => {
     expect(configPath(root, "cfg-a3f2c1")).toBe(path.join(root, "configs", "cfg-a3f2c1.json"));
-  });
-  it("calibration dir nests under calibration/", () => {
-    expect(calibrationDir(root)).toBe(path.join(root, "calibration"));
   });
 });
 

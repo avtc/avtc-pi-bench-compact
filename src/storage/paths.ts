@@ -6,11 +6,10 @@
 // Under root:
 //   scenarios/<id>/repo/        — the scenario git repo (session.jsonl + project files) [AGENT-VISIBLE]
 //   scenarios/<id>/manifest.json — the scenario manifest                          [agent-hidden]
-//   runs/<runId>/               — judge/, results.json, report.md, run-meta.json  [agent-hidden]
+//   runs/<runId>/               — judge/, results.json, report.md                 [agent-hidden]
 //   configs/<cfgId>.json        — full run config (source of truth)               [agent-hidden]
-//   calibration/                — judge calibration set                           [agent-hidden]
 //
-// The contamination rule: bench artifacts (manifest/results/judge/configs/calibration) are NEVER
+// The contamination rule: bench artifacts (manifest/results/judge/configs) are NEVER
 // written into a scenario repo's working dir (the agent's cwd) — enforced by `assertNotInRepo`.
 
 import { homedir } from "node:os";
@@ -50,16 +49,13 @@ export function scenarioManifest(root: string, scenarioId: string): string {
   return path.join(scenarioDir(root, scenarioId), "manifest.json");
 }
 
-// --- run / config / calibration layout -------------------------------------
+// --- run / config layout -------------------------------------------------
 export function runDir(root: string, runId: string): string {
   return assertChildPath(path.join(root, "runs"), runId, "run");
 }
 /** The full run-config file (source of truth for the run-condition fingerprint). */
 export function configPath(root: string, cfgId: string): string {
   return assertChildPath(path.join(root, "configs"), `${cfgId}.json`, "cfgId");
-}
-export function calibrationDir(root: string): string {
-  return path.join(root, "calibration");
 }
 
 // --- contamination rule ----------------------------------------------------

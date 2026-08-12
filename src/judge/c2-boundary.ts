@@ -20,7 +20,7 @@ import { type JsonToolStageSeams, type RunJsonToolStageDeps, runJsonToolStage } 
 export interface C2Boundary {
   readonly factId: string;
   readonly firstCorrectUseEntryId: string | null;
-  /** The judge's citation for the boundary (audit trail for calibration / operator review). */
+  /** The judge's citation for the boundary (audit trail for operator review). */
   readonly evidence: string;
 }
 
