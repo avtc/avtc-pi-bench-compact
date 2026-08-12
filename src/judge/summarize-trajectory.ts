@@ -108,8 +108,7 @@ function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: stri
  * schema (Value.Check) + the agent self-corrects in the multi-turn loop
  * (runJsonToolStage runs with no turn limit — the SAME pattern as the sibling
  * gradeTrajectory + manifest-authoring stages). The explicit retry cap in the
- * design's edge-handling is the single-call path's maxRetries (single-call.ts /
- * ranking.ts); the agentLoop+tools path self-corrects via multi-turn bounded by
+ * design's edge-handling is the single-call + ranking paths' maxRetries; the agentLoop+tools path self-corrects via multi-turn bounded by
  * the no-capture STOP+surface floor (the agent never emits a valid summary ->
  * runJsonToolStage raises no-capture). A hard turn cap on the agentLoop+tools
  * stages is a cross-cutting hardening item (would change gradeTrajectory +
