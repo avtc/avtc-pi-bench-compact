@@ -19,7 +19,7 @@ import { join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
-import { BenchJudgeError } from "../judge/errors.js";
+import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
 import { buildJudgeEnsemble, defaultJudgeTransport } from "../judge/seams.js";
 import { seededShuffle } from "../judge/shuffle.js";
 import { log } from "../log.js";
@@ -48,22 +48,14 @@ import type { TestSpecOps, TestSpecResult } from "./testspec.js";
 import { runTestSpec } from "./testspec.js";
 import type { RunTrace } from "./trace.js";
 
-/** A run-scoped abort controller (owned by startRun; threaded into every phase).
- *  The `/bench-compact:abort` command (Task 23) will trigger it; for now it is a
- *  local never-aborting signal unless an explicit one is threaded via deps. */
+/** A run-scoped abort controller (owned by startRun; threaded into Phase 2/probes/
+ *  score). Phase 1 (compaction) has NO signal seam yet — `ctx.compact()` takes none —
+ *  so Phase 1 is not abortable until pi exposes one (Task 23 wires `/bench-compact:
+ *  abort` to trigger this controller for the phases that DO consume it). */
 type RunSignal = AbortSignal;
 
 /** Why a run halted (stop-and-surface), across phases. */
-export type RunStopReason = Phase1StopReason | Phase2StopReason | ProbeStopReason | JudgeStopReason;
-
-/** The judge STOP+surface reasons (the categories BenchJudgeError carries). */
-type JudgeStopReason =
-  | "model-unavailable"
-  | "timeout"
-  | "aborted"
-  | "no-capture"
-  | "incomplete-output"
-  | "malformed-json";
+export type RunStopReason = Phase1StopReason | Phase2StopReason | ProbeStopReason | JudgeErrorCategory;
 
 /** Discriminated result of a run. The done branch is Phase-3 (results written);
  *  the stopped branch carries the phase + the arm/attempt (null for a score stop). */
@@ -145,8 +137,6 @@ export interface BuildScoreDepsArgs {
 const JUDGE_MAX_TOKENS = 8192;
 /** The JSON indent written to results.json. */
 const JSON_INDENT = 2;
-/** The shuffle seed for comparative-rank anonymization (deterministic per run for reproducibility). */
-const RANK_SHUFFLE_SEED = 0x5eed;
 
 /**
  * Start a bench run. Resolves the run identity, persists the run-config snapshot,
@@ -401,7 +391,9 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     manifest: args.manifest,
     callJudges: ensemble.callJudges,
     stageSeams: ensemble.stageSeams,
-    shuffle: seededShuffle(RANK_SHUFFLE_SEED),
+    // Per-run seed (hashed from runId): within-run reproducibility (same run = same
+    // anonymization order) + cross-run position-bias mitigation (different runs vary).
+    shuffle: seededShuffle(hashSeed(args.meta.runId)),
     maxTokens: JUDGE_MAX_TOKENS,
     signal: args.signal,
     rateLimitOptions: null,
@@ -413,8 +405,10 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
 }
 
 /** Resolve the evaluated model's pricing. A non-null `evaluatedModel` ("provider/id")
- *  → readPricing on the id; null → the session model's id (`ctx.model`). Throws if
- *  neither resolves (the compaction-cost metric needs a price). */
+ *  → readPricing on the id; null → the session model's id (`ctx.model`). Throws a
+ *  BenchJudgeError (model-unavailable) on failure so the run STOP-and-surfaces
+ *  (a missing price is a scoring-config error, not a crash — the compaction-cost
+ *  metric is meaningless without it). */
 function resolvePricing(
   runConfig: ReturnType<typeof buildRunConfig>,
   ctx: ExtensionContext,
@@ -422,15 +416,35 @@ function resolvePricing(
 ): Pricing {
   const modelId = runConfig.evaluatedModel !== null ? modelIdOf(runConfig.evaluatedModel) : (ctx.model?.id ?? null);
   if (modelId === null) {
-    throw new Error("cannot resolve the evaluated model id for pricing (set evaluatedModel)");
+    throw new BenchJudgeError(
+      "model-unavailable",
+      "cannot resolve the evaluated model id for pricing (set evaluatedModel)",
+    );
   }
-  return readPricing(modelId, { modelsPath });
+  try {
+    return readPricing(modelId, { modelsPath });
+  } catch (err) {
+    throw new BenchJudgeError(
+      "model-unavailable",
+      `pricing for evaluated model "${modelId}" not found in ${modelsPath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /** Extract the model id (the part after `provider/`) from a `provider/id` reference. */
 function modelIdOf(ref: string): string {
   const slash = ref.indexOf("/");
   return slash === -1 ? ref : ref.slice(slash + 1);
+}
+
+/** Hash a run id string to a 32-bit seed (FNV-1a — deterministic, cheap, good spread). */
+function hashSeed(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
 }
 
 /** UTC calendar date as `YYYY-MM-DD` (fixed across all arms/attempts of a run). */

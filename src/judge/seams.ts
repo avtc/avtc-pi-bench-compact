@@ -109,7 +109,9 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
         reasoning: spec.reasoning === "off" ? NO_REASONING : spec.reasoning,
         maxTurns: SINGLE_TURN,
         maxTokens: transport.maxTokens,
-        timeoutMs: NO_TIMEOUT,
+        // A per-turn wall-clock cap: a hung cloud-judge call surfaces as a
+        // BenchJudgeError("timeout") instead of hanging until the run idle-alert.
+        timeoutMs: JUDGE_TURN_TIMEOUT_MS,
         onEvent: NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
@@ -155,7 +157,8 @@ export function buildJudgeEnsemble(config: JudgeEnsembleConfig, transport: Judge
 
 /** A single-turn judge call (maxTurns = 1 — the judge answers in one shot). */
 const SINGLE_TURN = 1;
-/** No per-turn wall-clock timeout for the judge call (the run signal bounds it). */
-const NO_TIMEOUT = null;
+/** Per-turn wall-clock cap for a single judge LLM call (no tools — one request).
+ *  A cloud judge that never responds surfaces as a timeout instead of hanging. */
+const JUDGE_TURN_TIMEOUT_MS = 300_000;
 /** The ensemble size at which judge2 + judge3 join (3 = full ensemble). */
 const ENSEMBLE_OF_THREE = 3;

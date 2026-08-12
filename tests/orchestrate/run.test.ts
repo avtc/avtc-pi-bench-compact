@@ -4,8 +4,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BenchConfig } from "../../src/config/types.js";
+import type { ArmId, BenchConfig } from "../../src/config/types.js";
 import { BenchJudgeError } from "../../src/judge/errors.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { type ArmBase, type Phase1Deps, type Phase1Result, Phase1StoppedError } from "../../src/orchestrate/phase1.js";
@@ -146,7 +147,7 @@ function scoreMock(
 }
 
 /** A typed buildScoreDeps mock. */
-function buildScoreDepsMock(impl: (args: unknown) => unknown): ReturnType<typeof vi.fn> {
+function buildScoreDepsMock(impl: (args: { ctx: unknown }) => unknown): ReturnType<typeof vi.fn> {
   return vi.fn(impl);
 }
 
@@ -538,5 +539,77 @@ describe("startRun — live-progress widget wiring", () => {
     const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
     const deps = makeDeps({ arms: ["A1"], root, phase1, widget: null });
     await expect(startRun(deps)).resolves.toMatchObject({ kind: "done" });
+  });
+});
+
+describe("startRun — Phase 3 scoreDeps ctx-threading", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-ctxthread-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("buildScoreDeps receives the LAST probe's threaded final ctx (R1-8)", async () => {
+    const PROBE_CTX_A = { __probeCtx: "A1" } as unknown as Phase1Result["finalCtx"];
+    const PROBE_CTX_B = { __probeCtx: "A3" } as unknown as Phase1Result["finalCtx"];
+    const bases = fakeBases(["A1", "A3"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1", "A3"]), finalCtx: FINAL_CTX }));
+    const probes = probesMock(async (d: { armBase: ArmBase }) => ({
+      traces: [],
+      finalCtx: d.armBase.arm === "A1" ? PROBE_CTX_A : PROBE_CTX_B,
+    }));
+    let capturedCtx: unknown = null;
+    const buildScoreDeps = buildScoreDepsMock((args: { ctx: unknown }) => {
+      capturedCtx = args.ctx;
+      return minimalScoreDeps();
+    });
+    const deps = makeDeps({ arms: ["A1", "A3"], root, phase1, continuations, probes, buildScoreDeps });
+    await startRun(deps);
+    // the LAST arm's probe finalCtx (A3) threads into the scoring deps
+    expect(capturedCtx).toBe(PROBE_CTX_B);
+  });
+});
+
+describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-prodscore-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("a missing pricing entry → BenchJudgeError(model-unavailable) stop-and-surface (R1-1)", async () => {
+    const { buildProductionScoreDeps } = await import("../../src/orchestrate/run.js");
+    const runConfig = {
+      evaluatedModel: "provider/missing-model",
+      judgeModel: null,
+      judgeThinkingLevel: "high",
+      judgesNumber: 1,
+      judge2Model: null,
+      judge2ThinkingLevel: "high",
+      judge3Model: null,
+      judge3ThinkingLevel: "high",
+      evaluatedThinkingLevel: "high",
+      N: 1,
+      compactionBoundary: 140000,
+      armsEnabled: ["A1"] as ArmId[],
+      omFullReflectionThresholdTokens: 4000,
+      backupMode: "build" as const,
+      toolVersions: {},
+    } as unknown as Parameters<typeof buildProductionScoreDeps>[0]["runConfig"];
+    expect(() =>
+      buildProductionScoreDeps({
+        ctx: {} as ExtensionContext,
+        runConfig,
+        manifest: MANIFEST,
+        meta: { runId: "x", cfgId: "cfg-x" } as unknown as Parameters<typeof buildProductionScoreDeps>[0]["meta"],
+        signal: new AbortController().signal,
+        modelsPath: join(root, "no-such-models.json"),
+      }),
+    ).toThrow(/model-unavailable|pricing for evaluated model/);
   });
 });
