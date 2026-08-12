@@ -113,6 +113,16 @@ describe("buildCfgId (run-condition fingerprint)", () => {
     expect(buildCfgId(changed)).not.toBe(buildCfgId(base));
   });
 
+  it("differs when a judge-ensemble field differs (judgesNumber)", () => {
+    const changed = { ...base, judgesNumber: 3 };
+    expect(buildCfgId(changed)).not.toBe(buildCfgId(base));
+  });
+
+  it("differs when a judge-2/3 model is set", () => {
+    const changed = { ...base, judge2Model: "zai/glm-4.6", judge3Model: "anthropic/claude" };
+    expect(buildCfgId(changed)).not.toBe(buildCfgId(base));
+  });
+
   it("armsEnabled order does NOT change the cfgId (same set)", () => {
     const reordered = { ...base, armsEnabled: [...base.armsEnabled].reverse() };
     expect(buildCfgId(reordered)).toBe(buildCfgId(base));

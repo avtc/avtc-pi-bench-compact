@@ -71,8 +71,12 @@ export function renderHeadline(result: BenchResultJson): string {
     `Started ${result.timestamp} · cfg ${result.cfgId} · scenario ${result.scenario.id} · backup ${result.config.backupMode}`,
   );
   const c = result.config;
+  const judgeEnsemble =
+    c.judgesNumber > 1
+      ? ` · K=${c.judgesNumber} · judge2=${c.judge2Model ?? "(default)"} (${c.judge2ThinkingLevel}) · judge3=${c.judge3Model ?? "(default)"} (${c.judge3ThinkingLevel})`
+      : "";
   lines.push(
-    `Config: eval=${c.evaluatedModel ?? "(default)"} (${c.evaluatedThinkingLevel}) · judge=${c.judgeModel ?? "(default)"} (${c.judgeThinkingLevel}) · N=${c.N} · compactionBoundary=${c.compactionBoundary} · arms ${c.armsEnabled.join(",")}`,
+    `Config: eval=${c.evaluatedModel ?? "(default)"} (${c.evaluatedThinkingLevel}) · judge=${c.judgeModel ?? "(default)"} (${c.judgeThinkingLevel})${judgeEnsemble} · N=${c.N} · compactionBoundary=${c.compactionBoundary} · arms ${c.armsEnabled.join(",")}`,
   );
   const toolLine = arms
     .map((a) => {

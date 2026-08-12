@@ -39,6 +39,24 @@ describe("BENCH_SCHEMA", () => {
     it("judgeThinkingLevel: thinking-level, default high", () => {
       expect(row("judgeThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "high" });
     });
+    it("judgesNumber: number, default 1", () => {
+      expect(row("judgesNumber")).toMatchObject({ type: "number", defaultValue: 1 });
+    });
+    it("judgesNumber presets are exactly [1, 3]", () => {
+      expect(row("judgesNumber").presets).toEqual([1, 3]);
+    });
+    it("judge2Model: model, default null", () => {
+      expect(row("judge2Model")).toMatchObject({ type: "model", defaultValue: null });
+    });
+    it("judge2ThinkingLevel: thinking-level, default high", () => {
+      expect(row("judge2ThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "high" });
+    });
+    it("judge3Model: model, default null", () => {
+      expect(row("judge3Model")).toMatchObject({ type: "model", defaultValue: null });
+    });
+    it("judge3ThinkingLevel: thinking-level, default high", () => {
+      expect(row("judge3ThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "high" });
+    });
   });
 
   describe("Run tab", () => {

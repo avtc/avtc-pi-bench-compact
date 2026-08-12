@@ -8,6 +8,7 @@ import {
   majorityVote,
   rankEnsemble,
   runBinaryEnsemble,
+  unionBoundaries,
   unionC2Boundaries,
 } from "../../src/judge/ensemble.js";
 import type { Ranking } from "../../src/judge/ranking.js";
@@ -88,27 +89,55 @@ describe("rankEnsemble", () => {
   });
 });
 
-describe("unionC2Boundaries", () => {
+describe("unionBoundaries", () => {
   it("K=1 returns the single judge's boundaries unchanged", () => {
     const single = [c2b("f1", "e5", "e"), c2b("f2", null, "e")];
-    expect(unionC2Boundaries([single])).toEqual(single);
+    expect(unionBoundaries([single])).toEqual(single);
   });
   it("a fact counts recovered if ANY judge found its first-correct-use", () => {
     const j1 = [c2b("f1", null, "e")]; // judge1: not recovered
     const j2 = [c2b("f1", "e9", "e")]; // judge2: recovered at e9
-    const out = unionC2Boundaries([j1, j2]);
+    const out = unionBoundaries([j1, j2]);
     expect(out).toHaveLength(1);
     expect(out[0]?.firstCorrectUseEntryId).toBe("e9"); // recovered (judge2's boundary wins)
   });
   it("all-null across judges stays null (notRecovered)", () => {
-    const out = unionC2Boundaries([[c2b("f1", null, "e")], [c2b("f1", null, "e")]]);
+    const out = unionBoundaries([[c2b("f1", null, "e")], [c2b("f1", null, "e")]]);
     expect(out[0]?.firstCorrectUseEntryId).toBeNull();
   });
   it("merges disjoint fact sets across judges", () => {
-    const out = unionC2Boundaries([[c2b("f1", "e1", "e")], [c2b("f2", "e2", "e")]]);
+    const out = unionBoundaries([[c2b("f1", "e1", "e")], [c2b("f2", "e2", "e")]]);
     expect(out.map((b) => b.factId).sort()).toEqual(["f1", "f2"]);
   });
   it("empty input → []", () => {
-    expect(unionC2Boundaries([])).toEqual([]);
+    expect(unionBoundaries([])).toEqual([]);
+  });
+  it("disagreeing non-null entries: the LOWEST-NUMBERED recovering judge's entry wins (deterministic)", () => {
+    // judge1 missed (null), judge2 found at e5, judge3 found at e8 → judge2 wins (first recovering)
+    const out = unionBoundaries([[c2b("f1", null, "e")], [c2b("f1", "e5", "j2")], [c2b("f1", "e8", "j3")]]);
+    expect(out[0]?.firstCorrectUseEntryId).toBe("e5");
+    expect(out[0]?.evidence).toBe("j2");
+  });
+  it("judge1 recovered: judge1's entry wins over later judges' different non-null entries", () => {
+    const out = unionBoundaries([[c2b("f1", "e3", "j1")], [c2b("f1", "e7", "j2")]]);
+    expect(out[0]?.firstCorrectUseEntryId).toBe("e3");
+    expect(out[0]?.evidence).toBe("j1");
+  });
+});
+
+describe("unionC2Boundaries", () => {
+  it("K=1 short-circuits to the single judge's boundaries (no union)", async () => {
+    const single = [c2b("f1", "e5", "e")];
+    await expect(unionC2Boundaries([Promise.resolve(single)])).resolves.toEqual(single);
+  });
+  it("K>=2 awaits the promises + unions", async () => {
+    await expect(
+      unionC2Boundaries([Promise.resolve([c2b("f1", null, "e")]), Promise.resolve([c2b("f1", "e9", "e")])]),
+    ).resolves.toEqual([{ factId: "f1", firstCorrectUseEntryId: "e9", evidence: "e" }]);
+  });
+  it("rejects propagate (Promise.all)", async () => {
+    await expect(
+      unionC2Boundaries([Promise.resolve([c2b("f1", "e1", "e")]), Promise.reject(new Error("boom"))]),
+    ).rejects.toThrow("boom");
   });
 });

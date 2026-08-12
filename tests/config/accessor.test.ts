@@ -24,6 +24,11 @@ describe("getBenchConfig", () => {
     expect(cfg.evaluatedModel).toBeNull();
     expect(cfg.evaluatedThinkingLevel).toBe(DEFAULTS.evaluatedThinkingLevel);
     expect(cfg.judgeModel).toBeNull();
+    expect(cfg.judgesNumber).toBe(DEFAULTS.judgesNumber);
+    expect(cfg.judge2Model).toBeNull();
+    expect(cfg.judge2ThinkingLevel).toBe(DEFAULTS.judge2ThinkingLevel);
+    expect(cfg.judge3Model).toBeNull();
+    expect(cfg.judge3ThinkingLevel).toBe(DEFAULTS.judge3ThinkingLevel);
     expect(cfg.omFullReflectionThresholdTokens).toBe(DEFAULTS.omFullReflectionThresholdTokens);
   });
 
@@ -35,10 +40,10 @@ describe("getBenchConfig", () => {
         evaluatedModel: "zai/glm-4.6",
         evaluatedThinkingLevel: "medium",
         judgeThinkingLevel: "low",
-        judgesNumber: 1,
-        judge2Model: null,
-        judge2ThinkingLevel: "high",
-        judge3Model: null,
+        judgesNumber: 3,
+        judge2Model: "zai/glm-4.6",
+        judge2ThinkingLevel: "minimal",
+        judge3Model: "anthropic/claude",
         judge3ThinkingLevel: "high",
         backupMode: "extract",
         scenario: "my scenario",
@@ -53,6 +58,11 @@ describe("getBenchConfig", () => {
     expect(cfg.evaluatedModel).toBe("zai/glm-4.6");
     expect(cfg.evaluatedThinkingLevel).toBe("medium");
     expect(cfg.judgeThinkingLevel).toBe("low");
+    expect(cfg.judgesNumber).toBe(3);
+    expect(cfg.judge2Model).toBe("zai/glm-4.6");
+    expect(cfg.judge2ThinkingLevel).toBe("minimal");
+    expect(cfg.judge3Model).toBe("anthropic/claude");
+    expect(cfg.judge3ThinkingLevel).toBe("high");
     expect(cfg.backupMode).toBe("extract");
     expect(cfg.scenario).toBe("my scenario");
     expect(cfg.outputDir).toBe("/tmp/out");

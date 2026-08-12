@@ -95,6 +95,30 @@ describe("renderComparison", () => {
     expect(md).toContain("g9b1c3");
   });
 
+  it("R1-9: a judgesNumber-only diff shows in the config diff (not 'all match')", () => {
+    const run1 = mkResult({
+      runId: "run1",
+      cfgId: "cfg-1",
+      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
+      config: { judgesNumber: 1 },
+    });
+    const run2 = mkResult({
+      runId: "run2",
+      cfgId: "cfg-2",
+      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
+      config: { judgesNumber: 3 },
+    });
+    const md = renderComparison(
+      [run1, run2],
+      [
+        { runId: "run1", arms: ["A3"] },
+        { runId: "run2", arms: ["A3"] },
+      ],
+    );
+    expect(md).toContain("judgesNumber");
+    expect(md).not.toContain("all config + tool-version fields match");
+  });
+
   it("renders a per-arm metric table with Δ run1·arm→run2·arm (same-arm, polarity-aware)", () => {
     // C1 footprint lowerBetter: run1=1200, run2=800 → run2 better → positive delta.
     const run1 = mkResult({

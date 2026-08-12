@@ -142,7 +142,7 @@ describe("validateBenchConfig", () => {
   });
 });
 
-describe("validateBenchConfig — multi-judge ensemble (UD11)", () => {
+describe("validateBenchConfig — multi-judge ensemble", () => {
   it("accepts judgesNumber=1 (default single judge)", () => {
     const cfg = validConfig();
     cfg.judgesNumber = 1;

@@ -131,6 +131,18 @@ describe("renderHeadline", () => {
     expect(md).toContain("judge-model");
     expect(md).toContain("N=10");
     expect(md).toContain("g4a2f8e"); // A3 tool version
+    expect(md).not.toContain("K="); // K=1 (single judge) omits the ensemble suffix
+  });
+
+  it("surfaces the multi-judge ensemble in the config line when judgesNumber > 1", () => {
+    const base = syntheticResult(false);
+    const md = renderHeadline({
+      ...base,
+      config: { ...base.config, judgesNumber: 3, judge2Model: "judge2-model", judge3Model: "judge3-model" },
+    });
+    expect(md).toContain("K=3");
+    expect(md).toContain("judge2-model");
+    expect(md).toContain("judge3-model");
   });
 
   it("formats binary rates as % (not proportions)", () => {

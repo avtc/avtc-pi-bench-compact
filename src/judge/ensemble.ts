@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Multi-judge ensemble aggregation (UD11 / design multi-judge reliability).
-// Each grading primitive (gradeSlice binary, rankAxis comparative,
-// findFirstCorrectUse recall-cost boundary) runs once per configured judge; this module
-// AGGREGATES the K results — it does not invoke the judges (the orchestrator
-// kicks off the K calls in parallel + passes the resolved values here). K=1
-// short-circuits to the single result (no aggregation — the single-judge path).
+// Multi-judge ensemble aggregation (design multi-judge reliability). Each
+// grading primitive (gradeSlice binary, rankAxis comparative, findFirstCorrectUse
+// recall-cost boundary) runs once per configured judge; this module AGGREGATES
+// the K results — it does not invoke the judges (the orchestrator kicks off the
+// K calls in parallel + passes the promises here). K=1 short-circuits to the
+// single result (no aggregation — the single-judge path).
 
 import type { C2Boundary } from "./c2-boundary.js";
 import type { Ranking } from "./ranking.js";
@@ -64,19 +64,34 @@ export async function rankEnsemble(rankings: readonly Promise<Ranking>[], armIds
  * first-correct-use (non-null entry id). When a judge recovers a fact others
  * missed, its boundary wins. All-null across judges stays null (notRecovered).
  * Disjoint fact sets across judges are merged (union of factIds).
+ *
+ * Disagreeing-entry tie-break (R-measurement): when several judges recover the
+ * SAME fact at DIFFERENT non-null entries, the LOWEST-NUMBERED recovering judge's
+ * entry wins (judges are iterated in judge1..judgeK order; the first
+ * non-null boundary for a fact is kept, later non-null ones do NOT overwrite it).
+ * judge1 is the primary/highest-trust judge, so its measurement drives the
+ * recall-cost token sum deterministically (not judge-order-arbitrary). Pure.
  */
-export function unionC2Boundaries(perJudge: readonly C2Boundary[][]): C2Boundary[] {
+export function unionBoundaries(perJudge: readonly C2Boundary[][]): C2Boundary[] {
   if (perJudge.length === 0) return [];
   if (perJudge.length === 1) return perJudge[0] as C2Boundary[];
   const byFact = new Map<string, C2Boundary>();
   for (const judgeBoundaries of perJudge) {
     for (const b of judgeBoundaries) {
       const existing = byFact.get(b.factId);
-      // prefer a recovered (non-null) boundary; first one wins on ties
+      // prefer a recovered (non-null) boundary over a not-recovered (null) one;
+      // among recovered boundaries the lowest-numbered judge wins (first set, kept).
       if (existing === undefined || (existing.firstCorrectUseEntryId === null && b.firstCorrectUseEntryId !== null)) {
         byFact.set(b.factId, b);
       }
     }
   }
   return [...byFact.values()];
+}
+
+/** Run K recall-cost-boundary judges (already-kicked-off promises, one per
+ *  judge) + union them. K=1 short-circuits (no union). Rejects propagate. */
+export async function unionC2Boundaries(perJudge: readonly Promise<C2Boundary[]>[]): Promise<C2Boundary[]> {
+  const resolved = await Promise.all(perJudge);
+  return resolved.length === 1 ? (resolved[0] as C2Boundary[]) : unionBoundaries(resolved);
 }
