@@ -87,6 +87,15 @@ export interface ProbeTrace {
   readonly kept: boolean;
 }
 
+/** Result of {@link runProbes}: the captured probe traces (one per probe) + the FINAL
+ *  fresh command ctx (the last probe's `withSession`). The run driver threads
+ *  `finalCtx` into the next arm's probe driver (or Phase-3) so the switchSession chain
+ *  continues from a valid ctx — every switchSession invalidates the prior ctx. */
+export interface ProbeResult {
+  readonly traces: readonly ProbeTrace[];
+  readonly finalCtx: ExtensionCommandContext;
+}
+
 /** Injectable operations — the I/O / non-deterministic seams. Defaults are the real
  *  implementations; tests inject fakes. `deleteBranch` defaults to `resetBranch`
  *  (deletes the branch ref via `git update-ref -d` — works even on the checked-out
@@ -206,7 +215,7 @@ const DEFAULT_OPS: ProbeOps = {
  *
  * @throws {ProbeStoppedError} on a probe failure (inject/settle error) or hang (abort).
  */
-export async function runProbes(deps: ProbeDeps): Promise<ProbeTrace[]> {
+export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
   const ops: ProbeOps = { ...DEFAULT_OPS, ...deps.ops };
   const sessionPath = join(deps.repo, SESSION_FILE);
   const signal = deps.signal ?? NEVER_ABORT_CONTROLLER.signal;
@@ -261,5 +270,5 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeTrace[]> {
     traces.push({ arm, probeId, branch: probeBranch, answer, kept });
     log.info(`phase-2b: arm ${arm} probe ${probeId} settled → ${probeBranch} (kept=${kept})`);
   }
-  return traces;
+  return { traces, finalCtx: currentCtx };
 }

@@ -214,7 +214,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   it("forks arm-base → attempt branches (1..N), drives each, commits, returns N traces", async () => {
     const ops = makeFakeOps();
     const base = makeArmBase("A1", "bare-pi", undefined);
-    const traces = await runContinuations({
+    const { traces } = await runContinuations({
       cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
       armBases: [base],
       config: makeConfig(3),
@@ -463,7 +463,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   it("the run trace carries arm + attempt + branch for each continuation", async () => {
     const ops = makeFakeOps();
     const base = makeArmBase("A1", "bare-pi", undefined);
-    const traces = await runContinuations({
+    const { traces } = await runContinuations({
       cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
       armBases: [base],
       config: makeConfig(2),

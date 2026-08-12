@@ -9,13 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Probe, ScenarioManifest } from "../../src/manifest/schema.js";
 import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
 import type { ArmBase } from "../../src/orchestrate/phase1.js";
-import {
-  extractProbeAnswer,
-  type ProbeOps,
-  ProbeStoppedError,
-  type ProbeTrace,
-  runProbes,
-} from "../../src/orchestrate/probes.js";
+import { extractProbeAnswer, type ProbeOps, ProbeStoppedError, runProbes } from "../../src/orchestrate/probes.js";
 import { AgentSettledAbortedError } from "../../src/session/done.js";
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { appendProbe } from "../../src/storage/branches.js";
@@ -138,7 +132,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
   it("forks arm-base → probe branches (one per probe), commits each, returns a trace per probe", async () => {
     const ops = makeFakeProbeOps({ answer: "canvas was chosen" });
     const base = makeArmBase("A1", "bare-pi", undefined);
-    const traces: ProbeTrace[] = await runProbes({
+    const { traces } = await runProbes({
       cmdCtx,
       armBase: base,
       manifest: makeManifest(PROBES),
@@ -219,7 +213,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
   it("a Q&A-only probe branch (isQaOnly=true) is DELETED + reported kept=false", async () => {
     const ops = makeFakeProbeOps({ qaOnly: true });
     const base = makeArmBase("A1", "bare-pi", undefined);
-    const traces = await runProbes({
+    const { traces } = await runProbes({
       cmdCtx,
       armBase: base,
       manifest: makeManifest(PROBES),
@@ -234,7 +228,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
 
   it("a non-Q&A-only probe branch (isQaOnly=false) is KEPT (not deleted) + reported kept=true", async () => {
     const ops = makeFakeProbeOps({ qaOnly: false });
-    const traces = await runProbes({
+    const { traces } = await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest(PROBES),
@@ -264,7 +258,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
 
   it("returns no traces (and does no git work) when the manifest has no probes", async () => {
     const ops = makeFakeProbeOps();
-    const traces = await runProbes({
+    const { traces } = await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest([]),

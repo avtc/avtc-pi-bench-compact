@@ -6,15 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BenchConfig } from "../../src/config/types.js";
+import { BenchJudgeError } from "../../src/judge/errors.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
-import {
-  type ArmBase,
-  type Phase1Deps,
-  type Phase1Ops,
-  type Phase1Result,
-  Phase1StoppedError,
-} from "../../src/orchestrate/phase1.js";
-import { type Phase2Deps, Phase2StoppedError } from "../../src/orchestrate/phase2.js";
+import { type ArmBase, type Phase1Deps, type Phase1Result, Phase1StoppedError } from "../../src/orchestrate/phase1.js";
+import { type Phase2Deps, type Phase2Result, Phase2StoppedError } from "../../src/orchestrate/phase2.js";
+import { ProbeStoppedError } from "../../src/orchestrate/probes.js";
 import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
@@ -58,10 +54,14 @@ function makeDeps(opts: {
   root: string;
   scenarioRepo?: string;
   phase1?: ReturnType<typeof vi.fn<(deps: Phase1Deps) => Promise<Phase1Result>>>;
-  continuations?: ReturnType<typeof vi.fn<(deps: Phase2Deps) => Promise<RunTrace[]>>>;
+  continuations?: ReturnType<typeof vi.fn<(deps: Phase2Deps) => Promise<Phase2Result>>>;
   now?: () => Date;
   notify?: (m: string) => void;
   widget?: WidgetPort | null;
+  probes?: ReturnType<typeof vi.fn>;
+  testSpec?: ReturnType<typeof vi.fn>;
+  score?: ReturnType<typeof vi.fn>;
+  buildScoreDeps?: ReturnType<typeof vi.fn>;
 }): StartRunDeps {
   // The fresh pi + proxies are NOT passed to startRun — runPhase1 reads them from
   // globalThis inside each withSession (bench-ctx.ts). Only cmdCtx is threaded.
@@ -76,7 +76,13 @@ function makeDeps(opts: {
     widget: opts.widget ?? null,
     phase1: opts.phase1,
     // Default = a no-op continuations stub so tests never run the real Phase 2.
-    continuations: opts.continuations ?? continuationsMock(async () => []),
+    continuations: opts.continuations ?? continuationsMock(async () => ({ traces: [], finalCtx: FINAL_CTX })),
+    probes: opts.probes ?? probesMock(async () => ({ traces: [], finalCtx: FINAL_CTX })),
+    testSpec: opts.testSpec ?? testSpecMock(() => ({ kind: "skipped" })),
+    score:
+      opts.score ??
+      scoreMock(async () => ({ resultJson: { schema: "bench-compact.result-v1" }, markdown: "# report" })),
+    buildScoreDeps: opts.buildScoreDeps ?? buildScoreDepsMock(() => minimalScoreDeps()),
     versionResolver: {
       resolveRoot: () => "/fake",
       gitHead: () => "abcdef1234567890",
@@ -110,11 +116,44 @@ function phase1Mock(
 
 /** A typed Phase-2 mock so `mock.calls[0][0]` is the Phase2Deps arg. */
 function continuationsMock(
-  impl: (deps: Phase2Deps) => Promise<RunTrace[]>,
-): ReturnType<typeof vi.fn<(deps: Phase2Deps) => Promise<RunTrace[]>>> {
+  impl: (deps: Phase2Deps) => Promise<Phase2Result>,
+): ReturnType<typeof vi.fn<(deps: Phase2Deps) => Promise<Phase2Result>>> {
   return vi.fn(impl);
 }
 
+/** A typed Phase-2b probes mock. */
+function probesMock(
+  impl: (deps: {
+    armBase: ArmBase;
+    cmdCtx: unknown;
+  }) => Promise<{ traces: unknown[]; finalCtx: Phase1Result["finalCtx"] }>,
+): ReturnType<typeof vi.fn> {
+  return vi.fn(impl);
+}
+
+/** A typed testSpec mock. */
+function testSpecMock(
+  impl: (deps: { repo: string; branch: string; manifest: ScenarioManifest }) => { kind: "skipped" },
+): ReturnType<typeof vi.fn> {
+  return vi.fn(impl);
+}
+
+/** A typed score mock. */
+function scoreMock(
+  impl: (input: unknown, deps: unknown) => Promise<{ resultJson: unknown; markdown: string }>,
+): ReturnType<typeof vi.fn> {
+  return vi.fn(impl);
+}
+
+/** A typed buildScoreDeps mock. */
+function buildScoreDepsMock(impl: (args: unknown) => unknown): ReturnType<typeof vi.fn> {
+  return vi.fn(impl);
+}
+
+/** A minimal ScoreRunDeps-shaped object (the score fake ignores it). */
+function minimalScoreDeps(): unknown {
+  return {};
+}
 function fakeTraces(arms: BenchConfig["armsEnabled"]): RunTrace[] {
   return arms.map((arm) => ({
     arm,
@@ -160,26 +199,25 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("computes runId = <utc-date>-<id>, sets run-state phase-1, dispatches Phase-1 then Phase-2, returns phase2-done", async () => {
+  it("computes runId = <utc-date>-<id>, sets run-state phase-1, dispatches Phase-1 then Phase-2, returns done", async () => {
     const bases = fakeBases(["A1", "A3"]);
     const traces = fakeTraces(["A1", "A3"]);
     const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
-    const continuations = continuationsMock(async () => traces);
+    const continuations = continuationsMock(async () => ({ traces, finalCtx: FINAL_CTX }));
     const deps = makeDeps({ arms: ["A1", "A3"], root, phase1, continuations });
 
     const result = await startRun(deps);
 
-    expect(result.kind).toBe("phase2-done");
-    if (result.kind !== "phase2-done") return;
+    expect(result.kind).toBe("done");
+    if (result.kind !== "done") return;
     expect(result.runId).toBe("2026-08-11-1");
     expect(result.cfgId).toMatch(/^cfg-/);
-    expect(result.bases).toBe(bases);
-    expect(result.traces).toBe(traces);
+    expect(result.resultsPath).toContain("results.json");
+    expect(result.reportPath).toContain("report.md");
 
-    // run-state set eagerly to phase-1, then advanced to phase-2 on Phase-1 success.
+    // run-state set eagerly to phase-1; the run advanced through every phase to done.
     const s = getRunState();
     expect(s?.runId).toBe("2026-08-11-1");
-    expect(s?.phase).toBe("phase-2");
     expect(s?.cfgId).toBe(result.cfgId);
 
     // Phase-1 received the resolved identity + config-derived knobs.
@@ -305,8 +343,155 @@ describe("startRun — Phase-2 stop-and-surface", () => {
   });
 });
 
-// Phase 2b probes + Phase 3 scoring are appended by later tasks.
-void (undefined as unknown as Phase1Ops);
+// Phase 2b probes + Phase 3 scoring.
+describe("startRun — Phase 2b probes + testSpec", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-phase2b-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("runProbes called once per arm with the arm base + the threaded final ctx", async () => {
+    const bases = fakeBases(["A1", "A3"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1", "A3"]), finalCtx: FINAL_CTX }));
+    const probes = probesMock(async (d: { armBase: ArmBase }) => ({
+      traces: [{ arm: d.armBase.arm, probeId: "1", branch: "pb", answer: "a", kept: true }],
+      finalCtx: FINAL_CTX,
+    }));
+    const deps = makeDeps({ arms: ["A1", "A3"], root, phase1, continuations, probes });
+    await startRun(deps);
+    expect(probes).toHaveBeenCalledTimes(2);
+    expect(probes.mock.calls[0]?.[0]?.armBase.arm).toBe("A1");
+    expect(probes.mock.calls[1]?.[0]?.armBase.arm).toBe("A3");
+    // the first probe call received the continuations final ctx (threaded across phases)
+    expect(probes.mock.calls[0]?.[0]?.cmdCtx).toBe(FINAL_CTX);
+  });
+
+  it("testSpec called once per (arm, attempt) attempt branch", async () => {
+    const bases = fakeBases(["A1"]);
+    const traces = [
+      { arm: "A1", attempt: 1, branch: "arm-a1-1", entries: [], compactions: [], tracePath: "/s.jsonl" },
+      { arm: "A1", attempt: 2, branch: "arm-a1-2", entries: [], compactions: [], tracePath: "/s.jsonl" },
+    ] as unknown as RunTrace[];
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces, finalCtx: FINAL_CTX }));
+    const testSpec = testSpecMock(() => ({ kind: "skipped" }));
+    const deps = makeDeps({ arms: ["A1"], root, phase1, continuations, testSpec });
+    await startRun(deps);
+    expect(testSpec).toHaveBeenCalledTimes(2);
+    expect(testSpec.mock.calls[0]?.[0]?.branch).toBe("arm-a1-1");
+    expect(testSpec.mock.calls[1]?.[0]?.branch).toBe("arm-a1-2");
+  });
+});
+
+describe("startRun — Phase 3 scoring", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-phase3-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("ScoreRunInput: one entry per (arm, attempt); probes on the FIRST attempt only; testSpec attached", async () => {
+    const bases = fakeBases(["A1", "A3"]);
+    const traces = [
+      ...fakeTraces(["A1"]),
+      { arm: "A1", attempt: 2, branch: "b-a1-2", entries: [], compactions: [], tracePath: "/s" },
+      ...fakeTraces(["A3"]),
+      { arm: "A3", attempt: 2, branch: "b-a3-2", entries: [], compactions: [], tracePath: "/s" },
+    ] as unknown as RunTrace[];
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces, finalCtx: FINAL_CTX }));
+    const probes = probesMock(async (d: { armBase: ArmBase }) => ({
+      traces: [
+        { arm: d.armBase.arm, probeId: "1", branch: "pb", answer: "a1", kept: true },
+        { arm: d.armBase.arm, probeId: "2", branch: "pb", answer: "a2", kept: true },
+      ],
+      finalCtx: FINAL_CTX,
+    }));
+    let capturedInput: unknown = null;
+    const score = scoreMock(async (input: unknown) => {
+      capturedInput = input;
+      return { resultJson: { schema: "bench-compact.result-v1" }, markdown: "# report" };
+    });
+    const deps = makeDeps({ arms: ["A1", "A3"], root, phase1, continuations, probes, score });
+    await startRun(deps);
+
+    const input = capturedInput as Array<{
+      arm: string;
+      attempt: number;
+      probes: unknown[];
+      testSpecResult: { kind: string };
+    }>;
+    expect(input).toHaveLength(4); // 2 arms × 2 attempts
+    // probes ONLY on the first attempt of each arm (graded once, not duplicated)
+    const a1Attempt1 = input.find((r) => r.arm === "A1" && r.attempt === 1);
+    const a1Attempt2 = input.find((r) => r.arm === "A1" && r.attempt === 2);
+    expect(a1Attempt1?.probes).toHaveLength(2);
+    expect(a1Attempt2?.probes).toHaveLength(0);
+    // testSpec attached to every attempt
+    expect(input.every((r) => r.testSpecResult !== undefined)).toBe(true);
+  });
+
+  it("writes results.json + report.md from the score output under the run dir", async () => {
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const score = scoreMock(async () => ({
+      resultJson: { schema: "bench-compact.result-v1", x: 1 },
+      markdown: "# headline",
+    }));
+    const deps = makeDeps({ arms: ["A1"], root, phase1, continuations, score });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    if (result.kind !== "done") return;
+    expect(existsSync(result.resultsPath)).toBe(true);
+    expect(existsSync(result.reportPath)).toBe(true);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(result.resultsPath, "utf8")).toContain('"schema": "bench-compact.result-v1"');
+    expect(readFileSync(result.reportPath, "utf8")).toBe("# headline");
+  });
+
+  it("a ProbeStoppedError from runProbes → stopped (probe phase) + notify", async () => {
+    const notify = vi.fn();
+    const bases = fakeBases(["A2"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A2"]), finalCtx: FINAL_CTX }));
+    const probes = probesMock(async () => {
+      throw new ProbeStoppedError("A2", "1", "probe-failed", "probe 1 inject error");
+    });
+    const deps = makeDeps({ arms: ["A2"], root, notify, phase1, continuations, probes });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("stopped");
+    if (result.kind !== "stopped") return;
+    expect(result.phase).toBe("probe");
+    expect(result.arm).toBe("A2");
+    expect(result.reason).toBe("probe-failed");
+    expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*A2.*probe 1/i));
+  });
+
+  it("a BenchJudgeError from scoreRun → stopped (score phase) + notify", async () => {
+    const notify = vi.fn();
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const score = scoreMock(async () => {
+      throw new BenchJudgeError("malformed-json", "judge emitted unparseable JSON");
+    });
+    const deps = makeDeps({ arms: ["A1"], root, notify, phase1, continuations, score });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("stopped");
+    if (result.kind !== "stopped") return;
+    expect(result.phase).toBe("score");
+    expect(result.arm).toBeNull();
+    expect(result.reason).toBe("malformed-json");
+    expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*scoring/i));
+  });
+});
 
 describe("startRun — live-progress widget wiring", () => {
   let root: string;
@@ -317,18 +502,20 @@ describe("startRun — live-progress widget wiring", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("shows on run start (compact cell), advances to resume on Phase-2, done on completion", async () => {
+  it("shows on run start (compact), advances compact→resume→probe→score→done", async () => {
     const widget = capturingWidget();
     const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
     const deps = makeDeps({ arms: ["A1"], root, phase1, widget });
 
     await startRun(deps);
 
-    // show + compact at start, resume after Phase-1, done on Phase-2 completion.
+    // show + compact at start; resume/probe/score across phases; done on completion.
     expect(widget.calls).toEqual([
       "show",
       "startPhase:compact:-",
       "startPhase:resume:-",
+      "startPhase:probe:-",
+      "startPhase:score:-",
       "setStatus:done:/bench-compact:results",
     ]);
   });
@@ -350,6 +537,6 @@ describe("startRun — live-progress widget wiring", () => {
   it("null widget (non-TUI) → run proceeds with no widget calls (no throw)", async () => {
     const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
     const deps = makeDeps({ arms: ["A1"], root, phase1, widget: null });
-    await expect(startRun(deps)).resolves.toMatchObject({ kind: "phase2-done" });
+    await expect(startRun(deps)).resolves.toMatchObject({ kind: "done" });
   });
 });

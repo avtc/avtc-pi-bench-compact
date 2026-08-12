@@ -55,6 +55,16 @@ const NEVER_ABORT_CONTROLLER = new AbortController();
 /** Why a Phase-2 continuation halted (stop-and-surface). */
 export type Phase2StopReason = "run-failed" | "run-hung";
 
+/** Result of {@link runContinuations}: the captured traces (one per arm×attempt) + the
+ *  FINAL fresh command ctx (the last arm's last attempt's `withSession`). The run
+ *  driver threads `finalCtx` into the Phase-2b probe driver so its switchSession chain
+ *  starts from a valid ctx — every switchSession invalidates the prior ctx, so only
+ *  the last one survives. Mirrors {@link Phase1Result}. */
+export interface Phase2Result {
+  readonly traces: readonly RunTrace[];
+  readonly finalCtx: ExtensionCommandContext;
+}
+
 /** Thrown/recorded when a Phase-2 continuation must stop-and-surface. The run driver
  *  catches it, records `lastStopReason`, notifies the operator, and yields — never
  *  auto-retries. A run failure is a simulator/drive error; a run hang is the agent
@@ -263,7 +273,7 @@ async function awaitSettle(
  *
  * @throws {Phase2StoppedError} on a run failure (simulator error) or hang (no settle).
  */
-export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
+export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> {
   const makeSimulator = deps.ops?.makeSimulator ?? createDefaultSimulatorFactory(deps.config, deps.manifest);
   const ops: Phase2Ops = {
     loadSession: deps.ops?.loadSession ?? loadSession,
@@ -350,5 +360,5 @@ export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
       log.info(`phase-2: arm ${base.arm} attempt ${attempt} settled → ${attemptBranch}`);
     }
   }
-  return traces;
+  return { traces, finalCtx: currentCtx };
 }

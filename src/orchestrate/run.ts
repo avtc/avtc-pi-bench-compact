@@ -3,34 +3,33 @@
 
 // The bench run driver: owns run identity (date/id/cfgId), sets the run-state
 // eagerly (so the live-progress widget can show it), persists the run-config
-// snapshot, dispatches Phase-1 (inline — no cross-reload driver), and applies
-// stop-and-surface on a Phase-1 halt.
-//
-// configure-API model: the proxies (observational-memory + memkeeper) are cached
-// at activate (proxies.ts) and threaded into Phase-1, which reconfigures each arm
-// in-place (no `ctx.reload()`). startRun awaits Phase-1 and returns the bases (or
-// a stopped result). Phase-2a continuations are wired below; the Phase-2b probe
-// driver (`runProbes`, src/orchestrate/probes.ts) + the embedded-testSpec runner
-// (`runTestSpec`, src/orchestrate/testspec.ts) modules are ready, but their wiring
-// into this pipeline is deferred to Task 14: runProbes runs per arm AFTER that
-// arm's continuations, so it needs the final fresh ctx threaded out of
-// `runContinuations` (which today returns only traces, not its final ctx) —
-// changing that return is Task 13a's module, so Task 14 (which restructures run.ts
-// for the full Phase-2a→2b→3 pipeline) owns the wiring: thread runContinuations'
-// final ctx into runProbes per arm, then call runTestSpec on each committed attempt
-// branch for the embedded-test done-snapshot signal, and extend this catch with a
-// ProbeStoppedError arm.
+// snapshot, then drives the full pipeline:
+//   Phase 1  — compact each arm's frozen backup once → arm base (inline).
+//   Phase 2a — fork each base into N continuation attempts (runContinuations).
+//   Phase 2b — run the manifest's direct probes per arm (runProbes, from the arm
+//              base) + the embedded testSpec per committed attempt branch.
+//   Phase 3  — score every captured (arm, attempt) run (scoreRun) → results.json
+//              + report.md under the run dir.
+// The fresh command ctx threads across phases (each switchSession invalidates the
+// prior ctx; the final ctx of one phase seeds the next). Stop-and-surface on any
+// phase halt — never auto-retry.
 
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
+import { BenchJudgeError } from "../judge/errors.js";
+import { buildJudgeEnsemble, defaultJudgeTransport } from "../judge/seams.js";
+import { seededShuffle } from "../judge/shuffle.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
+import type { Pricing } from "../metrics/pricing.js";
+import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
 import { benchRoot, runDir } from "../storage/paths.js";
+import { checkout } from "../storage/repo.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
 import {
@@ -41,22 +40,57 @@ import {
   type Phase1StopReason,
   runPhase1,
 } from "./phase1.js";
-import { Phase2StoppedError, type Phase2StopReason, runContinuations } from "./phase2.js";
+import { type Phase2Result, Phase2StoppedError, type Phase2StopReason, runContinuations } from "./phase2.js";
+import { type ProbeOps, ProbeStoppedError, type ProbeStopReason, runProbes } from "./probes.js";
 import { setRunState, updateRunState } from "./run-state.js";
+import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
+import type { TestSpecOps, TestSpecResult } from "./testspec.js";
+import { runTestSpec } from "./testspec.js";
 import type { RunTrace } from "./trace.js";
 
-/** Inputs to {@link startRun}. `now`/`notify`/`phase1`/`continuations`/`ops` are injectable seams for testing. */
+/** A run-scoped abort controller (owned by startRun; threaded into every phase).
+ *  The `/bench-compact:abort` command (Task 23) will trigger it; for now it is a
+ *  local never-aborting signal unless an explicit one is threaded via deps. */
+type RunSignal = AbortSignal;
+
+/** Why a run halted (stop-and-surface), across phases. */
+export type RunStopReason = Phase1StopReason | Phase2StopReason | ProbeStopReason | JudgeStopReason;
+
+/** The judge STOP+surface reasons (the categories BenchJudgeError carries). */
+type JudgeStopReason =
+  | "model-unavailable"
+  | "timeout"
+  | "aborted"
+  | "no-capture"
+  | "incomplete-output"
+  | "malformed-json";
+
+/** Discriminated result of a run. The done branch is Phase-3 (results written);
+ *  the stopped branch carries the phase + the arm/attempt (null for a score stop). */
+export type RunResult =
+  | { kind: "done"; runId: string; cfgId: string; resultsPath: string; reportPath: string }
+  | {
+      kind: "stopped";
+      /** The arm the stop occurred on (null for a Phase-3 score stop). */
+      arm: ArmId | null;
+      /** The Phase-2 attempt index, or null (Phase-1/probe/score stops carry none). */
+      attempt: number | null;
+      /** The phase that halted: phase-1 / phase-2 / probe / score. */
+      phase: "phase-1" | "phase-2" | "probe" | "score";
+      reason: RunStopReason;
+      message: string;
+      runId: string;
+    };
+
+/** Inputs to {@link startRun}. `phase1`/`continuations`/`probes`/`testSpec`/`score`/
+ *  `buildScoreDeps` are injectable seams for testing (defaults = real impls). */
 export interface StartRunDeps {
-  /** The run command's context (the first arm's `switchSession`). `runPhase1` threads
-   *  the fresh ctx from each `withSession` across arms — `switchSession` invalidates
-   *  the prior ctx the same way `reload` does, so only the FIRST arm's ctx comes from
-   *  the command handler; the rest come from the re-activation. The fresh `pi` +
-   *  memory proxies are read from `globalThis` inside each `withSession` (bench-ctx.ts). */
+  /** The run command's context (the first arm's `switchSession`). */
   cmdCtx: ExtensionCommandContext;
   config: BenchConfig;
   /** The prepared scenario repo path (Phase-0 frozen backup + project files on `main`). */
   scenarioRepo: string;
-  /** The scenario manifest (seeds the Phase-2 simulator's system prompt). */
+  /** The scenario manifest (seeds the simulator + the probes + the scoring axes). */
   manifest: ScenarioManifest;
   /** Bench root override (default = `benchRoot(config.outputDir)`). */
   root?: string;
@@ -64,64 +98,62 @@ export interface StartRunDeps {
   now?: () => Date;
   /** Operator-attention channel (e.g. `ctx.ui.notify`). Invoked on stop-and-surface. */
   notify?: (message: string) => void;
-  /** Injectable Phase-1 (default = real {@link runPhase1}). Tests stub it. */
+  /** The live-progress widget (TUI-only). Null in non-TUI/batch → no-op. */
+  widget?: WidgetPort | null;
+  /** Injectable Phase-1 (default = real {@link runPhase1}). */
   phase1?: typeof runPhase1;
-  /** Injectable Phase-2 continuations (default = real {@link runContinuations}). Tests stub it. */
+  /** Injectable Phase-2 continuations (default = real {@link runContinuations}). */
   continuations?: typeof runContinuations;
+  /** Injectable Phase-2b probes (default = real {@link runProbes}). */
+  probes?: typeof runProbes;
+  /** Injectable Phase-2b testSpec (default = real {@link runTestSpec}). */
+  testSpec?: typeof runTestSpec;
+  /** Injectable Phase-3 scoring (default = real {@link scoreRun}). */
+  score?: typeof scoreRun;
+  /** Injectable Phase-3 ScoreRunDeps builder (default = production wiring). Tests
+   *  inject a minimal factory so the heavy judge/pricing deps are bypassed. */
+  buildScoreDeps?: (args: BuildScoreDepsArgs) => ScoreRunDeps;
   /** Phase-1 ops seams (passed through to the real `runPhase1`). */
   ops?: Partial<Phase1Ops>;
+  /** Phase-2b probe ops seams (passed through to the real `runProbes`). */
+  probeOps?: Partial<ProbeOps>;
+  /** Phase-2b testSpec ops seams (passed through to the real `runTestSpec`). */
+  testSpecOps?: Partial<TestSpecOps>;
   /** Tool-version resolver (default = real filesystem resolution). Tests inject a fake. */
   versionResolver?: VersionResolver;
-  /** The live-progress widget (TUI-only). Null in non-TUI/batch → the run simply
-   *  drives it through phase transitions; the widget itself is a no-op when null. */
-  widget?: WidgetPort | null;
+  /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
+  modelsPath?: string;
 }
 
-/** Why a run halted (stop-and-surface), across phases. */
-export type RunStopReason = Phase1StopReason | Phase2StopReason;
-
-/** Discriminated result of a run. The done branch is Phase-2 (Phase-1 always
- *  proceeds to continuations on success); the stopped branch carries the phase
- *  (attempt is null for a Phase-1 stop, the attempt number for a Phase-2 stop). */
-export type RunResult =
-  | { kind: "phase2-done"; bases: ArmBase[]; traces: RunTrace[]; runId: string; cfgId: string }
-  | {
-      kind: "stopped";
-      arm: ArmId;
-      /** The Phase-2 attempt index, or null for a Phase-1 stop. */
-      attempt: number | null;
-      reason: RunStopReason;
-      message: string;
-      runId: string;
-    };
-
-/** UTC calendar date as `YYYY-MM-DD` (fixed across all arms/attempts of a run). */
-function utcDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+/** The production ScoreRunDeps builder's inputs. */
+export interface BuildScoreDepsArgs {
+  /** The scoring-session context (the threaded final ctx — model registry for judge resolution). */
+  ctx: ExtensionContext;
+  /** The full run config (its judge fields build the ensemble; evaluatedModel resolves pricing). */
+  runConfig: ReturnType<typeof buildRunConfig>;
+  /** The manifest (scoring axes + rubric context). */
+  manifest: ScenarioManifest;
+  /** The run-meta the serializer needs. */
+  meta: ScoreRunMeta;
+  /** The run signal (threaded to the judge stages). */
+  signal: RunSignal;
+  /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
+  modelsPath: string;
 }
+
+/** Per-run output-token cap for the judge stages (single-call slices + agentLoop summaries). */
+const JUDGE_MAX_TOKENS = 8192;
+/** The JSON indent written to results.json. */
+const JSON_INDENT = 2;
+/** The shuffle seed for comparative-rank anonymization (deterministic per run for reproducibility). */
+const RANK_SHUFFLE_SEED = 0x5eed;
 
 /**
- * Next 1-based run id for `date`: counts existing run dirs under `<root>/runs/` whose
- * name starts with `${date}-`. The bench is TUI-primary (one run at a time), so there
- * is no concurrent-run race.
- */
-function nextRunId(root: string, date: string): number {
-  const runsDir = join(root, "runs");
-  if (!existsSync(runsDir)) return 1;
-  const prefix = `${date}-`;
-  let count = 0;
-  for (const entry of readdirSync(runsDir)) {
-    if (entry.startsWith(prefix)) count++;
-  }
-  return count + 1;
-}
-
-/**
- * Start a bench run. Resolves the run identity, persists the run-config snapshot, sets
- * the run-state to `phase-1`, runs Phase-1 (inline — awaits it), and on success
- *  advances to `phase-2` + runs the Phase-2 continuations. On a Phase-1 or Phase-2
- *  stop, records the reason, notifies the operator, and returns `{ kind: "stopped" }`
- *  — never auto-retries. Phase 2b probes + Phase 3 scoring are appended by later tasks.
+ * Start a bench run. Resolves the run identity, persists the run-config snapshot,
+ * sets the run-state to `phase-1`, then drives Phase 1 → 2a → 2b → 3. On any phase
+ * stop, records the reason, notifies the operator, and returns `{ kind: "stopped" }`
+ * — never auto-retries. On a clean Phase-3, writes results.json + report.md under
+ * the run dir and returns `{ kind: "done" }`.
  */
 export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const root = deps.root ?? benchRoot(deps.config.outputDir);
@@ -129,17 +161,16 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const date = utcDate(now());
   const id = nextRunId(root, date);
   const runId = `${date}-${id}`;
+  const runPath = runDir(root, runId);
+  const runAbort = new AbortController();
+  const signal: RunSignal = runAbort.signal;
 
-  // Reserve the run dir immediately: a Phase-1 stop creates no result yet, but the
-  // identity is taken — so a same-day retry/scan sees this run + picks the next id.
-  mkdirSync(runDir(root, runId), { recursive: true });
+  mkdirSync(runPath, { recursive: true });
 
-  // Resolve the full run config (every arm's tool version) + its fingerprint, ONCE.
   const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER);
   const cfgId = buildCfgId(runConfig);
   writeRunConfig(cfgId, runConfig, root);
 
-  // Set run-state eagerly — the widget + /status reflect it from here on.
   setRunState({
     runId,
     date,
@@ -153,9 +184,6 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   });
   log.info(`run ${runId} started: cfg ${cfgId}, arms [${deps.config.armsEnabled.join(", ")}]`);
 
-  // Show the live-progress widget from run start (Phase-1 = compact cell). The
-  // widget is null in non-TUI/batch → these calls are skipped. Register it as the
-  // active widget so `/bench-compact:abort` can tear it down.
   const widget = deps.widget ?? null;
   setActiveWidget(widget);
   widget?.show();
@@ -163,8 +191,14 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
   const phase1 = deps.phase1 ?? runPhase1;
   const continuations = deps.continuations ?? runContinuations;
+  const probes = deps.probes ?? runProbes;
+  const testSpec = deps.testSpec ?? runTestSpec;
+  const score = deps.score ?? scoreRun;
+  const buildScoreDeps = deps.buildScoreDeps ?? buildProductionScoreDeps;
+
   try {
-    const { bases, finalCtx } = await phase1({
+    // --- Phase 1: compact each arm once → arm bases ---
+    const { bases, finalCtx: ctxAfterPhase1 } = await phase1({
       cmdCtx: deps.cmdCtx,
       scenarioRepo: deps.scenarioRepo,
       date,
@@ -175,45 +209,246 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       armsEnabled: deps.config.armsEnabled,
       ops: deps.ops,
     });
-    // Phase-1 done → advance to Phase-2 + run the N continuation attempts per arm.
-    // Thread the FINAL fresh ctx from Phase-1: its first arm already invalidated
-    // deps.cmdCtx (switchSession invalidates the ctx it's called on). Passing the
-    // stale cmdCtx here would make the first continuation's switchSession throw.
+
+    // --- Phase 2a: fork each base into N continuation attempts ---
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
     widget?.startPhase("resume", NO_DETAIL);
-    const traces = await continuations({
-      cmdCtx: finalCtx,
+    const contResult: Phase2Result = await continuations({
+      cmdCtx: ctxAfterPhase1,
       armBases: bases,
       config: deps.config,
       manifest: deps.manifest,
       repo: deps.scenarioRepo,
       N: deps.config.N,
+      signal,
     });
-    // TODO(task-14): wire the Phase-2b probe driver (runProbes) per arm after its
-    // continuations, then runTestSpec on each committed attempt branch (embedded-test signal), then
-    // Phase-3 scoring. Deferred to Task 14 because runProbes needs the final fresh
-    // ctx threaded out of runContinuations (a Task-13a return change); the modules
-    // (src/orchestrate/probes.ts, src/orchestrate/testspec.ts) are ready.
-    // Phase-2 done → the widget stays visible (done line) until /bench-compact:abort.
+
+    // --- Phase 2b: direct probes per arm (from the base) + embedded testSpec per attempt ---
+    widget?.startPhase("probe", NO_DETAIL);
+    let probeCtx = contResult.finalCtx;
+    const probeTraces = [];
+    for (const base of bases) {
+      const probeResult = await probes({
+        cmdCtx: probeCtx,
+        armBase: base,
+        manifest: deps.manifest,
+        repo: deps.scenarioRepo,
+        signal,
+        ops: deps.probeOps,
+      });
+      probeTraces.push(...probeResult.traces);
+      probeCtx = probeResult.finalCtx;
+    }
+    // The embedded testSpec runs on each committed attempt branch's project files.
+    const testSpecByBranch = new Map<string, TestSpecResult>();
+    for (const trace of contResult.traces) {
+      testSpecByBranch.set(
+        trace.branch,
+        testSpec({ repo: deps.scenarioRepo, branch: trace.branch, manifest: deps.manifest, ops: deps.testSpecOps }),
+      );
+    }
+
+    // --- Phase 3: score every captured run → results.json + report.md ---
+    widget?.startPhase("score", NO_DETAIL);
+    const input = buildScoreRunInput(bases, contResult.traces, probeTraces, testSpecByBranch, deps.scenarioRepo);
+    const meta = buildScoreMeta(deps, runConfig, bases, contResult.traces, runId, cfgId, root, runPath, now);
+    const scoreDeps = buildScoreDeps({
+      ctx: probeCtx,
+      runConfig,
+      manifest: deps.manifest,
+      meta,
+      signal,
+      modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
+    });
+    const { resultJson, markdown } = await score(input, scoreDeps);
+
+    const resultsPath = join(runPath, "results.json");
+    const reportPath = join(runPath, "report.md");
+    writeFileSync(resultsPath, JSON.stringify(resultJson, null, JSON_INDENT));
+    writeFileSync(reportPath, markdown);
+
     widget?.setStatus("done", "/bench-compact:results");
-    return { kind: "phase2-done", bases, traces, runId, cfgId };
+    log.info(`run ${runId} done: ${resultsPath}`);
+    return { kind: "done", runId, cfgId, resultsPath, reportPath };
   } catch (err) {
-    if (err instanceof Phase1StoppedError) {
-      const { arm, reason, message } = err;
-      updateRunState({ lastStopReason: message });
-      widget?.setStatus("stopped", "/bench-compact:resume");
-      deps.notify?.(`bench-compact stopped (arm ${arm}): ${message}`);
-      log.warn(`run ${runId} stopped: arm ${arm} ${reason} — ${message}`);
-      return { kind: "stopped", arm, attempt: null, reason, message, runId };
-    }
-    if (err instanceof Phase2StoppedError) {
-      const { arm, attempt, reason, message } = err;
-      updateRunState({ lastStopReason: message });
-      widget?.setStatus("stopped", "/bench-compact:resume");
-      deps.notify?.(`bench-compact stopped (arm ${arm} attempt ${attempt}): ${message}`);
-      log.warn(`run ${runId} stopped: arm ${arm} attempt ${attempt} ${reason} — ${message}`);
-      return { kind: "stopped", arm, attempt, reason, message, runId };
-    }
-    throw err;
+    return handleRunStop(err, deps, widget, runId);
   }
+}
+
+/** Map a thrown phase-stop error to a stopped RunResult (records reason, notifies,
+ *  widget→stopped). Re-throws unexpected (non-stop) errors. */
+function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | null, runId: string): RunResult {
+  if (err instanceof Phase1StoppedError) {
+    const { arm, reason, message } = err;
+    updateRunState({ lastStopReason: message });
+    widget?.setStatus("stopped", "/bench-compact:resume");
+    deps.notify?.(`bench-compact stopped (arm ${arm}): ${message}`);
+    log.warn(`run ${runId} stopped: arm ${arm} ${reason} — ${message}`);
+    return { kind: "stopped", arm, attempt: null, phase: "phase-1", reason, message, runId };
+  }
+  if (err instanceof Phase2StoppedError) {
+    const { arm, attempt, reason, message } = err;
+    updateRunState({ lastStopReason: message });
+    widget?.setStatus("stopped", "/bench-compact:resume");
+    deps.notify?.(`bench-compact stopped (arm ${arm} attempt ${attempt}): ${message}`);
+    log.warn(`run ${runId} stopped: arm ${arm} attempt ${attempt} ${reason} — ${message}`);
+    return { kind: "stopped", arm, attempt, phase: "phase-2", reason, message, runId };
+  }
+  if (err instanceof ProbeStoppedError) {
+    const { arm, probeId, reason, message } = err;
+    updateRunState({ lastStopReason: message });
+    widget?.setStatus("stopped", "/bench-compact:resume");
+    deps.notify?.(`bench-compact stopped (arm ${arm} probe ${probeId}): ${message}`);
+    log.warn(`run ${runId} stopped: arm ${arm} probe ${probeId} ${reason} — ${message}`);
+    return { kind: "stopped", arm, attempt: null, phase: "probe", reason, message, runId };
+  }
+  if (err instanceof BenchJudgeError) {
+    const { category, message } = err;
+    updateRunState({ lastStopReason: message });
+    widget?.setStatus("stopped", "/bench-compact:resume");
+    deps.notify?.(`bench-compact stopped (scoring): ${message}`);
+    log.warn(`run ${runId} stopped: scoring ${category} — ${message}`);
+    return { kind: "stopped", arm: null, attempt: null, phase: "score", reason: category, message, runId };
+  }
+  throw err;
+}
+
+/**
+ * Build the Phase-3 {@link ScoreRunInput}: one {@link ArmAttemptRun} per (arm,
+ * attempt) continuation, with the arm's direct-probe answers attached to the FIRST
+ * attempt (probes are arm-level — forked once from the base, independent of the N
+ * attempts; attaching them to one attempt grades them exactly once per arm, not N×),
+ * and the embedded-testSpec result on each attempt's branch. Pure (no I/O).
+ */
+export function buildScoreRunInput(
+  bases: readonly ArmBase[],
+  continuationTraces: readonly RunTrace[],
+  probeTraces: readonly import("./probes.js").ProbeTrace[],
+  testSpecByBranch: ReadonlyMap<string, TestSpecResult>,
+  repo: string,
+): ScoreRunInput {
+  const input: ArmAttemptRun[] = [];
+  for (const base of bases) {
+    const armProbes = probeTraces.filter((p) => p.arm === base.arm);
+    const armContTraces = continuationTraces.filter(
+      (t): t is RunTrace & { arm: ArmId; attempt: number } => t.arm === base.arm && t.attempt !== undefined,
+    );
+    armContTraces.forEach((trace, idx) => {
+      input.push({
+        arm: trace.arm,
+        attempt: trace.attempt,
+        continuation: trace,
+        // Probes are arm-level (one set per arm, forked from the base). Attach them to
+        // the first attempt so gradeProbeAxesForRun grades them exactly once per arm.
+        probes: idx === 0 ? armProbes : [],
+        testSpecResult: testSpecByBranch.get(trace.branch),
+        repo,
+        branch: trace.branch,
+      });
+    });
+  }
+  return input;
+}
+
+/** Build the run-meta the serializer needs (identity + config + counts + artifacts). */
+function buildScoreMeta(
+  deps: StartRunDeps,
+  runConfig: ReturnType<typeof buildRunConfig>,
+  bases: readonly ArmBase[],
+  continuationTraces: readonly RunTrace[],
+  runId: string,
+  cfgId: string,
+  root: string,
+  runPath: string,
+  now: () => Date,
+): ScoreRunMeta {
+  const armRunCounts: Partial<Record<ArmId, { completed: number; failed: number }>> = {};
+  for (const base of bases) {
+    const completed = continuationTraces.filter((t) => t.arm === base.arm).length;
+    armRunCounts[base.arm] = { completed, failed: 0 };
+  }
+  return {
+    runId,
+    cfgId,
+    timestamp: now().toISOString(),
+    scenario: { id: deps.manifest.id, manifestRef: join(deps.scenarioRepo, "manifest.json") },
+    runConfig,
+    armRunCounts,
+    failures: [],
+    artifacts: {
+      scenarioRepo: deps.scenarioRepo,
+      branches: bases.map((b) => b.branch),
+      judgeDir: join(runPath, "judge"),
+      config: join(root, "configs", `${cfgId}.json`),
+      results: join(runPath, "results.json"),
+    },
+    root,
+  };
+}
+
+/** The production ScoreRunDeps: builds the K-judge ensemble (callJudges + stageSeams
+ *  from the run config's judge fields), the evaluated-model pricing, a seeded rank
+ *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read. */
+export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
+  const transport = defaultJudgeTransport(args.ctx, {
+    maxTokens: JUDGE_MAX_TOKENS,
+    signal: args.signal,
+    rateLimitOptions: null,
+  });
+  const ensemble = buildJudgeEnsemble(args.runConfig, transport);
+  const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);
+  return {
+    manifest: args.manifest,
+    callJudges: ensemble.callJudges,
+    stageSeams: ensemble.stageSeams,
+    shuffle: seededShuffle(RANK_SHUFFLE_SEED),
+    maxTokens: JUDGE_MAX_TOKENS,
+    signal: args.signal,
+    rateLimitOptions: null,
+    bootstrapOptions: null,
+    pricing,
+    checkout,
+    meta: args.meta,
+  };
+}
+
+/** Resolve the evaluated model's pricing. A non-null `evaluatedModel` ("provider/id")
+ *  → readPricing on the id; null → the session model's id (`ctx.model`). Throws if
+ *  neither resolves (the compaction-cost metric needs a price). */
+function resolvePricing(
+  runConfig: ReturnType<typeof buildRunConfig>,
+  ctx: ExtensionContext,
+  modelsPath: string,
+): Pricing {
+  const modelId = runConfig.evaluatedModel !== null ? modelIdOf(runConfig.evaluatedModel) : (ctx.model?.id ?? null);
+  if (modelId === null) {
+    throw new Error("cannot resolve the evaluated model id for pricing (set evaluatedModel)");
+  }
+  return readPricing(modelId, { modelsPath });
+}
+
+/** Extract the model id (the part after `provider/`) from a `provider/id` reference. */
+function modelIdOf(ref: string): string {
+  const slash = ref.indexOf("/");
+  return slash === -1 ? ref : ref.slice(slash + 1);
+}
+
+/** UTC calendar date as `YYYY-MM-DD` (fixed across all arms/attempts of a run). */
+function utcDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Next 1-based run id for `date`: counts existing run dirs under `<root>/runs/`
+ * whose name starts with `${date}-`. The bench is TUI-primary (one run at a time).
+ */
+function nextRunId(root: string, date: string): number {
+  const runsDir = join(root, "runs");
+  if (!existsSync(runsDir)) return 1;
+  const prefix = `${date}-`;
+  let count = 0;
+  for (const entry of readdirSync(runsDir)) {
+    if (entry.startsWith(prefix)) count++;
+  }
+  return count + 1;
 }

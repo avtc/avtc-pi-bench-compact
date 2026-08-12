@@ -54,7 +54,7 @@ function resolveOptions(options: BootstrapOptions | null): ResolvedOptions {
  * bootstrap resampling (it is NOT a crypto RNG; it does not need to be).
  * Returns a function producing floats in [0, 1).
  */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;
