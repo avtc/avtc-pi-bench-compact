@@ -92,9 +92,10 @@ function phaseLabel(state: WidgetState): string {
 }
 
 /**
- * Build the ordered segment list for the line. The tool name (segment 2 when an
- * arm counter is present) is the single elastic segment; all others are fixed.
- * Exposed so the tracker can fit it to the terminal width via `fitLine`.
+ * Build the ordered content segment list for the line (the 🅑 glyph prefix is
+ * prepended separately by {@link renderLine}). The tool name (the FIRST segment
+ * when an arm counter is present) is the single elastic segment; all others are
+ * fixed. Exposed so the tracker can fit it to the terminal width via `fitLine`.
  */
 export function buildContentSegments(state: WidgetState): Segment[] {
   const segs: Segment[] = [];
