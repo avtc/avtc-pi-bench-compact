@@ -9,17 +9,8 @@
 // a full `ScenarioManifest` (assigns ids, derives lanes, fixes domain, merges the
 // scenario's taskObjective + compactionBoundary).
 
-import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
-import {
-  NO_EVENT_SINK,
-  NO_LOOP_OVERRIDE,
-  NO_REASONING,
-  NO_STAGE_END_HOOK,
-  NO_TURN_LIMIT,
-  type StageRunInput,
-  type StageRunResult,
-} from "../runtime/agent-loop.js";
-import type { ResolvedBenchModel } from "../runtime/model.js";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
 import { benchAuthoringTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
 import { AUTHORING_SYSTEM_PROMPT } from "./prompt.js";
 import {
@@ -50,12 +41,10 @@ export interface KnownCondition {
 }
 
 /** Injectable seams over the model + stage-runner dependencies (faked in tests). */
-export interface AuthoringSeams {
-  /** Resolve the authoring model (`resolveBenchModel`). */
-  resolveModel(): Promise<ResolvedBenchModel>;
-  /** Run the multi-turn authoring stage (`runBenchStage`). Faked in tests. */
-  runStage(input: StageRunInput): Promise<StageRunResult>;
-}
+/** Injectable seams: resolve the authoring model + run the bench stage (faked in tests).
+ *  Alias of the shared {@link JsonToolStageSeams} (the manifest author uses the same
+ *  stage-runner as the judge trajectory/boundary stages). */
+export type AuthoringSeams = JsonToolStageSeams;
 
 export interface RunAuthoringAgentDeps {
   readonly seams: AuthoringSeams;
@@ -213,46 +202,20 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     knownConditions: deps.knownConditions,
   });
 
-  const resolved = await deps.seams.resolveModel();
-  if (!resolved.ok) {
-    throw new Error(`authoring model not available: ${resolved.error}`);
-  }
-
-  const userMessage: AgentMessage = {
-    role: "user",
-    content: `Read the session file at ${deps.preSlicedJsonlPath} and produce the manifest. Use your tools to read it, then call write_manifest with your findings.`,
-    timestamp: Date.now(),
-  };
-
-  const result = await deps.seams.runStage({
-    systemPrompt,
-    messages: [userMessage],
+  // The shared stage-runner owns the resolve -> runStage (rate-limit-wrapped) ->
+  // check timedOut/aborted -> read-capture flow. It STOP-and-surfaces on failure
+  // (a timed-out/aborted stage may leave a partial write_manifest — never post-
+  // process it); the last captured payload is the author's structured output.
+  const author = (await runJsonToolStage({
+    seams: deps.seams,
     tools,
-    model: resolved.model,
-    apiKey: resolved.apiKey,
-    signal: deps.signal,
-    reasoning: NO_REASONING,
-    maxTurns: NO_TURN_LIMIT, // multi-turn: read entries, then write_manifest
+    systemPrompt,
+    terminalTool: writeManifest,
+    label: "authoring",
+    userMessageContent: `Read the session file at ${deps.preSlicedJsonlPath} and produce the manifest. Use your tools to read it, then call write_manifest with your findings.`,
     maxTokens: deps.maxTokens,
-    timeoutMs: null, // tool-bearing stage may run slow reads/greps
-    onEvent: NO_EVENT_SINK,
-    onStageEnd: NO_STAGE_END_HOOK,
-    loopFn: NO_LOOP_OVERRIDE,
-  });
+    signal: deps.signal,
+  })) as AuthorOutput;
 
-  // A timed-out / aborted stage may have left a partial `write_manifest` capture —
-  // do NOT silently post-process it; surface the failure (stop-and-surface).
-  if (result.timedOut) {
-    throw new Error("authoring stage timed out before completing the manifest");
-  }
-  if (result.aborted) {
-    throw new Error("authoring stage was aborted before completing the manifest");
-  }
-
-  const captured = writeManifest._captured;
-  if (captured.length === 0) {
-    throw new Error("authoring agent did not call write_manifest — no manifest captured");
-  }
-  const author = captured[captured.length - 1] as AuthorOutput;
   return postProcessManifest(author, deps.scenarioCtx);
 }

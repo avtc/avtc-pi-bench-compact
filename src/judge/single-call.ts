@@ -76,7 +76,7 @@ function buildSystemPrompt(axis: MetricId, nudge: string | null): string {
 }
 
 /** Extract the first balanced {...} object from a string (tolerates fences/prose). */
-function extractJsonObject(text: string): string | null {
+export function extractJsonObject(text: string): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
