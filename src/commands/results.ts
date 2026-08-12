@@ -19,7 +19,7 @@ import type { MetricId } from "../metrics/defs.js";
 import { renderComparison } from "../report/compare.js";
 import { renderHeadline } from "../report/markdown.js";
 import type { ArmResultJson, BenchResultJson, RankAxisJson } from "../report/result-json.js";
-import { runDir } from "../storage/paths.js";
+import { benchRoot, runDir } from "../storage/paths.js";
 import { parseResultsArgs } from "./parse.js";
 
 /** Injectable result-JSON loader (one run's result, by runId). */
@@ -28,10 +28,13 @@ export interface ResultsSeams {
   loadResultJson(runId: string): BenchResultJson | undefined;
 }
 
-/** The orchestrator outcome: the rendered report (success) OR an error message. */
+/** The orchestrator outcome: the rendered report (success) OR an error message.
+ *  `runIds` is always populated from parsing (even on load error) so the handler
+ *  need not re-parse to locate the first run's dir. */
 export interface ResultsOutcome {
   readonly report: string | undefined;
   readonly error: string | undefined;
+  readonly runIds: readonly string[];
 }
 
 /**
@@ -41,9 +44,10 @@ export interface ResultsOutcome {
  */
 export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOutcome {
   const parsed = parseResultsArgs(args);
-  if (parsed.error !== undefined) return { report: undefined, error: parsed.error };
+  if (parsed.error !== undefined) return { report: undefined, error: parsed.error, runIds: [] };
   const refs = parsed.runs;
-  if (refs.length === 0) return { report: undefined, error: "results requires at least one runId" };
+  if (refs.length === 0) return { report: undefined, error: "results requires at least one runId", runIds: [] };
+  const runIds = refs.map((r) => r.runId);
 
   // Load every referenced run's result-JSON (fail fast on the first missing one).
   const loaded: BenchResultJson[] = [];
@@ -52,7 +56,8 @@ export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOut
     if (result === undefined) {
       return {
         report: undefined,
-        error: `run results not found for "${ref.runId}" (expected results.json under ~/.pi/bench-compact/runs/${ref.runId}/)`,
+        error: `run results not found for "${ref.runId}" (expected results.json under runs/${ref.runId}/)`,
+        runIds,
       };
     }
     loaded.push(result);
@@ -60,13 +65,13 @@ export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOut
 
   if (loaded.length === 1) {
     const report = renderHeadline(filterResultArms(loaded[0], refs[0].arms));
-    return { report, error: undefined };
+    return { report, error: undefined, runIds };
   }
   const report = renderComparison(
     loaded,
     refs.map((r) => ({ runId: r.runId, arms: r.arms })),
   );
-  return { report, error: undefined };
+  return { report, error: undefined, runIds };
 }
 
 /**
@@ -95,7 +100,7 @@ export function registerResultsCommand(pi: ExtensionAPI): void {
   pi.registerCommand("bench-compact:results", {
     description: "Render the headline report for <runId>[:arms] (compare multiple).",
     handler: async (args, ctx) => {
-      const root = resolveBenchRoot();
+      const root = benchRoot(getBenchConfig().outputDir);
       const seams: ResultsSeams = {
         loadResultJson: (runId) => {
           const file = path.join(runDir(root, runId), "results.json");
@@ -112,8 +117,7 @@ export function registerResultsCommand(pi: ExtensionAPI): void {
         return;
       }
       // Write the rendered report next to the (first) run's results.json + notify the path.
-      const parsed = parseResultsArgs(args);
-      const firstRunId = parsed.runs[0]?.runId ?? "unknown";
+      const firstRunId = outcome.runIds[0] ?? "unknown";
       const dir = runDir(root, firstRunId);
       mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "report.md");
@@ -121,12 +125,4 @@ export function registerResultsCommand(pi: ExtensionAPI): void {
       ctx.ui.notify(`report written: ${file}`, "info");
     },
   });
-}
-
-/** Resolve the bench root (outputDir ?? ~/.pi/bench-compact/) from the bench config. */
-function resolveBenchRoot(): string {
-  // The bench root defaults to ~/.pi/bench-compact/ unless outputDir is set in config.
-  const outputDir = getBenchConfig().outputDir;
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-  return outputDir ?? path.join(home, ".pi", "bench-compact");
 }

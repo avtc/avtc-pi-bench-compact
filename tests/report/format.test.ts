@@ -56,7 +56,7 @@ describe("formatMetricValue", () => {
   it("exact → K-suffixed mean", () => {
     expect(formatMetricValue({ mean: 12_100, ci: [11_000, 13_000] })).toBe("12.1K");
   });
-  it("compaction-cost → $dollars", () => {
+  it("compaction-cost → $dollars/wall", () => {
     expect(
       formatMetricValue({
         tokensIn: 1,
@@ -64,11 +64,11 @@ describe("formatMetricValue", () => {
         cacheRead: 1,
         cacheWrite: 1,
         dollars: 0.034,
-        wallMs: 1000,
+        wallMs: 41000,
         stages: ["s"],
         phase2CompactionCount: 0,
       }),
-    ).toBe("$0.034");
+    ).toBe("$0.034/41s");
   });
   it("recall-cost → mean or n/a when all notRecovered", () => {
     expect(formatMetricValue({ mean: 500, ci: [400, 600], notRecoveredRate: 0 })).toBe("500");
@@ -85,12 +85,38 @@ describe("formatDeltaSuffix", () => {
     const s = formatDeltaSuffix(1, { rank: 1, rankCi: [1, 1] });
     expect(s).toBe(" [+1]");
   });
-  it("exact delta → raw count", () => {
-    const s = formatDeltaSuffix(-4500, { mean: 5000, ci: [4500, 5500] });
-    expect(s).toBe(" [-4500]⚠"); // negative → net-negative flag
+  it("exact token delta → K-suffixed count (negative → ⚠)", () => {
+    const s = formatDeltaSuffix(-7200, { mean: 8400, ci: [8000, 9000] });
+    expect(s).toBe(" [-7.2K]⚠");
   });
-  it("positive exact delta → no ⚠", () => {
+  it("exact token delta → raw count when < 1000 (positive → no ⚠)", () => {
     const s = formatDeltaSuffix(400, { mean: 800, ci: [700, 900] });
     expect(s).toBe(" [+400]");
+  });
+  it("C4 cost delta → dollar-cents (negative → ⚠)", () => {
+    const s = formatDeltaSuffix(-0.033, {
+      tokensIn: 1,
+      tokensOut: 1,
+      cacheRead: 1,
+      cacheWrite: 1,
+      dollars: 0.034,
+      wallMs: 41000,
+      stages: ["s"],
+      phase2CompactionCount: 0,
+    });
+    expect(s).toBe(" [-$0.033]⚠");
+  });
+  it("C4 cost delta → positive dollar-cents (no ⚠)", () => {
+    const s = formatDeltaSuffix(0.011, {
+      tokensIn: 1,
+      tokensOut: 1,
+      cacheRead: 1,
+      cacheWrite: 1,
+      dollars: 0.012,
+      wallMs: 18000,
+      stages: ["s"],
+      phase2CompactionCount: 0,
+    });
+    expect(s).toBe(" [+$0.011]");
   });
 });

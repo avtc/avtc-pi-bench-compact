@@ -6,7 +6,8 @@
 // format metric values + polarity-aware deltas identically (single source of
 // truth for the operator-facing number formatting).
 
-import type { MetricPolarity } from "../metrics/defs.js";
+import type { MetricId, MetricPolarity } from "../metrics/defs.js";
+import { isNetNegative } from "../stats/delta.js";
 import type { MetricJson } from "./result-json.js";
 
 /** Format a rate ∈[0,1] as a percentage with no decimals (62%). */
@@ -27,6 +28,18 @@ export function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
 
+/** Sign-prefixed count (K/M-suffixed): +400 / -7.2K / +0. For exact token deltas. */
+export function signedCount(n: number): string {
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "+";
+  return `${sign}${count(Math.abs(n))}`;
+}
+
+/** Sign-prefixed dollar delta (3 decimals): +$0.011 / -$0.033 / +$0.000. For compaction-cost deltas. */
+export function signedDollars(n: number): string {
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "+";
+  return `${sign}$${Math.abs(n).toFixed(3)}`;
+}
+
 /** The polarity arrow for a metric label (↓ lower-better, ↑ higher-better). */
 export function polarityArrow(polarity: MetricPolarity): string {
   if (polarity === "higherBetter") return "↑";
@@ -40,25 +53,46 @@ export function versionTag(v: { source: string; commit: string; full?: string } 
   return v.commit;
 }
 
-/** Format a metric's bare value (no delta): 62% / 1 / $0.03 / 1.2K / n/a. */
+/** The canonical metric display order (binary, comparative, then exact). Shared by
+ *  the headline + comparison so both render metrics in the same order. */
+export const METRIC_ORDER: readonly MetricId[] = [
+  "E2",
+  "E4",
+  "E5",
+  "E6",
+  "E8",
+  "E1",
+  "E3",
+  "E7",
+  "E10",
+  "C1",
+  "C3",
+  "C2",
+  "C4",
+];
+
+/** Format a metric's bare value (no delta): 62% / 1 / $0.03/41s / 1.2K / n/a. */
 export function formatMetricValue(v: MetricJson): string {
   if ("rate" in v) return `${pct(v.rate)} [${pct(v.ci[0])}–${pct(v.ci[1])}]`;
   if ("rank" in v) return String(v.rank);
-  if ("dollars" in v) return `$${v.dollars}`;
+  if ("dollars" in v) return `$${v.dollars}/${Math.round(v.wallMs / 1000)}s`; // $/wall (compaction-cost row)
   if ("notRecoveredRate" in v) return v.mean === null ? "n/a" : count(v.mean);
   return count(v.mean); // exact footprint / run-cost
 }
 
-/** Render the polarity-aware delta suffix for a metric cell: " [+52]" / " [-14]⚠" / "".
- *  `delta` is the polarity-NORMALIZED delta (positive = better) from a1Delta.
- *  Binary rate-deltas render as percentage points; comparative/exact as raw ints. */
+/** Render the polarity-aware delta suffix for a metric cell: " [+52]" / " [-7.2K]⚠" /
+ *  " [-$0.033]⚠" / "". `delta` is the polarity-NORMALIZED delta (positive = better)
+ *  from a1Delta. Binary rate-deltas render as percentage points; comparative as raw
+ *  rank points; exact token deltas as K/M-suffixed counts; compaction-cost as cents. */
 export function formatDeltaSuffix(delta: number, v: MetricJson): string {
   let deltaStr: string;
   if ("rate" in v)
     deltaStr = `[${signed(Math.round(delta * 100))}]`; // percentage points
   else if ("rank" in v)
     deltaStr = `[${signed(delta)}]`; // rank points
-  else deltaStr = `[${signed(Math.round(delta))}]`; // raw count
-  const flag = delta < 0 ? "⚠" : ""; // net-negative (worse than baseline)
+  else if ("dollars" in v)
+    deltaStr = `[${signedDollars(delta)}]`; // compaction-cost (cents)
+  else deltaStr = `[${signedCount(delta)}]`; // footprint/run-cost tokens (K-suffixed)
+  const flag = isNetNegative(delta) ? "⚠" : ""; // net-negative (worse than baseline)
   return ` ${deltaStr}${flag}`;
 }

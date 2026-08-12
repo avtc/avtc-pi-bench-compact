@@ -14,26 +14,9 @@
 import type { ArmId } from "../config/types.js";
 import type { MetricId } from "../metrics/defs.js";
 import { a1Delta, type PerMetricDelta } from "../stats/delta.js";
-import { count, formatDeltaSuffix, formatMetricValue, polarityArrow, versionTag } from "./format.js";
+import { count, formatDeltaSuffix, formatMetricValue, METRIC_ORDER, polarityArrow, versionTag } from "./format.js";
 import type { BenchResultJson, C4MetricJson, MetricJson } from "./result-json.js";
 import { extractJsonScalars } from "./result-json.js";
-
-/** The canonical metric display order (binary, comparative, then exact). */
-const METRIC_ORDER: readonly MetricId[] = [
-  "E2",
-  "E4",
-  "E5",
-  "E6",
-  "E8", // binary (lowerBetter / higherBetter)
-  "E1",
-  "E3",
-  "E7",
-  "E10", // comparative (rankLowerBetter)
-  "C1",
-  "C3",
-  "C2",
-  "C4", // exact (lowerBetter)
-];
 
 /** Per-arm baseline-delta derived live (null when the baseline arm is absent or a metric missing). */
 function deriveDeltas(result: BenchResultJson): {
@@ -150,22 +133,25 @@ export function renderHeadline(result: BenchResultJson): string {
     lines.push("");
   }
 
-  // --- Reliability ---
-  lines.push("## Reliability (per arm: completed/failed)");
+  // --- Reliability (per arm: completed/failed + stop-and-surface notes) ---
+  lines.push("## Reliability (per arm: completed/failed + notes)");
   for (const a of arms) {
     const arm = result.arms[a];
     const completed = arm?.runsCompleted ?? 0;
     const failed = arm?.runsFailed ?? 0;
     lines.push(`- ${a} ${arm?.tool}: ${completed}/${completed + failed} completed, ${failed} failed`);
+    // Append each failure note for this arm (reason + branch + resolved state — stop-and-surface transparency).
+    for (const f of result.failures.filter((fl) => fl.arm === a)) {
+      const status = f.resolved ? "resolved" : "unresolved";
+      lines.push(`    - run ${f.run} (${f.phase}, ${status}): ${f.reason} [${f.traceBranch}]`);
+    }
   }
   lines.push("");
 
   // --- Artifacts ---
   lines.push("## Artifacts");
   lines.push(`- scenario repo: ${result.artifacts.scenarioRepo}`);
-  lines.push(
-    `- result-JSON: ${result.artifacts.config.replace("configs", "runs").replace(/cfg-[^/]+\.json$/, `${result.runId}/results.json`)}`,
-  );
+  lines.push(`- result-JSON: ${result.artifacts.results ?? result.artifacts.config}`);
   lines.push(`- judge outputs: ${result.artifacts.judgeDir}`);
   lines.push(`- config: ${result.artifacts.config}`);
   return lines.join("\n");

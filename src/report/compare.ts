@@ -20,7 +20,7 @@
 import type { ArmId } from "../config/types.js";
 import type { MetricId } from "../metrics/defs.js";
 import { a1Delta } from "../stats/delta.js";
-import { formatDeltaSuffix, formatMetricValue, polarityArrow, versionTag } from "./format.js";
+import { formatDeltaSuffix, formatMetricValue, METRIC_ORDER, polarityArrow, versionTag } from "./format.js";
 import type { BenchResultJson, MetricJson } from "./result-json.js";
 import { extractJsonScalars } from "./result-json.js";
 
@@ -34,28 +34,15 @@ export interface RunSelection {
 interface ComparisonCell {
   readonly runIndex: number;
   readonly runId: string;
+  readonly cfgId: string;
   readonly arm: ArmId;
   readonly tool: string;
+  readonly version: string;
   readonly scalars: Readonly<Partial<Record<MetricId, number | null>>>;
   readonly metrics: Readonly<Partial<Record<MetricId, MetricJson>>>;
 }
 
-/** The canonical metric display order (mirrors the headline report). */
-const METRIC_ORDER: readonly MetricId[] = [
-  "E2",
-  "E4",
-  "E5",
-  "E6",
-  "E8",
-  "E1",
-  "E3",
-  "E7",
-  "E10",
-  "C1",
-  "C3",
-  "C2",
-  "C4",
-];
+/** The canonical metric display order (mirrors the headline report via format.ts). */
 
 /** Config fields compared in the diff (in display order). */
 const CONFIG_FIELDS: readonly (keyof BenchResultJson["config"])[] = [
@@ -82,8 +69,10 @@ function buildCells(results: readonly BenchResultJson[], selections: readonly Ru
       cells.push({
         runIndex,
         runId: result.runId,
+        cfgId: result.cfgId,
         arm,
         tool: armData.tool,
+        version: versionTag(result.toolVersions[arm]),
         scalars: extractJsonScalars(armData.metrics),
         metrics: armData.metrics,
       });
@@ -145,13 +134,16 @@ export function renderComparison(results: readonly BenchResultJson[], selections
 
   // --- Config diff ---
   lines.push(...renderConfigDiff(results));
+  // Runs header: each run's runId + cfgId (arms labeled with their cfgId).
+  lines.push(`Runs: ${results.map((r) => `${r.runId} (${r.cfgId})`).join(" · ")}`);
   lines.push("");
 
   // --- Per-arm metric table ---
   lines.push(
     "## Metric comparison   (Δ suffix per cell vs its baseline: run0 same-arm (tool-version diff), else run0 baseline arm (CR-5); + = better; net-negative flagged)",
   );
-  const header = `| Metric | ${cells.map((c) => `${c.runId}·${c.arm}`).join(" | ")} |`;
+  // Column headers: runId·arm + tool@version (arms labeled with their tool version).
+  const header = `| Metric | ${cells.map((c) => `${c.runId}·${c.arm} ${c.tool}${c.version ? `@${c.version}` : ""}`).join(" | ")} |`;
   const sep = `|---|${cells.map(() => "---").join("|")}|`;
   lines.push(header);
   lines.push(sep);

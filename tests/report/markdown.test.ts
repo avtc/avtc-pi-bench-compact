@@ -158,11 +158,16 @@ describe("renderHeadline", () => {
     expect(md).toContain("$0.034"); // A3 dollars
   });
 
-  it("renders reliability (completed/failed per arm) + artifacts", () => {
+  it("renders reliability (completed/failed per arm) + stop-and-surface failure notes", () => {
     const md = renderHeadline(syntheticResult(false));
     expect(md).toContain("Reliability");
     expect(md).toContain("10"); // A1 completed
     expect(md).toContain("Artifacts");
     expect(md).toContain("/p/repo");
+    // The A3 failure note (arm + run + phase + reason + branch + resolved state — §3.8 transparency).
+    expect(md).toContain("agent hang");
+    expect(md).toContain("run 4");
+    expect(md).toContain("resume");
+    expect(md).toContain("resolved");
   });
 });

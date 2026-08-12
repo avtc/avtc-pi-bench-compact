@@ -182,6 +182,31 @@ describe("renderComparison", () => {
     expect(md).not.toMatch(/\[\+\d+\]/); // no delta column for the only run
   });
 
+  it("labels each run with its cfgId + tool version (§7.3 comparison labels)", () => {
+    const run1 = mkResult({
+      runId: "run1",
+      cfgId: "cfg-aaa",
+      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } },
+      toolVersions: { A3: { source: "git", commit: "g4a2f8e", full: "f" } },
+    });
+    const run2 = mkResult({
+      runId: "run2",
+      cfgId: "cfg-bbb",
+      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
+      toolVersions: { A3: { source: "git", commit: "g9b1c3", full: "f2" } },
+    });
+    const md = renderComparison(
+      [run1, run2],
+      [
+        { runId: "run1", arms: ["A3"] },
+        { runId: "run2", arms: ["A3"] },
+      ],
+    );
+    expect(md).toContain("cfg-aaa"); // cfgId present
+    expect(md).toContain("cfg-bbb");
+    expect(md).toContain("memkeeper-builder@g4a2f8e"); // tool@version in column header
+  });
+
   it("derives the metricDefs from the first result (self-describing)", () => {
     const run1 = mkResult({
       runId: "run1",

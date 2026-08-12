@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { describe, expect, it } from "vitest";
-import { type ResultsSeams, runResultsCommand } from "../../src/commands/results.js";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { SettingsHandle } from "avtc-pi-settings-ui";
+import { afterEach, describe, expect, it } from "vitest";
+import { type ResultsSeams, registerResultsCommand, runResultsCommand } from "../../src/commands/results.js";
+import { _setHandleForTest } from "../../src/config/accessor.js";
 import type { ArmId } from "../../src/config/types.js";
 import { METRIC_DEFS } from "../../src/metrics/defs.js";
 import type { ArmResultJson, BenchResultJson, MetricJson } from "../../src/report/result-json.js";
@@ -111,3 +117,70 @@ describe("runResultsCommand", () => {
     expect(outcome.error).toMatch(/trailing comma/);
   });
 });
+
+describe("registerResultsCommand (handler: real file IO)", () => {
+  afterEach(() => _setHandleForTest(null));
+
+  it("reads results.json, writes report.md, + notifies the path (single run)", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "bench-results-"));
+    const runId = "run-handler-1";
+    const result = mkResult(runId, {
+      A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] as [number, number] } } },
+    });
+    const dir = path.join(root, "runs", runId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "results.json"), JSON.stringify(result), "utf8");
+    _setHandleForTest({ getSettings: () => ({ outputDir: root }) } as unknown as SettingsHandle);
+
+    const { pi, commands } = fakePi();
+    registerResultsCommand(pi);
+    const { ctx, notifies } = fakeCtx();
+    {
+      const h = commands.get("bench-compact:results");
+      if (h === undefined) throw new Error("results command not registered");
+      await h.handler(runId, ctx);
+    }
+
+    const reportPath = path.join(dir, "report.md");
+    expect(existsSync(reportPath)).toBe(true);
+    const report = readFileSync(reportPath, "utf8");
+    expect(report).toContain("bench-compact — tycoon");
+    expect(notifies.some((n) => /report written/.test(n.msg))).toBe(true);
+  });
+
+  it("notifies a warning when the run's results.json is missing", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "bench-results-missing-"));
+    _setHandleForTest({ getSettings: () => ({ outputDir: root }) } as unknown as SettingsHandle);
+    const { pi, commands } = fakePi();
+    registerResultsCommand(pi);
+    const { ctx, notifies } = fakeCtx();
+    {
+      const h = commands.get("bench-compact:results");
+      if (h === undefined) throw new Error("results command not registered");
+      await h.handler("no-such-run", ctx);
+    }
+    expect(notifies.some((n) => /not found/.test(n.msg) && n.type === "warning")).toBe(true);
+  });
+});
+
+/** Minimal fake pi capturing the registered command handler. */
+function fakePi(): {
+  pi: ExtensionAPI;
+  commands: Map<string, { handler: (a: string, c: ExtensionCommandContext) => Promise<void> }>;
+} {
+  const commands = new Map<string, { handler: (a: string, c: ExtensionCommandContext) => Promise<void> }>();
+  const pi = {
+    registerCommand: (name: string, opts: { handler: (a: string, c: ExtensionCommandContext) => Promise<void> }) =>
+      commands.set(name, opts),
+  } as unknown as ExtensionAPI;
+  return { pi, commands };
+}
+
+/** Minimal fake ctx capturing notifies. */
+function fakeCtx(): { ctx: ExtensionCommandContext; notifies: { msg: string; type?: string }[] } {
+  const notifies: { msg: string; type?: string }[] = [];
+  const ctx = {
+    ui: { notify: (msg: string, type?: string) => notifies.push({ msg, type }) },
+  } as unknown as ExtensionCommandContext;
+  return { ctx, notifies };
+}

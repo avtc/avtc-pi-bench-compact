@@ -90,6 +90,8 @@ export interface ResultArtifacts {
   readonly branches: readonly string[];
   readonly judgeDir: string;
   readonly config: string;
+  /** The written result-JSON path (set by the serializer from root+runId; read by the report). */
+  readonly results?: string;
 }
 
 /** The scenario reference (id + manifest path). */
@@ -214,7 +216,7 @@ export function serializeResultJson(deps: WriteResultJsonDeps): BenchResultJson 
     arms,
     ranks,
     failures: deps.failures,
-    artifacts: deps.artifacts,
+    artifacts: { ...deps.artifacts, results: path.join(runDir(deps.root, deps.runId), "results.json") },
   };
 }
 
