@@ -5,7 +5,7 @@ Every command uses the `bench-compact:` namespace.
 ## Configure
 
 ### `/bench-compact:settings`
-Open the settings panel: evaluated model + thinking level, judge model(s) + thinking level(s), multi-judge ensemble size (`judgesNumber` 1 or 3), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (build or extract), and per-arm enables.
+Open the settings panel: evaluated model + thinking level, judge model(s) + thinking level(s), multi-judge ensemble size (`judgesNumber` 1 or 3), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (build or extract), per-arm enables, `scenario` (a default prepared folder for `/bench-compact:run-scenario`), and `outputDir` (the bench root; null = `~/.pi/bench-compact/`).
 
 ## Prepare / run
 
@@ -107,7 +107,7 @@ Every metric has a stable id (the report columns + the result-JSON `metricDefs` 
 | `C1` | footprint (compaction summary tokens) | exact | ↓ |
 | `C2` | recall-cost (tokens to first correct recall) | exact | ↓ |
 | `C3` | run-cost (post-compaction output tokens) | exact | ↓ |
-| `C4` | compaction-cost (tokens/$/wall per stage) | exact | ↓ |
+| `C4` | compaction-cost (tokens/$/wall across the arm's compaction stages) | exact | ↓ |
 | `E1` | resume (resumes in-progress task) | comparative | rank |
 | `E2` | redo-exec (re-executes completed work) | binary | ↓ |
 | `E3` | redo-plan (re-proposes tried/rejected approaches) | comparative | rank |

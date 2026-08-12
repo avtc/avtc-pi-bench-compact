@@ -63,7 +63,7 @@ A prepared scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (the repo 
 
 Effectiveness is judge-graded; cost is computed exactly off the captured trace (no judge):
 
-- **Exact (no judge):** footprint (compaction summary tokens), recall-cost (tokens until the first correct recall), run-cost (post-compaction output tokens), compaction-cost (tokens/$/wall per stage).
+- **Exact (no judge):** footprint (compaction summary tokens), recall-cost (tokens until the first correct recall), run-cost (post-compaction output tokens), compaction-cost (tokens/$/wall across the arm's compaction stages).
 - **Binary (judge per-run yes/no → rate over N):** redo-exec, proactive-recall, recall-accuracy, abstention, supersession.
 - **Comparative (judge ranks the enabled arms):** resume, redo-plan, task-quality, goal.
 
