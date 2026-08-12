@@ -110,7 +110,7 @@ describe("summarizeTrajectory", () => {
     expect(prompt).toContain("do1");
   });
 
-  it("E10 system prompt includes the E10 rubric + the scripted goal (taskObjective)", async () => {
+  it("E10 system prompt includes the E10 rubric + the scripted goal (taskObjective), NOT doneOps (R-prompt-focus)", async () => {
     const { seams, inputs } = capturingSeams("write_summary", { summary: "summary" });
     await summarizeTrajectory({
       seams,
@@ -123,6 +123,9 @@ describe("summarizeTrajectory", () => {
     const prompt = inputs[0]?.systemPrompt ?? "";
     expect(prompt).toContain("E10");
     expect(prompt).toContain("bounded incremental economic strategy game");
+    // doneOps is the redo-plan axis's signal — omitted from the goal prompt to keep it focused
+    expect(prompt).not.toContain("doneOps");
+    expect(prompt).not.toContain("completed work — re-proposing");
   });
 
   it("system prompt instructs the judge to inspect via read/grep/find/ls + the cwd", async () => {
@@ -138,6 +141,33 @@ describe("summarizeTrajectory", () => {
     const prompt = inputs[0]?.systemPrompt ?? "";
     expect(prompt).toContain("/attempt-repo");
     expect(prompt).toMatch(/read|grep|find|ls/);
+  });
+
+  it("multi-turn self-correction: a rejected (malformed) write_summary call is retried, then captured (R1-4)", async () => {
+    let executeCalls = 0;
+    const seams: TrajectorySummarySeams = {
+      resolveModel: async () => OK_MODEL,
+      runStage: async (input: StageRunInput) => {
+        const tool = input.tools.find((t) => t.name === "write_summary") as JsonOutputTool | undefined;
+        if (tool === undefined) throw new Error("write_summary missing");
+        executeCalls += 1;
+        // first call: malformed (missing summary) -> rejected by the schema, not captured
+        void tool.execute("c-bad", { notSummary: "x" });
+        // retry: valid summary -> captured
+        void tool.execute("c-ok", { summary: "the agent stayed on goal throughout." });
+        return cleanResult();
+      },
+    };
+    const summary = await summarizeTrajectory({
+      seams,
+      cwd: "/repo",
+      axis: "E10",
+      manifest,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+    expect(summary).toBe("the agent stayed on goal throughout.");
+    expect(executeCalls).toBe(1); // both calls happened within one stage run (the agentLoop self-corrects)
   });
 
   it("STOP+surfaces on model-unavailable", async () => {

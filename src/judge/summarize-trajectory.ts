@@ -21,6 +21,7 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import type { MetricId } from "../metrics/defs.js";
 import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool, Type } from "../runtime/tools.js";
 import { renderDoneOps } from "./context.js";
+import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
 import { JUDGE_RUBRICS } from "./rubrics.js";
 import { buildStageDeps, type JsonToolStageSeams, runJsonToolStage } from "./stage-runner.js";
@@ -61,12 +62,13 @@ const WRITE_SUMMARY_DESCRIPTION = [
 ].join(" ");
 
 /** Build the trajectory-summary system prompt: the axis rubric + the manifest
- *  context the judge summarizes against (doneOps for redo-plan; the scripted
- *  goal for goal-adherence). */
+ *  context the judge summarizes against. doneOps is the redo-plan axis's signal;
+ *  the scripted goal is the goal-adherence axis's signal. To keep each axis's
+ *  prompt focused, doneOps is included only for the redo-plan axis. */
 function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: string): string {
   const rubric = JUDGE_RUBRICS[axis] ?? `(no rubric for ${axis})`;
   const goal = manifest.taskObjective.description;
-  return [
+  const lines = [
     "You are a strict benchmark judge summarizing ONE arm's post-compaction TRAJECTORY for comparative ranking.",
     `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect session.jsonl + the project files.`,
     "",
@@ -74,13 +76,21 @@ function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: stri
     rubric,
     "",
     "MANIFEST CONTEXT (the ground truth you summarize against):",
-    "doneOps (completed work — re-proposing a [done] one, or re-proposing an abandoned approach, is the axis signal):",
-    renderDoneOps(manifest),
+  ];
+  // doneOps is the redo-plan axis's signal; omit it for the goal axis to keep the prompt focused.
+  if (axis === "E3") {
+    lines.push(
+      "doneOps (completed work — re-proposing a [done] one, or re-proposing an abandoned approach, is the axis signal):",
+      renderDoneOps(manifest),
+    );
+  }
+  lines.push(
     "scripted goal (taskObjective — wandering from this is the goal-axis signal):",
     `  ${goal}`,
     "",
     `Inspect the WHOLE post-compaction trajectory in ${cwd}, then call write_summary ONCE with a <= ${MAX_SUMMARY_CHARS}-char summary focused on THIS axis. Capture concrete actions/entries (e.g. "re-proposed the market-pricing loop (do1) at entry a22", "wandered into building a settings menu unrelated to the goal"). Be specific + comparative-grade (enough to rank against other arms).`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 /**
@@ -93,6 +103,17 @@ function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: stri
  * Rate-limit-resilient + STOP-and-surfaces on failure (model-unavailable /
  * timeout / abort / no-capture — delegated to runJsonToolStage). Pure aside from
  * the seams.
+ *
+ * Re-prompt policy: malformed terminal-tool args are rejected at the typebox
+ * schema (Value.Check) + the agent self-corrects in the multi-turn loop
+ * (runJsonToolStage runs with no turn limit — the SAME pattern as the sibling
+ * gradeTrajectory + manifest-authoring stages). The explicit retry cap in the
+ * design's edge-handling is the single-call path's maxRetries (single-call.ts /
+ * ranking.ts); the agentLoop+tools path self-corrects via multi-turn bounded by
+ * the no-capture STOP+surface floor (the agent never emits a valid summary ->
+ * runJsonToolStage raises no-capture). A hard turn cap on the agentLoop+tools
+ * stages is a cross-cutting hardening item (would change gradeTrajectory +
+ * manifest-authoring too) — deferred.
  */
 export async function summarizeTrajectory(deps: TrajectorySummaryDeps): Promise<string> {
   const terminalTool: JsonOutputTool = makeJsonOutputTool(
@@ -112,9 +133,11 @@ export async function summarizeTrajectory(deps: TrajectorySummaryDeps): Promise<
   if (typeof summary !== "string") {
     // Unreachable: the write_summary typebox schema guarantees summary:string on
     // any captured payload (Value.Check rejects non-matching args). A non-string
-    // here is an internal-invariant violation (not judge output) — STOP+surface.
-    throw new Error(
-      "trajectory summary: captured write_summary payload has no string summary — internal invariant violated",
+    // here is an internal-invariant violation — STOP+surface as a judge error so
+    // Task-19 failure classification (BenchJudgeError) handles it uniformly.
+    throw new BenchJudgeError(
+      "incomplete-output",
+      "trajectory summary: captured write_summary payload has no string summary — STOP+surface",
     );
   }
   return summary;

@@ -95,7 +95,7 @@ export async function gradeTrajectory(deps: GradeTrajectoryDeps): Promise<Trajec
     RECORD_GRADES_SCHEMA,
   );
   const stageDeps = buildStageDeps(deps, {
-    tools: [...benchReadOnlyTools(deps.cwd), terminalTool],
+    tools: benchReadOnlyTools(deps.cwd), // terminal tool auto-appended by runJsonToolStage (R7)
     systemPrompt: buildSystemPrompt(deps.axes, deps.manifest, deps.cwd),
     terminalTool,
     label: "trajectory grading",
