@@ -88,7 +88,7 @@ export class TestSpecFaultError extends Error {
   readonly branch: string;
   readonly reason: TestSpecStopReason;
   constructor(branch: string, output: string) {
-    super(`testSpec on ${branch} hit a harness fault (spawn error / timeout): ${output}`);
+    super(`testSpec on ${branch} hit a harness fault (spawn error / timeout / checkout fault): ${output}`);
     this.name = "TestSpecFaultError";
     this.branch = branch;
     this.reason = "testspec-fault";
