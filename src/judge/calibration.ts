@@ -8,9 +8,9 @@
 //
 //   (1) binary agreement  >= 0.85 — on the binary axes the judge's pass/fail
 //       must match the operator's gold on >=85% of reference samples.
-//   (2) comparative rank  >= 0.80 — on the comparative axes each arm's judge-rank
-//       position must land within +/-1 of the operator's gold on >=80% of
-//       (slot x arm) positions.
+//   (2) comparative rank  >= 0.80 — on the comparative axes a slot passes only
+//       when EVERY gold arm lands within +/-1 of its gold position; >=80% of
+//       slots must pass (an empty/omitting judge order fails a non-empty slot).
 //
 // A failing gate STOP-and-surfaces: the bench halts scoring + notifies the
 // operator (the judge needs re-prompting / a stronger model / more calibration
@@ -83,7 +83,7 @@ export interface CalibrationGateResult {
   readonly rankAccuracy: number;
   readonly binaryCount: number;
   readonly comparativeCount: number;
-  /** Sample ids that disagreed (binary mismatch or any rank divergence > +/-1 in the slot). */
+  /** Sample ids that disagreed (binary mismatch; or a comparative slot where any gold arm was missing OR landed > +/-1 from its gold position). */
   readonly failures: readonly string[];
 }
 
