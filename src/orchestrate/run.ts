@@ -9,8 +9,17 @@
 // configure-API model: the proxies (observational-memory + memkeeper) are cached
 // at activate (proxies.ts) and threaded into Phase-1, which reconfigures each arm
 // in-place (no `ctx.reload()`). startRun awaits Phase-1 and returns the bases (or
-// a stopped result). Tasks 13a/13b append Phase-2 (continuation + probes) + Phase-3
-// (scoring) after Phase-1 succeeds.
+// a stopped result). Phase-2a continuations are wired below; the Phase-2b probe
+// driver (`runProbes`, src/orchestrate/probes.ts) + the embedded-testSpec runner
+// (`runTestSpec`, src/orchestrate/testspec.ts) modules are ready, but their wiring
+// into this pipeline is deferred to Task 14: runProbes runs per arm AFTER that
+// arm's continuations, so it needs the final fresh ctx threaded out of
+// `runContinuations` (which today returns only traces, not its final ctx) —
+// changing that return is Task 13a's module, so Task 14 (which restructures run.ts
+// for the full Phase-2a→2b→3 pipeline) owns the wiring: thread runContinuations'
+// final ctx into runProbes per arm, then call runTestSpec on each committed attempt
+// branch for the embedded-test done-snapshot signal, and extend this catch with a
+// ProbeStoppedError arm.
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -166,7 +175,11 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       repo: deps.scenarioRepo,
       N: deps.config.N,
     });
-    // Phase 2b probes + Phase 3 scoring are appended by later tasks.
+    // TODO(task-14): wire the Phase-2b probe driver (runProbes) per arm after its
+    // continuations, then runTestSpec on each committed attempt branch (embedded-test signal), then
+    // Phase-3 scoring. Deferred to Task 14 because runProbes needs the final fresh
+    // ctx threaded out of runContinuations (a Task-13a return change); the modules
+    // (src/orchestrate/probes.ts, src/orchestrate/testspec.ts) are ready.
     return { kind: "phase2-done", bases, traces, runId, cfgId };
   } catch (err) {
     if (err instanceof Phase1StoppedError) {

@@ -79,9 +79,14 @@ export function buildAttemptBranch(b: BranchBase & { attemptN: number }): string
   return appendAttempt(buildArmBaseBranch(b), b.attemptN);
 }
 
+/** Append the `-probe-{probeId}` suffix to an arm-base branch. Single source for the format. */
+export function appendProbe(baseBranch: string, probeId: string): string {
+  return `${baseBranch}-probe-${probeId}`;
+}
+
 /** Direct-probe branch, branched from the arm base. */
 export function buildProbeBranch(b: BranchBase & { probeId: string }): string {
-  return `${buildArmBaseBranch(b)}-probe-${b.probeId}`;
+  return appendProbe(buildArmBaseBranch(b), b.probeId);
 }
 
 // --- cfgId (run-condition fingerprint) -------------------------------------
