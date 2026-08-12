@@ -260,6 +260,9 @@ export class SimulatorDriver {
 
 // --- shared drive helpers (build Phase 0 + continuation Phase 2) -----------
 
+/** Per-call output cap for the user-simulator's stage calls (build Phase 0 + continuation Phase 2). */
+export const SIMULATOR_MAX_TOKENS = 1024;
+
 /** Mutable drive-stop state shared between the driver's onStop hook + the drive loop. */
 export interface DriveStop {
   stopped: boolean;

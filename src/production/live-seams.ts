@@ -37,7 +37,13 @@ import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js"
 import { readMessageEndUsage } from "../session/events.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
-import { buildSimulatorDriver, driveUntilStop, makeDriveStop, type SimulatorHooks } from "../simulator/loop.js";
+import {
+  buildSimulatorDriver,
+  driveUntilStop,
+  makeDriveStop,
+  SIMULATOR_MAX_TOKENS,
+  type SimulatorHooks,
+} from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import type { BuildSeams } from "./build.js";
 import type { TrialCut } from "./trial-compaction.js";
@@ -146,9 +152,6 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
   };
 }
 
-// Re-export the default maxTokens so the assembly (26e) uses the same constant.
-export { AUTHOR_MAX_TOKENS };
-
 // --- trialCompact seam (26c) -----------------------------------------------
 
 /** The bare-pi arm — used to disable memory hooks for a NATIVE trial compaction
@@ -159,6 +162,21 @@ const TRIAL_ARM: ArmId = "A1";
 export type ConfigureArmOp = typeof configureArm;
 /** The triggerCompact operation type (named for type-only import in tests). */
 export type TriggerCompactOp = typeof triggerCompact;
+
+/** Disable the memory arms' hooks (configure the bare-pi arm) so the next compaction
+ *  or build drive is NATIVE (no om or memkeeper custom entries). No-op when no memory
+ *  proxies are live (the hooks aren't loaded → already native). Shared by the trial
+ *  compaction (native cut) + the build drive (raw backup). */
+function disableMemoryHooks(
+  pi: ExtensionAPI,
+  proxies: MemoryProxies | null,
+  repoCwd: string,
+  threshold: number,
+  configure: ConfigureArmOp,
+): void {
+  if (proxies === null) return;
+  configure(pi, proxies.om, proxies.mk, TRIAL_ARM, repoCwd, { omFullReflectionThresholdTokens: threshold });
+}
 
 /** Injectable ops for {@link buildTrialCompactSeam} (defaults = real implementations). */
 export interface TrialCompactSeamDeps {
@@ -196,13 +214,8 @@ export function buildTrialCompactSeam(deps: TrialCompactSeamDeps): BuildSeams["t
     const { compactionEntry } = await load(deps.holder.current, deps.trialCopyPath, async (sessionCtx) => {
       deps.holder.current = sessionCtx;
       const pi = getPi();
-      const proxies = getProxies();
-      if (proxies !== null) {
-        // Disable the memory arms' hooks so this compaction is NATIVE (bare-pi cut).
-        configure(pi, proxies.om, proxies.mk, TRIAL_ARM, deps.repoCwd, {
-          omFullReflectionThresholdTokens: deps.omFullReflectionThresholdTokens,
-        });
-      }
+      // Disable the memory arms' hooks so this compaction is NATIVE (bare-pi cut).
+      disableMemoryHooks(pi, getProxies(), deps.repoCwd, deps.omFullReflectionThresholdTokens, configure);
       return trigger(pi, sessionCtx, {});
     });
     return { firstKeptEntryId: compactionEntry.firstKeptEntryId, summary: compactionEntry.summary };
@@ -239,6 +252,8 @@ export interface DriveAndCaptureSeamDeps {
   readonly compactionBoundary: number;
   readonly scenarioDescription: string;
   readonly evaluatedModel: string | null;
+  /** OM-full threshold for disabling memory during the build drive (raw backup). */
+  readonly omFullReflectionThresholdTokens: number;
   readonly signal: AbortSignal;
   readonly maxTokens: number;
   /** Tokens added to the pacing target per continue attempt (default {@link CONTINUE_STEP_TOKENS}). */
@@ -249,6 +264,8 @@ export interface DriveAndCaptureSeamDeps {
   readonly awaitSettled?: typeof awaitAgentSettled;
   readonly makeSimulator?: (args: MakeBuildSimulatorArgs) => BuildDriver;
   readonly getPi?: () => ExtensionAPI;
+  readonly getProxies?: () => MemoryProxies | null;
+  readonly configureArm?: ConfigureArmOp;
   readonly read?: ReadText;
 }
 
@@ -307,6 +324,8 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       maxTokens: deps.maxTokens,
       antiPeekPrompt: ANTI_PEEK_PROMPT,
     });
+  const getProxies = deps.getProxies ?? (() => null);
+  const configure = deps.configureArm ?? configureArm;
   const continueStep = deps.continueStep ?? CONTINUE_STEP_TOKENS;
 
   return async (attempt: number) => {
@@ -315,6 +334,11 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
     await load(deps.holder.current, deps.buildSessionPath, async (sessionCtx) => {
       deps.holder.current = sessionCtx;
       const pi = getPi();
+      // Disable the memory arms' hooks BEFORE driving so the build session stays raw
+      // Disable the memory arms' hooks BEFORE driving so the build session stays raw
+      // (no om.*/memkeeper.* entries) — the backup is the pre-compaction input every arm
+      // compacts. Done once per load (idempotent); skipped when no memory proxies are live.
+      disableMemoryHooks(pi, getProxies(), deps.repoPath, deps.omFullReflectionThresholdTokens, configure);
       const { stop, onStop } = makeDriveStop();
       const driver = makeSimulator({ pi, ctx: sessionCtx, targetContext, signal: deps.signal, onStop });
       // Seed the driver with the session's current context (so a continue attempt paces
@@ -362,9 +386,6 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
 }
 
 // --- assembly (26e) --------------------------------------------------------
-
-/** Per-call output cap for the user-simulator's stage calls (build + continuation). */
-const SIMULATOR_MAX_TOKENS = 1024;
 /** Filename for the trial-compaction copy (under preSliceDir, OUTSIDE the repo). */
 const TRIAL_COPY_NAME = "trial-copy.jsonl";
 /** Filename for the stable build session (under preSliceDir, OUTSIDE the repo). */
@@ -420,9 +441,11 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): BuildSeams {
     compactionBoundary: args.config.compactionBoundary,
     scenarioDescription: args.scenarioDescription,
     evaluatedModel: args.config.evaluatedModel,
+    omFullReflectionThresholdTokens: args.config.omFullReflectionThresholdTokens,
     signal: args.signal,
     maxTokens: SIMULATOR_MAX_TOKENS,
     getPi: getBenchPi,
+    getProxies: getMemoryProxies,
   });
   return { driveAndCapture, trialCompact, author };
 }

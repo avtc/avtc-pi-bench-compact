@@ -29,7 +29,13 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
-import { buildSimulatorDriver, driveUntilStop, makeDriveStop, type SimulatorHooks } from "../simulator/loop.js";
+import {
+  buildSimulatorDriver,
+  driveUntilStop,
+  makeDriveStop,
+  SIMULATOR_MAX_TOKENS,
+  type SimulatorHooks,
+} from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
@@ -39,8 +45,6 @@ import type { ArmBase } from "./phase1.js";
 import { getRunState, updateRunState } from "./run-state.js";
 import { captureTrace, type RunTrace } from "./trace.js";
 
-/** Per-call output cap for the continuation simulator's stage calls. */
-const SIMULATOR_MAX_TOKENS = 1024;
 /** A signal that never aborts — the default when the caller threads no run signal. */
 const NEVER_ABORT_CONTROLLER = new AbortController();
 

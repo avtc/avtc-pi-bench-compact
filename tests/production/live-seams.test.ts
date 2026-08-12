@@ -22,6 +22,7 @@ import {
   type ConfigureArmOp,
   type CtxHolder,
   type ResolveModel,
+  type RunAuthor,
   type RunStage,
   readBackupEntries,
   serializeSessionFile,
@@ -218,6 +219,7 @@ describe("buildDriveAndCaptureSeam", () => {
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
       evaluatedModel: "provider/m",
+      omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
       exists: (p) => existsPaths.has(p),
@@ -248,6 +250,7 @@ describe("buildDriveAndCaptureSeam", () => {
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
       evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
       exists: (p) => p === "/tmp/build.jsonl",
@@ -263,6 +266,182 @@ describe("buildDriveAndCaptureSeam", () => {
 
     await driveAndCapture(1);
     expect(written).toEqual([]);
+  });
+
+  it("disables memory (configures the bare-pi arm A1) before driving when proxies are live", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const configured = { arm: "", repoCwd: "" };
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => false,
+      writeHeader: () => {},
+      loadSession: fakeLoadSession,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => fakeDriver(1, args.onStop),
+      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getProxies: () => ({ om: {}, mk: {} }) as unknown as MemoryProxies,
+      configureArm: ((_pi: unknown, _om: unknown, _mk: unknown, arm: string, repoCwd: string) => {
+        configured.arm = arm;
+        configured.repoCwd = repoCwd;
+      }) as unknown as ConfigureArmOp,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
+    });
+
+    await driveAndCapture(0);
+    expect(configured.arm).toBe("A1");
+    expect(configured.repoCwd).toBe("/repo");
+  });
+
+  it("throws when the simulator signals an error-stop", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    let fired = false;
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "x",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => false,
+      writeHeader: () => {},
+      loadSession: fakeLoadSession,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => {
+        return {
+          trackContext: () => {},
+          onAgentSettled: async () => {
+            if (!fired) {
+              fired = true;
+              args.onStop({ contextTokens: 0, reason: "error", error: "boom" });
+            }
+          },
+        };
+      },
+      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
+    });
+    await expect(driveAndCapture(0)).rejects.toThrow(/simulator stopped with an error/);
+  });
+
+  it("throws when the agent fails to settle (aborted)", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "x",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => false,
+      writeHeader: () => {},
+      loadSession: fakeLoadSession,
+      awaitSettled: async () => {
+        throw new Error("agent did not settle (run signal aborted)");
+      },
+      makeSimulator: (args) => fakeDriver(99, args.onStop), // never boundary-stops
+      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
+    });
+    await expect(driveAndCapture(0)).rejects.toThrow(/agent did not settle/);
+  });
+});
+
+describe("live-seams integration (cross-seam ctx-threading)", () => {
+  it("threads the fresh ctx across driveAndCapture → trialCompact → author via the shared holder", async () => {
+    const holder: CtxHolder = { current: { id: "initial" } as unknown as ExtensionCommandContext };
+    // A recording loadSession: threads holder.current to a distinct fresh ctx per call +
+    // records the "from" ctx each seam passed in (proves the holder threads).
+    const fromCtxs: string[] = [];
+    let call = 0;
+    const recordingLoad = (async (
+      fromCtx: ExtensionCommandContext,
+      _path: string,
+      withSession: (ctx: ExtensionCommandContext) => Promise<unknown>,
+    ) => {
+      fromCtxs.push((fromCtx as { id?: string }).id ?? "?");
+      call += 1;
+      const fresh = { id: `fresh-${call}`, getContextUsage: () => undefined } as unknown as ExtensionCommandContext;
+      holder.current = fresh;
+      return withSession(fresh);
+    }) as unknown as typeof import("../../src/session/switch.js").loadSession;
+
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => false,
+      writeHeader: () => {},
+      loadSession: recordingLoad,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => ({
+        trackContext: () => {},
+        onAgentSettled: async () => args.onStop({ contextTokens: 0, reason: "boundary" }),
+      }),
+      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}\n{"type":"message","id":"m1"}\n`,
+    });
+    const trialCompact = buildTrialCompactSeam({
+      holder,
+      repoCwd: "/repo",
+      omFullReflectionThresholdTokens: 4000,
+      trialCopyPath: "/tmp/trial.jsonl",
+      copyFile: () => {},
+      loadSession: recordingLoad,
+      triggerCompact: (async () => ({
+        compactionEntry: { firstKeptEntryId: "m1", summary: "s" },
+        wallMs: 1,
+      })) as unknown as TriggerCompactOp,
+      getPi: () => ({}) as unknown as ExtensionAPI,
+      getProxies: () => null,
+    });
+    let authorResolveCtx: unknown = null;
+    const author = buildAuthorSeam({
+      ctxGetter: () => holder.current,
+      evaluatedModel: null,
+      scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
+      signal: new AbortController().signal,
+      maxTokens: 4096,
+      resolveModel: (async (ctx: ExtensionContext) => {
+        authorResolveCtx = ctx;
+        return { ok: true, model: {}, apiKey: "k" };
+      }) as unknown as ResolveModel,
+      runStage: (async () => ({ aborted: false, timedOut: false, messages: [] })) as unknown as RunStage,
+      runAuthor: (async (deps: { seams: { resolveModel(): Promise<unknown> } }) => {
+        await deps.seams.resolveModel(); // exercise the ctxGetter-bound resolveModel
+        return { id: "sc1" } as unknown as ScenarioManifest;
+      }) as unknown as RunAuthor,
+    });
+
+    // Drive the buildBackup order: driveAndCapture(0) → trialCompact → author.
+    await driveAndCapture(0);
+    await trialCompact("/tmp/build.jsonl");
+    await author("/tmp/slice/sliced-0.jsonl");
+
+    // driveAndCapture got the initial ctx; trialCompact got drive's fresh-1 (the holder threads).
+    expect(fromCtxs).toEqual(["initial", "fresh-1"]);
+    // author's resolveModel received trial's fresh-2 (the holder threaded through author's ctxGetter).
+    expect((authorResolveCtx as { id?: string })?.id).toBe("fresh-2");
+    expect((holder.current as { id?: string }).id).toBe("fresh-2");
   });
 });
 
