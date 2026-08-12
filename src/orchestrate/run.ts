@@ -31,7 +31,7 @@ import { writeRunConfig } from "../storage/configs.js";
 import { benchRoot, runDir } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
-import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
+import { NO_DETAIL, type WidgetStageHooks, widgetStageHooks } from "../widget/tracker.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -406,14 +406,23 @@ function buildScoreMeta(
   };
 }
 
+/** The widget hooks for the score phase, or `undefined` to suppress score ctx/tok.
+ *  K>1 judges fan out in parallel; their events would interleave into the widget's
+ *  shared two-tier accumulator (meaningless tok/ctx), so ctx/tok is forwarded ONLY at
+ *  K=1 (the dev default). Metrics are read from the trace, never the widget. Extracted
+ *  as a named helper so the K-guard is directly unit-testable. */
+export function scoreWidgetHooks(
+  judgesNumber: number,
+  widget: WidgetPort | null | undefined,
+): WidgetStageHooks | undefined {
+  return judgesNumber === 1 ? widgetStageHooks(widget) : undefined;
+}
+
 /** The production ScoreRunDeps: builds the K-judge ensemble (callJudges + stageSeams
  *  from the run config's judge fields), the evaluated-model pricing, a seeded rank
  *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read. */
 export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
-  // K>1 judges fan out in parallel; their events would interleave into the widget's
-  // shared two-tier accumulator → meaningless tok/ctx. Suppress ctx/tok for K>1
-  // (K=1 default keeps it; metrics are read from the trace, never the widget).
-  const hooks = args.runConfig.judgesNumber === 1 ? widgetStageHooks(args.widget) : undefined;
+  const hooks = scoreWidgetHooks(args.runConfig.judgesNumber, args.widget);
   const transport = defaultJudgeTransport(args.ctx, {
     maxTokens: JUDGE_MAX_TOKENS,
     signal: args.signal,

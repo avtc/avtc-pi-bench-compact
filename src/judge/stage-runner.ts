@@ -11,6 +11,7 @@
 // the run + the StageRunInput literal (single source of truth).
 
 import type { AgentEvent, AgentTool } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
@@ -31,6 +32,8 @@ export interface JsonToolStageSeams {
   readonly runStage: (input: StageRunInput) => Promise<StageRunResult>;
   /** Optional event sink forwarded to the stage's runStage (the widget subscribes for ctx/tok). */
   readonly onEvent?: (event: AgentEvent) => void;
+  /** Optional hook fired after a successful model resolution (the widget sets its ctx window). */
+  readonly onModelResolved?: (model: Model<Api>) => void;
 }
 
 /** The transport fields every stage caller threads straight from its own deps
@@ -100,6 +103,7 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
   if (!resolved.ok) {
     throw new BenchJudgeError("model-unavailable", `${deps.label} model not available: ${resolved.error}`);
   }
+  deps.seams.onModelResolved?.(resolved.model);
   // Auto-append the terminal tool if the caller didn't (R7: source of truth is
   // terminalTool alone; dedup by name so an explicit inclusion isn't duplicated).
   const stageTools: AgentTool[] = deps.tools.some((t) => t.name === deps.terminalTool.name)

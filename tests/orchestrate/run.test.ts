@@ -626,6 +626,17 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
       }),
     ).toThrow(/model-unavailable|pricing for evaluated model/);
   });
+
+  it("scoreWidgetHooks suppresses ctx/tok for K>1 (parallel judges would interleave) + forwards at K=1", async () => {
+    const { scoreWidgetHooks } = await import("../../src/orchestrate/run.js");
+    const widget = capturingWidget();
+    // K=3 → undefined (suppressed); K=1 → the hook pair (forwards).
+    expect(scoreWidgetHooks(3, widget)).toBeUndefined();
+    expect(scoreWidgetHooks(1, widget)).toBeDefined();
+    // a null/absent widget suppresses at every K (non-TUI).
+    expect(scoreWidgetHooks(1, null)).toBeUndefined();
+    expect(scoreWidgetHooks(1, undefined)).toBeUndefined();
+  });
 });
 
 describe("startRun — testSpec harness fault (R2-1)", () => {
