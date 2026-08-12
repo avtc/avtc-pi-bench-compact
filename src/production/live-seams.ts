@@ -335,7 +335,6 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       deps.holder.current = sessionCtx;
       const pi = getPi();
       // Disable the memory arms' hooks BEFORE driving so the build session stays raw
-      // Disable the memory arms' hooks BEFORE driving so the build session stays raw
       // (no om.*/memkeeper.* entries) — the backup is the pre-compaction input every arm
       // compacts. Done once per load (idempotent); skipped when no memory proxies are live.
       disableMemoryHooks(pi, getProxies(), deps.repoPath, deps.omFullReflectionThresholdTokens, configure);
