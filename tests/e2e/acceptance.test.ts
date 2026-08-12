@@ -205,6 +205,12 @@ describe("acceptance — run-config id is reproducible + sensitive", () => {
     expect(buildCfgId(a)).toBe(buildCfgId(b));
   });
 
+  it("differing arms set (a different enabled arm) ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, armsEnabled: ["A1", "A2"] };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
   it("differing evaluated model ⇒ different id", () => {
     const a = baselineConfig();
     const b = { ...a, evaluatedModel: "model/y" };
