@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Elastic line-fitting for the live-progress widget. The bench renders a single
-// full-width TUI line (§3.15): fixed segments (🅑 marker, arm counter, phase-bar,
+// full-width TUI line: fixed segments (🅑 marker, arm counter, phase-bar,
 // phase name, ctx/tok counters, status/hint) joined by ` · `, with at most one
 // elastic segment (the tool name) that middle-elides when the line overflows the
 // terminal. Adapted from avtc-pi-featyard's fitLine (src/ui/featyard-widget.ts),
@@ -36,8 +36,9 @@ export function elideMiddle(text: string, maxLen: number): string {
   return `${text.slice(0, headLen)}…${text.slice(text.length - tailLen)}`;
 }
 
-/** Assemble segments with ` · ` separators (no elision). */
-function assemble(segments: readonly Segment[]): string {
+/** Assemble segments with ` · ` separators (no elision). Exported so the
+ *  render module reuses it (single source — avoids duplicating the join). */
+export function joinSegments(segments: readonly Segment[]): string {
   return segments
     .map((s, i) => {
       const body = typeof s === "string" ? s : `${s.prefix}${s.tail}`;
@@ -48,7 +49,7 @@ function assemble(segments: readonly Segment[]): string {
 
 /** Length of the assembled line (no theme → plain char count). */
 function lineWidth(segments: readonly Segment[]): number {
-  return assemble(segments).length;
+  return joinSegments(segments).length;
 }
 
 /**
@@ -62,7 +63,7 @@ function lineWidth(segments: readonly Segment[]): number {
 export function fitLine(segments: readonly Segment[], termWidth: number): string {
   const elasticIdx = segments.map((s, i) => (typeof s === "string" ? -1 : i)).filter((i) => i >= 0);
   if (elasticIdx.length === 0 || lineWidth(segments) <= termWidth) {
-    return assemble(segments);
+    return joinSegments(segments);
   }
 
   const fullWidths = elasticIdx.map((i) => (segments[i] as { tail: string }).tail.length);
@@ -78,7 +79,7 @@ export function fitLine(segments: readonly Segment[], termWidth: number): string
     const seg = segments[i] as { prefix: string; tail: string };
     trimmed[i] = { prefix: seg.prefix, tail: elideMiddle(seg.tail, budgets[k] as number) };
   }
-  return assemble(trimmed);
+  return joinSegments(trimmed);
 }
 
 /**

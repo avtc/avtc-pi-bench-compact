@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Pure render of the live-progress widget line (§3.15). The tracker owns the
+// Pure render of the live-progress widget line. The tracker owns the
 // (throttled) publishing to ctx.ui.setWidget; this module owns the line's shape:
 // which segments appear, in what order, and how tokens format. The tool name is
 // the one elastic segment (middle-elided by fitLine when the line overflows the
@@ -15,7 +15,7 @@
 // EXCLUDES ctx/tok: each memory tool renders its own progress widget for its
 // internal stages, so the bench doesn't duplicate them.
 
-import { SEGMENT_SEP, type Segment } from "./fitline.js";
+import { joinSegments, type Segment } from "./fitline.js";
 
 /** The 5 progression phases, in cell order (cell 0 = build, … cell 4 = score). */
 export const PHASE_ORDER = ["build", "compact", "resume", "probe", "score"] as const;
@@ -124,16 +124,6 @@ export function buildSegments(state: WidgetState): Segment[] {
   }
 
   return segs;
-}
-
-/** Assemble segments with ` · ` separators (no elision). */
-export function joinSegments(segments: readonly Segment[]): string {
-  return segments
-    .map((s, i) => {
-      const body = typeof s === "string" ? s : `${s.prefix}${s.tail}`;
-      return i === 0 ? body : `${SEGMENT_SEP}${body}`;
-    })
-    .join("");
 }
 
 /** Render the line (un-fit; the tracker applies `fitLine` to the terminal width). */

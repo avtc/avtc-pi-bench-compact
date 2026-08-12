@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { describe, expect, it } from "vitest";
-import { elideMiddle, fitLine, type Segment } from "../../src/widget/fitline.js";
+import { elideMiddle, fitLine, joinSegments, type Segment } from "../../src/widget/fitline.js";
 
 describe("elideMiddle", () => {
   it("returns the text unchanged when it fits", () => {
@@ -16,6 +16,19 @@ describe("elideMiddle", () => {
   it("collapses to a single … when maxLen <= 1", () => {
     expect(elideMiddle("anything", 1)).toBe("…");
     expect(elideMiddle("anything", 0)).toBe("…");
+  });
+});
+
+describe("joinSegments", () => {
+  it("joins segments with ' · ' (no leading separator)", () => {
+    expect(joinSegments(["a", "b", "c"])).toBe("a · b · c");
+    expect(joinSegments(["solo"])).toBe("solo");
+    expect(joinSegments([])).toBe("");
+  });
+
+  it("renders elastic segments as prefix+tail", () => {
+    expect(joinSegments([{ prefix: "x=", tail: "y" }])).toBe("x=y");
+    expect(joinSegments(["pre", { prefix: "", tail: "elastic" }])).toBe("pre · elastic");
   });
 });
 

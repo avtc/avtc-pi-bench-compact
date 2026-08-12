@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { renderLine, type WidgetState } from "../../src/widget/render.js";
 
 /** Minimal running state for a given phase (arm/tool/detail present). */
-function running(phase: WidgetState["phase"], over: Partial<WidgetState> = {}): WidgetState {
+function running(phase: WidgetState["phase"], over: Partial<WidgetState>): WidgetState {
   return {
     phase,
     status: "running",
