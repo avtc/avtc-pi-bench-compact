@@ -37,8 +37,6 @@ export interface RankAxisOptions {
   readonly maxRetries?: number;
   /** `auto` uses pairwise when the combined slice exceeds this many chars (default 50000). */
   readonly maxCombinedChars?: number;
-  /** The presentation-order shuffle (default = identity; the wiring may seed a real shuffle). */
-  readonly shuffle?: Shuffle<string>;
 }
 
 /** Inputs to {@link rankAxis}. */
@@ -46,12 +44,17 @@ export interface RankAxisInput {
   readonly callJudge: CallJudge;
   readonly axis: MetricId;
   readonly armSlices: Readonly<Record<string, string>>;
+  /**
+   * REQUIRED: the presentation-order shuffle (anonymizes arm position to kill
+   * position bias). No unsafe identity default: the wiring MUST inject a
+   * real (seeded, recorded-for-reproducibility) shuffle.
+   */
+  readonly shuffle: Shuffle<string>;
   readonly options?: RankAxisOptions | null;
 }
 
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_MAX_COMBINED_CHARS = 50_000;
-const identityShuffle: Shuffle<string> = (xs) => [...xs];
 
 /** Internal: signal a malformed response that warrants one more re-prompt. */
 class RankNeedsReprompt extends Error {
@@ -74,19 +77,20 @@ export class RankMalformedJsonError extends Error {
 
 /** Neutral labels (A, B, C, ...) for `count` arms, in the order arm ids are given. */
 function labelsFor(armIds: readonly string[]): string[] {
+  if (armIds.length > 26) {
+    throw new Error(`too many arms to anonymize (${armIds.length} > 26 labels A..Z) — STOP+surface`);
+  }
   return armIds.map((_, i) => String.fromCharCode("A".charCodeAt(0) + i));
 }
 
 function effectiveOptions(options: RankAxisOptions | null | undefined): {
   maxRetries: number;
   maxCombinedChars: number;
-  shuffle: Shuffle<string>;
   strategy: RankStrategy;
 } {
   return {
     maxRetries: options?.maxRetries ?? DEFAULT_MAX_RETRIES,
     maxCombinedChars: options?.maxCombinedChars ?? DEFAULT_MAX_COMBINED_CHARS,
-    shuffle: options?.shuffle ?? identityShuffle,
     strategy: options?.strategy ?? "auto",
   };
 }
@@ -144,7 +148,9 @@ function parseOrderResponse(raw: string, knownLabels: ReadonlySet<string>, retri
   const labels = obj.order as unknown[];
   for (const label of labels) {
     if (typeof label !== "string" || !knownLabels.has(label)) {
-      throw new RankMalformedJsonError(axis, `unknown/invented label: ${String(label)}`);
+      // R5: an invented label is tool-misuse -> re-prompt like other malformed JSON
+      if (retries <= 0) throw new RankMalformedJsonError(axis, `unknown/invented label: ${String(label)}`);
+      throw new RankNeedsReprompt();
     }
   }
   return labels as string[];
@@ -166,7 +172,10 @@ function parsePairResponse(raw: string, known: ReadonlySet<string>, retries: num
   }
   const better = (parsed as { better?: unknown }).better;
   if (typeof better !== "string" || !known.has(better)) {
-    throw new RankMalformedJsonError(axis, `pairwise response missing/unknown better: ${String(better)}`);
+    // R5: missing/unknown {better} is tool-misuse -> re-prompt like other malformed JSON
+    if (retries <= 0)
+      throw new RankMalformedJsonError(axis, `pairwise response missing/unknown better: ${String(better)}`);
+    throw new RankNeedsReprompt();
   }
   return better;
 }
@@ -295,8 +304,8 @@ export async function rankAxis(input: RankAxisInput): Promise<Ranking> {
     opts.strategy === "pairwise" || (opts.strategy === "auto" && combinedChars > opts.maxCombinedChars);
 
   const rankedLabels = usePairwise
-    ? await rankPairwise(input.callJudge, input.axis, labelToArm, labelToSlice, labels, opts.maxRetries, opts.shuffle)
-    : await rankCombined(input.callJudge, input.axis, labelToSlice, knownLabels, opts.maxRetries, opts.shuffle);
+    ? await rankPairwise(input.callJudge, input.axis, labelToArm, labelToSlice, labels, opts.maxRetries, input.shuffle)
+    : await rankCombined(input.callJudge, input.axis, labelToSlice, knownLabels, opts.maxRetries, input.shuffle);
 
   return { order: rankedLabels.map((label) => labelToArm.get(label) ?? label) };
 }

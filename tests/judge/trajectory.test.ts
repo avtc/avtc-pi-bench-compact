@@ -1,28 +1,13 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { RateLimitOptions } from "../../src/judge/rate-limit.js";
 import { gradeTrajectory, type TrajectoryGrade, type TrajectorySeams } from "../../src/judge/trajectory.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import type { MetricId } from "../../src/metrics/defs.js";
-import type { StageRunInput, StageRunResult } from "../../src/runtime/agent-loop.js";
-import type { ResolvedBenchModel } from "../../src/runtime/model.js";
-import type { JsonOutputTool } from "../../src/runtime/tools.js";
-
-const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
-const OK_MODEL: ResolvedBenchModel = { ok: true, model: FAKE_MODEL, apiKey: "key" };
-
-function cleanResult(): StageRunResult {
-  return {
-    messages: [],
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 0 },
-    outputTokens: 0,
-    aborted: false,
-    timedOut: false,
-  };
-}
+import type { StageRunInput } from "../../src/runtime/agent-loop.js";
+import { callTerminal, capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
 
 const manifest: ScenarioManifest = {
   id: "scen-1",
@@ -47,23 +32,12 @@ const manifest: ScenarioManifest = {
 
 /** Find the record_grades tool in the stage input + call its execute with the payload. */
 function simulateGradesCall(input: StageRunInput, payload: unknown): void {
-  const tool = input.tools.find((t) => t.name === "record_grades") as JsonOutputTool | undefined;
-  if (tool === undefined) throw new Error("test fake: record_grades tool not found");
-  void tool.execute("call-1", payload as Record<string, unknown>);
+  callTerminal(input, "record_grades", payload);
 }
 
 /** Build seams: resolveModel=ok; runStage=fake that captures the payload into record_grades. */
 function seamsCapturing(payload: unknown): { seams: TrajectorySeams; inputs: StageRunInput[] } {
-  const inputs: StageRunInput[] = [];
-  const seams: TrajectorySeams = {
-    resolveModel: async () => OK_MODEL,
-    runStage: async (input: StageRunInput) => {
-      inputs.push(input);
-      simulateGradesCall(input, payload);
-      return cleanResult();
-    },
-  };
-  return { seams, inputs };
+  return capturingSeams("record_grades", payload);
 }
 
 describe("gradeTrajectory", () => {
@@ -206,5 +180,61 @@ describe("gradeTrajectory", () => {
     });
     expect(calls).toBe(2); // retried once after the rate-limit
     expect(grades[0]?.pass).toBe(true);
+  });
+
+  // --- R2: axis-validation (STOP+surface on judge misbehavior) ---
+
+  it("throws when the judge returns a grade for an axis that was not requested (hallucinated)", async () => {
+    const { seams } = seamsCapturing({
+      grades: [
+        { axis: "E4", pass: true, evidence: "" },
+        { axis: "E99", pass: true, evidence: "" }, // hallucinated
+      ],
+    });
+    await expect(
+      gradeTrajectory({
+        seams,
+        cwd: "/repo",
+        axes: ["E4"] as readonly MetricId[],
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/unknown.*E99|E99.*unknown|unexpected.*axis/i);
+  });
+
+  it("throws when a requested axis is missing from the judge response", async () => {
+    const { seams } = seamsCapturing({
+      grades: [{ axis: "E4", pass: true, evidence: "" }], // E2 requested but omitted
+    });
+    await expect(
+      gradeTrajectory({
+        seams,
+        cwd: "/repo",
+        axes: ["E4", "E2"] as readonly MetricId[],
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/missing.*E2|E2.*missing|incomplete.*grade/i);
+  });
+
+  it("throws on duplicate axes in the judge response", async () => {
+    const { seams } = seamsCapturing({
+      grades: [
+        { axis: "E4", pass: true, evidence: "" },
+        { axis: "E4", pass: false, evidence: "" }, // duplicate
+      ],
+    });
+    await expect(
+      gradeTrajectory({
+        seams,
+        cwd: "/repo",
+        axes: ["E4"] as readonly MetricId[],
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/duplicate.*E4|E4.*duplicate/i);
   });
 });

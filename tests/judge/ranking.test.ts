@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { describe, expect, it } from "vitest";
-import { type RankAxisOptions, rankAxis } from "../../src/judge/ranking.js";
+import { rankAxis } from "../../src/judge/ranking.js";
 import type { CallJudge } from "../../src/judge/single-call.js";
 
 /** Deterministic label assignment for assertions: armIds sorted -> A, B, C... */
@@ -16,7 +16,7 @@ describe("rankAxis (combined)", () => {
       callJudge,
       axis: "E7",
       armSlices: { arm1: "slice-1", arm2: "slice-2", arm3: "slice-3" },
-      options: { shuffle: identityShuffle },
+      shuffle: identityShuffle,
     });
     expect(ranking.order).toEqual(["arm2", "arm1", "arm3"]);
   });
@@ -31,7 +31,7 @@ describe("rankAxis (combined)", () => {
       callJudge,
       axis: "E1",
       armSlices: { arm1: "s1", arm2: "s2" },
-      options: { shuffle: identityShuffle },
+      shuffle: identityShuffle,
     });
     expect(seen[0]).toContain("resume"); // E1 rubric content
   });
@@ -44,7 +44,8 @@ describe("rankAxis (combined)", () => {
       callJudge,
       axis: "E7",
       armSlices: { arm1: "s1", arm2: "s2" },
-      options: { shuffle: identityShuffle, maxRetries: 2 },
+      shuffle: identityShuffle,
+      options: { maxRetries: 2 },
     });
     expect(ranking.order).toEqual(["arm1", "arm2"]);
   });
@@ -56,19 +57,36 @@ describe("rankAxis (combined)", () => {
         callJudge,
         axis: "E7",
         armSlices: { arm1: "s1", arm2: "s2" },
-        options: { shuffle: identityShuffle, maxRetries: 1 },
+        shuffle: identityShuffle,
+        options: { maxRetries: 1 },
       }),
     ).rejects.toThrow(/malformed|not valid json/i);
   });
 
-  it("requires every ranked label to be a known arm (rejects invented labels)", async () => {
-    const callJudge: CallJudge = async () => JSON.stringify({ order: ["A", "Z"] }); // Z unknown
+  // R5: an invented label is tool-misuse (§5.12.5) -> re-prompt (not immediate surface)
+  it("re-prompts on an invented label, then succeeds when the judge self-corrects (R5)", async () => {
+    const responses = [JSON.stringify({ order: ["A", "Z"] }), JSON.stringify({ order: ["A", "B"] })];
+    let i = 0;
+    const callJudge: CallJudge = async () => responses[i++] ?? "";
+    const ranking = await rankAxis({
+      callJudge,
+      axis: "E7",
+      armSlices: { arm1: "s1", arm2: "s2" },
+      shuffle: identityShuffle,
+      options: { maxRetries: 2 },
+    });
+    expect(ranking.order).toEqual(["arm1", "arm2"]);
+  });
+
+  it("surfaces (STOP+surface) when the invented label persists past maxRetries (R5)", async () => {
+    const callJudge: CallJudge = async () => JSON.stringify({ order: ["A", "Z"] }); // always invented
     await expect(
       rankAxis({
         callJudge,
         axis: "E7",
         armSlices: { arm1: "s1", arm2: "s2" },
-        options: { shuffle: identityShuffle },
+        shuffle: identityShuffle,
+        options: { maxRetries: 1 },
       }),
     ).rejects.toThrow(/unknown.*label|invented/i);
   });
@@ -77,21 +95,19 @@ describe("rankAxis (combined)", () => {
 describe("rankAxis (pairwise)", () => {
   it("aggregates C(N,2) pairwise wins into a full order", async () => {
     // 3 arms -> 3 pairs. Make arm2 beat everyone; arm1 beat arm3; so order arm2 > arm1 > arm3.
-    const armLabel: Record<string, string> = { arm1: "A", arm2: "B", arm3: "C" };
-    const beats: Record<string, string> = { "A-B": "B", "A-C": "A", "B-C": "B" }; // pair-key sorted -> winner label
+    const beats: Record<string, string> = { "A-B": "B", "A-C": "A", "B-C": "B" };
     const callJudge: CallJudge = async (_sys, user) => {
-      // The user content presents two labels; parse them out to find the pair.
       const labels = ["A", "B", "C"].filter((l) => user.includes(`Arm ${l}`));
       labels.sort();
       const winner = beats[labels.join("-")] ?? labels[0];
       return JSON.stringify({ better: winner });
     };
-    void armLabel;
     const ranking = await rankAxis({
       callJudge,
       axis: "E7",
       armSlices: { arm1: "s1", arm2: "s2", arm3: "s3" },
-      options: { strategy: "pairwise", shuffle: identityShuffle },
+      shuffle: identityShuffle,
+      options: { strategy: "pairwise" },
     });
     expect(ranking.order).toEqual(["arm2", "arm1", "arm3"]); // B(2 wins) > A(1) > C(0)
   });
@@ -103,7 +119,23 @@ describe("rankAxis (pairwise)", () => {
       callJudge,
       axis: "E7",
       armSlices: { arm1: "s1", arm2: "s2" },
-      options: { strategy: "pairwise", shuffle: identityShuffle },
+      shuffle: identityShuffle,
+      options: { strategy: "pairwise" },
+    });
+    expect(ranking.order).toEqual(["arm1", "arm2"]);
+  });
+
+  // R5: a missing/unknown {better} is tool-misuse -> re-prompt (not immediate surface)
+  it("re-prompts on an unknown {better} label, then succeeds (R5)", async () => {
+    const responses = [JSON.stringify({ better: "Q" }), JSON.stringify({ better: "A" })];
+    let i = 0;
+    const callJudge: CallJudge = async () => responses[i++] ?? "";
+    const ranking = await rankAxis({
+      callJudge,
+      axis: "E7",
+      armSlices: { arm1: "s1", arm2: "s2" },
+      shuffle: identityShuffle,
+      options: { strategy: "pairwise", maxRetries: 2 },
     });
     expect(ranking.order).toEqual(["arm1", "arm2"]);
   });
@@ -120,7 +152,8 @@ describe("rankAxis (auto strategy)", () => {
       callJudge,
       axis: "E7",
       armSlices: { arm1: "small", arm2: "small" },
-      options: { strategy: "auto", maxCombinedChars: 100000, shuffle: identityShuffle },
+      shuffle: identityShuffle,
+      options: { strategy: "auto", maxCombinedChars: 100000 },
     });
     expect(calls).toBe(1); // one combined call
   });
@@ -135,7 +168,8 @@ describe("rankAxis (auto strategy)", () => {
       callJudge,
       axis: "E7",
       armSlices: { arm1: "x".repeat(100), arm2: "y".repeat(100) },
-      options: { strategy: "auto", maxCombinedChars: 50, shuffle: identityShuffle },
+      shuffle: identityShuffle,
+      options: { strategy: "auto", maxCombinedChars: 50 },
     });
     expect(calls).toBe(1); // 1 pair for 2 arms -> 1 call (pairwise), not a combined call
   });
@@ -150,8 +184,18 @@ describe("rankAxis (edges)", () => {
       callJudge,
       axis: "E7",
       armSlices: { arm1: "solo" },
-      options: { shuffle: identityShuffle } as RankAxisOptions,
+      shuffle: identityShuffle,
     });
     expect(ranking.order).toEqual(["arm1"]);
+  });
+
+  // R10: only A..Z available (26 labels); >26 arms cannot be anonymized -> STOP+surface
+  it("throws when there are more than 26 arms (label alphabet exhausted, R10)", async () => {
+    const callJudge: CallJudge = async () => JSON.stringify({ order: [] });
+    const armSlices: Record<string, string> = {};
+    for (let i = 0; i < 27; i += 1) armSlices[`arm${i}`] = "s";
+    await expect(rankAxis({ callJudge, axis: "E7", armSlices, shuffle: identityShuffle })).rejects.toThrow(
+      /too many arms|26|alphabet/i,
+    );
   });
 });

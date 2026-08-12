@@ -1,27 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { type C2Boundary, type C2BoundarySeams, findFirstCorrectUse } from "../../src/judge/c2-boundary.js";
 import type { RateLimitOptions } from "../../src/judge/rate-limit.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
-import type { StageRunInput, StageRunResult } from "../../src/runtime/agent-loop.js";
-import type { ResolvedBenchModel } from "../../src/runtime/model.js";
-import type { JsonOutputTool } from "../../src/runtime/tools.js";
-
-const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
-const OK_MODEL: ResolvedBenchModel = { ok: true, model: FAKE_MODEL, apiKey: "key" };
-
-function cleanResult(): StageRunResult {
-  return {
-    messages: [],
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 0 },
-    outputTokens: 0,
-    aborted: false,
-    timedOut: false,
-  };
-}
+import type { StageRunInput } from "../../src/runtime/agent-loop.js";
+import { callTerminal, capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
 
 const manifest: ScenarioManifest = {
   id: "scen-1",
@@ -53,22 +38,11 @@ const manifest: ScenarioManifest = {
 };
 
 function simulateBoundaryCall(input: StageRunInput, payload: unknown): void {
-  const tool = input.tools.find((t) => t.name === "report_boundary") as JsonOutputTool | undefined;
-  if (tool === undefined) throw new Error("test fake: report_boundary tool not found");
-  void tool.execute("call-1", payload as Record<string, unknown>);
+  callTerminal(input, "report_boundary", payload);
 }
 
 function seamsCapturing(payload: unknown): { seams: C2BoundarySeams; inputs: StageRunInput[] } {
-  const inputs: StageRunInput[] = [];
-  const seams: C2BoundarySeams = {
-    resolveModel: async () => OK_MODEL,
-    runStage: async (input: StageRunInput) => {
-      inputs.push(input);
-      simulateBoundaryCall(input, payload);
-      return cleanResult();
-    },
-  };
-  return { seams, inputs };
+  return capturingSeams("report_boundary", payload);
 }
 
 describe("findFirstCorrectUse", () => {
@@ -88,8 +62,8 @@ describe("findFirstCorrectUse", () => {
       signal: new AbortController().signal,
     });
     expect(boundaries).toEqual<C2Boundary[]>([
-      { factId: "rf1", firstCorrectUseEntryId: "a12" },
-      { factId: "rf2", firstCorrectUseEntryId: null },
+      { factId: "rf1", firstCorrectUseEntryId: "a12", evidence: "agent applied revenue = price * units" },
+      { factId: "rf2", firstCorrectUseEntryId: null, evidence: "agent never referenced the save path" },
     ]);
     expect(inputs[0]?.systemPrompt).toContain("report_boundary");
   });
@@ -173,7 +147,12 @@ describe("findFirstCorrectUse", () => {
       runStage: async (input) => {
         calls += 1;
         if (calls === 1) throw rateErr;
-        simulateBoundaryCall(input, { boundaries: [{ factId: "rf1", entryId: "x", evidence: "" }] });
+        simulateBoundaryCall(input, {
+          boundaries: [
+            { factId: "rf1", entryId: "x", evidence: "" },
+            { factId: "rf2", entryId: null, evidence: "" },
+          ],
+        });
         return cleanResult();
       },
     };
@@ -209,5 +188,42 @@ describe("findFirstCorrectUse", () => {
       signal: new AbortController().signal,
     });
     expect(boundaries).toEqual([]);
+  });
+
+  // --- R1: boundary-completeness validation (STOP+surface on judge misbehavior) ---
+
+  it("throws when a recallFact is missing from the judge response (partial)", async () => {
+    const { seams } = seamsCapturing({
+      boundaries: [{ factId: "rf1", entryId: "x", evidence: "" }], // rf2 omitted
+    });
+    await expect(
+      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+    ).rejects.toThrow(/missing.*rf2|rf2.*missing|incomplete.*boundary/i);
+  });
+
+  it("throws when the judge invents an unknown factId", async () => {
+    const { seams } = seamsCapturing({
+      boundaries: [
+        { factId: "rf1", entryId: "x", evidence: "" },
+        { factId: "rf2", entryId: null, evidence: "" },
+        { factId: "rfX", entryId: "y", evidence: "" }, // unknown
+      ],
+    });
+    await expect(
+      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+    ).rejects.toThrow(/unknown.*rfX|rfX.*unknown|unexpected.*factId/i);
+  });
+
+  it("throws on duplicate factIds in the judge response", async () => {
+    const { seams } = seamsCapturing({
+      boundaries: [
+        { factId: "rf1", entryId: "x", evidence: "" },
+        { factId: "rf1", entryId: "z", evidence: "" }, // duplicate
+        { factId: "rf2", entryId: null, evidence: "" },
+      ],
+    });
+    await expect(
+      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+    ).rejects.toThrow(/duplicate.*rf1|rf1.*duplicate/i);
   });
 });

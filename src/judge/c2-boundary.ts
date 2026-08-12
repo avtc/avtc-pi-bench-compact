@@ -19,6 +19,8 @@ import { type JsonToolStageSeams, type RunJsonToolStageDeps, runJsonToolStage } 
 export interface C2Boundary {
   readonly factId: string;
   readonly firstCorrectUseEntryId: string | null;
+  /** The judge's citation for the boundary (audit trail for calibration / operator review). */
+  readonly evidence: string;
 }
 
 /** Injectable seams (resolve the judge model + run the bench stage). */
@@ -102,10 +104,38 @@ export async function findFirstCorrectUse(deps: FindFirstCorrectUseDeps): Promis
   };
   const payload = (await runJsonToolStage(stageDeps)) as { boundaries?: unknown };
   const raw = Array.isArray(payload.boundaries)
-    ? (payload.boundaries as Array<{ factId?: unknown; entryId?: unknown }>)
+    ? (payload.boundaries as Array<{ factId?: unknown; entryId?: unknown; evidence?: unknown }>)
     : [];
-  return raw.map((b) => ({
+  const boundaries: C2Boundary[] = raw.map((b) => ({
     factId: typeof b.factId === "string" ? b.factId : "",
     firstCorrectUseEntryId: typeof b.entryId === "string" ? b.entryId : null,
+    evidence: typeof b.evidence === "string" ? b.evidence : "",
   }));
+  return validateBoundaryCompleteness(boundaries, deps.manifest);
+}
+
+/**
+ * STOP+surface guard: the judge's boundaries must cover EXACTLY the manifest's
+ * recallFact ids — one each, no missing, no unknown, no duplicates. A partial /
+ * hallucinated / duplicated response is judge misbehavior the bench must surface
+ * (stop-and-surface philosophy), not silently pass to the recall-cost consumer (which maps by factId).
+ */
+function validateBoundaryCompleteness(boundaries: C2Boundary[], manifest: ScenarioManifest): C2Boundary[] {
+  const expected = new Set(manifest.recallFacts.map((f) => f.id));
+  const seen = new Set<string>();
+  for (const b of boundaries) {
+    if (!expected.has(b.factId)) {
+      throw new Error(`recall-cost boundary: unknown factId "${b.factId}" (not a manifest recallFact) — STOP+surface`);
+    }
+    if (seen.has(b.factId)) {
+      throw new Error(`recall-cost boundary: duplicate factId "${b.factId}" in judge response — STOP+surface`);
+    }
+    seen.add(b.factId);
+  }
+  for (const id of expected) {
+    if (!seen.has(id)) {
+      throw new Error(`recall-cost boundary: missing factId "${id}" (judge omitted a recallFact) — STOP+surface`);
+    }
+  }
+  return boundaries;
 }

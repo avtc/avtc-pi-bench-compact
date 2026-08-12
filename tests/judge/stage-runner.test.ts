@@ -2,52 +2,18 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { type JsonToolStageSeams, runJsonToolStage } from "../../src/judge/stage-runner.js";
-import type { StageRunInput, StageRunResult } from "../../src/runtime/agent-loop.js";
-import type { ResolvedBenchModel } from "../../src/runtime/model.js";
 import { type JsonOutputTool, makeJsonOutputTool } from "../../src/runtime/tools.js";
-
-const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
-const OK_MODEL: ResolvedBenchModel = { ok: true, model: FAKE_MODEL, apiKey: "key" };
-
-function cleanResult(): StageRunResult {
-  return {
-    messages: [],
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 0 },
-    outputTokens: 0,
-    aborted: false,
-    timedOut: false,
-  };
-}
+import { capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
 
 const SCHEMA = Type.Object({ value: Type.String() });
-
-/** A seams fake that finds the terminal tool in the input + calls execute with the payload. */
-function seamsCapturing(
-  payload: unknown,
-  terminalName: string,
-): { seams: JsonToolStageSeams; inputs: StageRunInput[] } {
-  const inputs: StageRunInput[] = [];
-  const seams: JsonToolStageSeams = {
-    resolveModel: async () => OK_MODEL,
-    runStage: async (input: StageRunInput) => {
-      inputs.push(input);
-      const tool = input.tools.find((t) => t.name === terminalName) as JsonOutputTool | undefined;
-      if (tool === undefined) throw new Error(`test fake: ${terminalName} tool not found`);
-      void tool.execute("c1", payload as Record<string, unknown>);
-      return cleanResult();
-    },
-  };
-  return { seams, inputs };
-}
 
 describe("runJsonToolStage", () => {
   it("returns the last captured payload from the terminal tool", async () => {
     const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
-    const { seams } = seamsCapturing({ value: "hello" }, "emit");
+    const { seams } = capturingSeams("emit", { value: "hello" });
     const payload = await runJsonToolStage({
       seams,
       tools: [terminal] as AgentTool[],
@@ -61,7 +27,7 @@ describe("runJsonToolStage", () => {
     expect(payload).toEqual({ value: "hello" });
   });
 
-  it("throws when the model is unavailable", async () => {
+  it("throws when the model is unavailable, naming the stage in the message", async () => {
     const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
     const seams: JsonToolStageSeams = {
       resolveModel: async () => ({ ok: false, error: "no model" }),
@@ -73,15 +39,66 @@ describe("runJsonToolStage", () => {
         tools: [terminal] as AgentTool[],
         systemPrompt: "s",
         terminalTool: terminal,
-        label: "x",
+        label: "authoring",
         userMessageContent: "g",
         maxTokens: 1,
         signal: new AbortController().signal,
       }),
-    ).rejects.toThrow(/model not available/i);
+    ).rejects.toThrow(/authoring model not available/i);
   });
 
-  it("throws on a timed-out stage", async () => {
+  it("auto-appends the terminal tool when the caller omits it from tools (R7)", async () => {
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    let seenTools: readonly AgentTool[] = [];
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => OK_MODEL,
+      runStage: async (input) => {
+        seenTools = input.tools;
+        const tool = input.tools.find((t) => t.name === "emit") as JsonOutputTool;
+        void tool.execute("c1", { value: "auto" });
+        return cleanResult();
+      },
+    };
+    const payload = await runJsonToolStage({
+      seams,
+      tools: [], // caller omitted the terminal tool — runner must append it
+      systemPrompt: "s",
+      terminalTool: terminal,
+      label: "test-stage",
+      userMessageContent: "g",
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+    expect(payload).toEqual({ value: "auto" });
+    expect(seenTools.map((t) => t.name)).toContain("emit");
+  });
+
+  it("does not double-append the terminal tool when the caller already included it (R7)", async () => {
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    let count = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => OK_MODEL,
+      runStage: async (input) => {
+        count = input.tools.filter((t) => t.name === "emit").length;
+        const tool = input.tools.find((t) => t.name === "emit") as JsonOutputTool;
+        void tool.execute("c1", { value: "once" });
+        return cleanResult();
+      },
+    };
+    await runJsonToolStage({
+      seams,
+      tools: [terminal] as AgentTool[],
+      systemPrompt: "s",
+      terminalTool: terminal,
+      label: "test-stage",
+      userMessageContent: "g",
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+    expect(count).toBe(1);
+  });
+
+  it("throws on a timed-out stage, naming the stage in the message", async () => {
     const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
     const seams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,

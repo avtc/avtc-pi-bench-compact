@@ -58,13 +58,18 @@ export interface RunJsonToolStageDeps {
 export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unknown> {
   const resolved = await deps.seams.resolveModel();
   if (!resolved.ok) {
-    throw new Error(`judge model not available: ${resolved.error}`);
+    throw new Error(`${deps.label} model not available: ${resolved.error}`);
   }
+  // Auto-append the terminal tool if the caller didn't (R7: source of truth is
+  // terminalTool alone; dedup by name so an explicit inclusion isn't duplicated).
+  const stageTools: AgentTool[] = deps.tools.some((t) => t.name === deps.terminalTool.name)
+    ? deps.tools
+    : [...deps.tools, deps.terminalTool];
   const runStage = (): Promise<StageRunResult> =>
     deps.seams.runStage({
       systemPrompt: deps.systemPrompt,
       messages: [{ role: "user", content: deps.userMessageContent, timestamp: Date.now() }],
-      tools: deps.tools,
+      tools: stageTools,
       model: resolved.model,
       apiKey: resolved.apiKey,
       signal: deps.signal,

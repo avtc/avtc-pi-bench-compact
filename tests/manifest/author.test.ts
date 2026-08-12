@@ -3,6 +3,7 @@
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import type { RateLimitOptions } from "../../src/judge/rate-limit.js";
 import {
   type AuthoringSeams,
   buildAuthoringTools,
@@ -338,5 +339,56 @@ describe("runAuthoringAgent", () => {
       maxTokens: 2000,
     });
     expect(manifest.recallFacts[0].fact).toBe("second-final");
+  });
+
+  // R3: the authoring stage is rate-limit-wrapped via runJsonToolStage; the
+  // caller can tune/opt-out via RunAuthoringAgentDeps.rateLimitOptions (parity
+  // with trajectory/c2). This is a DELIBERATE behavior addition (the refactor
+  // routed authoring through the rate-limit-wrapped stage-runner), not a silent
+  // change — surfaced + tunable here.
+  it("threads rateLimitOptions so a rate-limited authoring stage retries (R3)", async () => {
+    let calls = 0;
+    const rateErr = Object.assign(new Error("429"), { status: 429 });
+    const fakeSeams: AuthoringSeams = {
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
+      runStage: async (input) => {
+        calls += 1;
+        if (calls === 1) throw rateErr;
+        const wm = input.tools.find((t) => t.name === "write_manifest");
+        if (!wm) throw new Error("write_manifest not composed");
+        await wm.execute("call1", {
+          recallFacts: [{ fact: "f", accept: ["a"], entryIds: ["e1"] }],
+          doneOps: [],
+          supersessions: [],
+          abstentions: [],
+          probes: [],
+          taskObjective: { description: "x", testSpec: "npm test" },
+        });
+        return {
+          messages: [],
+          usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
+          outputTokens: 1,
+          aborted: false,
+          timedOut: false,
+        };
+      },
+    };
+    const rateLimitOptions: RateLimitOptions = {
+      isRateLimit: (e) => e === rateErr,
+      waitMs: 0,
+      maxAttempts: 3,
+      sleep: async () => {},
+    };
+    const manifest = await runAuthoringAgent({
+      seams: fakeSeams,
+      cwd: process.cwd(),
+      preSlicedJsonlPath: "/tmp/x.jsonl",
+      scenarioCtx,
+      signal: new AbortController().signal,
+      maxTokens: 2000,
+      rateLimitOptions,
+    });
+    expect(calls).toBe(2); // retried once after the rate-limit
+    expect(manifest.recallFacts[0]?.fact).toBe("f");
   });
 });

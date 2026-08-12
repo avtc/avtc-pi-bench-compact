@@ -107,6 +107,32 @@ export async function gradeTrajectory(deps: GradeTrajectoryDeps): Promise<Trajec
     rateLimitOptions: deps.rateLimitOptions,
   };
   const payload = (await runJsonToolStage(stageDeps)) as { grades?: unknown };
-  const grades = Array.isArray(payload.grades) ? (payload.grades as TrajectoryGrade[]) : [];
+  const raw = Array.isArray(payload.grades) ? (payload.grades as TrajectoryGrade[]) : [];
+  return validateAxisCompleteness(raw, deps.axes);
+}
+
+/**
+ * STOP+surface guard: the judge's grades must cover EXACTLY the requested axes —
+ * one each, no missing, no unknown, no duplicates. A hallucinated axis id,
+ * misspelled, or omitted axis is judge misbehavior the bench must surface
+ * (stop-and-surface philosophy), not silently drop/propagate into the statistics keyed by MetricId.
+ */
+function validateAxisCompleteness(grades: TrajectoryGrade[], requestedAxes: readonly MetricId[]): TrajectoryGrade[] {
+  const expected = new Set(requestedAxes);
+  const seen = new Set<MetricId>();
+  for (const g of grades) {
+    if (!expected.has(g.axis)) {
+      throw new Error(`trajectory grading: unknown axis "${g.axis}" (not a requested axis) — STOP+surface`);
+    }
+    if (seen.has(g.axis)) {
+      throw new Error(`trajectory grading: duplicate axis "${g.axis}" in judge response — STOP+surface`);
+    }
+    seen.add(g.axis);
+  }
+  for (const axis of expected) {
+    if (!seen.has(axis)) {
+      throw new Error(`trajectory grading: missing axis "${axis}" (judge omitted a requested axis) — STOP+surface`);
+    }
+  }
   return grades;
 }

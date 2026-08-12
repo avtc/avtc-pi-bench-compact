@@ -10,6 +10,7 @@
 // scenario's taskObjective + compactionBoundary).
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
 import { benchAuthoringTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
 import { AUTHORING_SYSTEM_PROMPT } from "./prompt.js";
@@ -60,6 +61,13 @@ export interface RunAuthoringAgentDeps {
   readonly signal: AbortSignal;
   /** Per-call output-token cap for the authoring `runBenchStage`. */
   readonly maxTokens: number;
+  /**
+   * Rate-limit options for the authoring stage (defaults: pause+resume on a 429,
+   * up to 5 attempts). The authoring model is a cloud LLM that may be throttled;
+   * threading this (parity with the trajectory + recall-cost stages) makes the resilience tunable /
+   * opt-out-able instead of a silent hardcoded default.
+   */
+  readonly rateLimitOptions?: RateLimitOptions | null;
 }
 
 /** The `write_manifest` tool's description — the agent calls it once when done. */
@@ -215,6 +223,7 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     userMessageContent: `Read the session file at ${deps.preSlicedJsonlPath} and produce the manifest. Use your tools to read it, then call write_manifest with your findings.`,
     maxTokens: deps.maxTokens,
     signal: deps.signal,
+    rateLimitOptions: deps.rateLimitOptions,
   })) as AuthorOutput;
 
   return postProcessManifest(author, deps.scenarioCtx);
