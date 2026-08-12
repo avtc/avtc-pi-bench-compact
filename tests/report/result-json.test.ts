@@ -138,6 +138,10 @@ describe("serializeResultJson", () => {
     expect(json.config.evaluatedModel).toBe("eval-model");
     expect(json.config.N).toBe(10);
     expect(json.config.armsEnabled).toEqual(["A1", "A3"]);
+    // the judge-ensemble fields persist into the result-JSON config block (R2-1)
+    expect(json.config.judgesNumber).toBe(1);
+    expect(json.config.judge2Model).toBeNull();
+    expect(json.config.judge3Model).toBeNull();
     expect(json.toolVersions.A3).toEqual(gitVer("aabbccdd"));
     expect(json.toolVersions.A1).toBeUndefined(); // bare-pi has no tool version
   });
