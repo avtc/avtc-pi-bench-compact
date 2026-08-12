@@ -151,8 +151,8 @@ export function aggregateArmMetrics(grades: AllArmsGrades, options: BootstrapOpt
     // Build the exact map mutably (its fields are readonly on the public type).
     const exact: { C1?: CiResult; C2?: C2Metric; C3?: CiResult; C4?: C4Metric } = {};
     const ex = armGrades.exact;
-    if (ex?.C1 !== undefined) exact.C1 = bootstrapCi(ex.C1, options);
-    if (ex?.C3 !== undefined) exact.C3 = bootstrapCi(ex.C3, options);
+    if (ex?.C1 !== undefined && ex.C1.length > 0) exact.C1 = bootstrapCi(ex.C1, options);
+    if (ex?.C3 !== undefined && ex.C3.length > 0) exact.C3 = bootstrapCi(ex.C3, options);
     if (ex?.C2 !== undefined) {
       const c2 = aggregateC2(ex.C2, options);
       if (c2 !== undefined) exact.C2 = c2;

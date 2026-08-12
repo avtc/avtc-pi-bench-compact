@@ -92,6 +92,13 @@ describe("aggregateArmMetrics — exact C2 channel", () => {
     const result = aggregateArmMetrics(grades, OPTS);
     expect(result.arms.A1?.exact.C2).toBeUndefined();
   });
+
+  it("empty footprint/run-cost arrays → no C1/C3 metric (consistency: NaN mean would violate the {mean:number} contract)", () => {
+    const grades: AllArmsGrades = { arms: { A1: { exact: { C1: [], C3: [] } } } };
+    const result = aggregateArmMetrics(grades, OPTS);
+    expect(result.arms.A1?.exact.C1).toBeUndefined();
+    expect(result.arms.A1?.exact.C3).toBeUndefined();
+  });
 });
 
 describe("aggregateArmMetrics — exact C4 channel", () => {
