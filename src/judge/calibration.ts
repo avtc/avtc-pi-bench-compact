@@ -79,11 +79,11 @@ export interface CalibrationGateResult {
   readonly pass: boolean;
   /** Fraction of binary samples where the judge matched gold (0 when no binary samples). */
   readonly binaryAgreement: number;
-  /** Fraction of (slot × arm) positions where the judge rank is within ±1 of gold (0 when none). */
+  /** Fraction of slots whose WHOLE judge order is within +/-1 of gold (0 when none). */
   readonly rankAccuracy: number;
   readonly binaryCount: number;
   readonly comparativeCount: number;
-  /** Sample ids that disagreed (binary mismatch or rank divergence > ±1). */
+  /** Sample ids that disagreed (binary mismatch or any rank divergence > +/-1 in the slot). */
   readonly failures: readonly string[];
 }
 
@@ -99,32 +99,37 @@ function assertComparativeAxis(axis: MetricId): void {
   }
 }
 
-/** Fraction of arms whose judge-position is within ±1 of their gold-position. */
-function slotAccuracy(goldOrder: readonly string[], judgeOrder: readonly string[]): number {
-  if (goldOrder.length === 0) return 1;
-  let within = 0;
-  let counted = 0;
+/**
+ * Does the judge's order pass ONE slot: every gold arm present in the judge's
+ * order AND within +/-1 of its gold position. A vacuous slot (empty gold) passes.
+ * A judge order that omits every gold arm, or is empty, fails a non-empty slot
+ * (never let a broken/empty ranking report perfect accuracy).
+ */
+function slotPasses(goldOrder: readonly string[], judgeOrder: readonly string[]): boolean {
+  if (goldOrder.length === 0) return true; // vacuous slot
   for (let pos = 0; pos < goldOrder.length; pos++) {
     const arm = goldOrder[pos];
     const judgePos = judgeOrder.indexOf(arm);
-    if (judgePos === -1) continue; // arm absent from judge order — skip (not a rank divergence)
-    counted += 1;
-    if (Math.abs(judgePos - pos) <= RANK_TOLERANCE) within += 1;
+    if (judgePos === -1) return false; // arm missing from the judge order -> slot fails
+    if (Math.abs(judgePos - pos) > RANK_TOLERANCE) return false;
   }
-  return counted === 0 ? 1 : within / counted;
+  return true;
 }
 
 /**
  * Run the calibration gate over the hand-scored reference set. Grades each binary
  * sample via `gradeSlice` (reusing `callJudge`) + ranks each comparative slot via
  * `rankSlices`, then compares to gold. STOP-and-surfaces via a `pass: false`
- * result — the caller notifies + halts scoring. Pure aside from the seams.
+ * result — the caller notifies + halts scoring. THROWS `JudgeMalformedJsonError`
+ * (from `gradeSlice`) if a binary sample's judge response stays malformed past
+ * its re-prompt budget — the caller treats that as STOP+surface too. Pure aside
+ * from the seams.
  */
 export async function runCalibrationGate(input: CalibrationGateInput): Promise<CalibrationGateResult> {
   const failures: string[] = [];
   let binaryMatched = 0;
   let binaryTotal = 0;
-  let rankSum = 0;
+  let rankPassed = 0;
   let rankSlots = 0;
 
   for (const sample of input.samples) {
@@ -138,14 +143,13 @@ export async function runCalibrationGate(input: CalibrationGateInput): Promise<C
       assertComparativeAxis(sample.axis);
       rankSlots += 1;
       const judgeOrder = await input.rankSlices(sample.axis, sample.armSlices);
-      const acc = slotAccuracy(sample.goldOrder, judgeOrder);
-      rankSum += acc;
-      if (acc < 1) failures.push(sample.id); // any divergence within a slot flags the slot
+      if (slotPasses(sample.goldOrder, judgeOrder)) rankPassed += 1;
+      else failures.push(sample.id); // any slot that does not fully match is flagged
     }
   }
 
   const binaryAgreement = binaryTotal === 0 ? 1 : binaryMatched / binaryTotal;
-  const rankAccuracy = rankSlots === 0 ? 1 : rankSum / rankSlots;
+  const rankAccuracy = rankSlots === 0 ? 1 : rankPassed / rankSlots;
   // A gate is satisfied if its threshold is met OR its sample set is empty (trivial).
   const binaryOk = binaryTotal === 0 || binaryAgreement >= BINARY_GATE;
   const rankOk = rankSlots === 0 || rankAccuracy >= RANK_GATE;

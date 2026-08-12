@@ -45,15 +45,28 @@ function readManifest(path) {
   return JSON.parse(raw);
 }
 
+/** Map a manifest condition id -> the binary axis its probe grades. */
+function axisForCondition(manifest) {
+  const map = new Map();
+  for (const rf of manifest.recallFacts ?? []) map.set(rf.id, "E5"); // recall accuracy
+  for (const ab of manifest.abstentions ?? []) map.set(ab.id, "E6"); // abstention
+  for (const ss of manifest.supersessions ?? []) map.set(ss.id, "E8"); // supersession
+  for (const op of manifest.doneOps ?? []) map.set(op.id, "E2"); // redo-exec
+  return map;
+}
+
 /** Build a binary-axis template per probe (goldPass left null for the operator). */
 function binaryTemplates(manifest) {
+  const axisFor = axisForCondition(manifest);
   const samples = [];
   for (const probe of manifest.probes ?? []) {
-    // Pick the axis from the probe target's condition type, defaulting to E5.
+    // Infer the axis from the probe's first target that maps to a condition type
+    // (recall->E5, abstention->E6, supersession->E8, doneOp->E2); default E5.
+    const axis = (probe.targets ?? []).map((t) => axisFor.get(t)).find((a) => a !== undefined) ?? "E5";
     samples.push({
       kind: "binary",
       id: `seed-probe-${probe.question.slice(0, 16).replace(/\W+/g, "-")}`,
-      axis: "E5",
+      axis,
       slice: `PROBE QUESTION\n${probe.question}\n\nGRADING CRITERIA\naccept[]: ${(probe.accept ?? []).join(" | ") || correctRefusalNote(probe)}`,
       goldPass: null,
     });

@@ -86,12 +86,35 @@ describe("runCalibrationGate (comparative)", () => {
     expect(result.pass).toBe(true);
   });
 
-  it("fails comparative when ranks diverge by more than ±1 on >20% of positions", async () => {
-    // Gold [A,B,C,D]; judge (reversed) returns [D,C,B,A]: A 0→3 (off 3), D 3→0 (off 3) → 2/4 within ±1 = 0.5.
+  it("fails comparative when any slot's ranking diverges by more than ±1 on an arm", async () => {
+    // Gold [A,B,C,D]; judge (reversed) returns [D,C,B,A]: A 0->3 (off 3) -> slot fails.
     const samples: CalibrationSample[] = [compSample("c1", { A: "a", B: "b", C: "c", D: "d" }, ["A", "B", "C", "D"])];
     const callJudge: CallJudge = async () => JSON.stringify({ pass: true, evidence: "" });
     const result = await runCalibrationGate({ callJudge, rankSlices: rankReversed, samples });
     expect(result.rankAccuracy).toBeLessThan(RANK_GATE);
+    expect(result.pass).toBe(false);
+  });
+
+  it("fails comparative when the judge returns an EMPTY order on a non-empty slot (never pass an uncalibrated judge)", async () => {
+    // Regression: a broken RankSlices returning [] must NOT report perfect accuracy.
+    const emptyRank: RankSlices = async () => [];
+    const samples: CalibrationSample[] = [compSample("c1", { A: "a", B: "b" }, ["A", "B"])];
+    const callJudge: CallJudge = async () => JSON.stringify({ pass: true, evidence: "" });
+    const result = await runCalibrationGate({ callJudge, rankSlices: emptyRank, samples });
+    expect(result.rankAccuracy).toBe(0);
+    expect(result.pass).toBe(false);
+  });
+
+  it("a slot with one arm within ±1 + one off still fails the slot (strict all-within per slot)", async () => {
+    // Gold [A,B,C]; judge returns [C,B,A] — B ok (pos 1), A off (0->2), C off (2->0) -> slot fails.
+    const offRank: RankSlices = async (_axis, armSlices) => sortedKeys(armSlices).reverse();
+    const samples: CalibrationSample[] = [
+      compSample("c1", { A: "a", B: "b", C: "c" }, ["A", "B", "C"]),
+      compSample("c2", { A: "a", B: "b", C: "c" }, ["A", "B", "C"]),
+    ];
+    const callJudge: CallJudge = async () => JSON.stringify({ pass: true, evidence: "" });
+    const result = await runCalibrationGate({ callJudge, rankSlices: offRank, samples });
+    expect(result.rankAccuracy).toBe(0);
     expect(result.pass).toBe(false);
   });
 });
