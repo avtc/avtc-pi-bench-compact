@@ -9,37 +9,23 @@
 
 import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getBenchConfig } from "../config/accessor.js";
 import { parsePositional } from "./parse.js";
 import {
+  guardPreflight,
   invokeShorthand,
-  notifyOf,
   type RunHandlerContext,
   type RunShorthandOptions,
   registerHandler,
 } from "./run-shared.js";
-import { preflight } from "./validate.js";
-
-/** Injectable inputs for {@link makeRunSessionFileHandler}. Extends the shared
- *  shorthand options with a path-existence checker (extract preflight needs it). */
-export interface RunSessionFileHandlerOptions extends RunShorthandOptions {
-  /** Path-existence checker (default = fs.existsSync). */
-  readonly exists?: (path: string) => boolean;
-}
 
 /** Build the handler for `/bench-compact:run-session-file`. */
-export function makeRunSessionFileHandler(opts: RunSessionFileHandlerOptions) {
+export function makeRunSessionFileHandler(opts: RunShorthandOptions) {
   const exists = opts.exists ?? existsSync;
   return async (args: string, ctx: unknown): Promise<void> => {
     const handlerCtx = ctx as RunHandlerContext;
-    const notify = notifyOf(handlerCtx);
 
     const parsed = parsePositional(args);
-    const check = preflight(getBenchConfig(), "run-session-file", parsed, exists);
-    if (!check.ok) {
-      notify(check.reason, "warning");
-      return;
-    }
+    if (!guardPreflight(handlerCtx, "run-session-file", parsed, exists)) return;
 
     // Lift the positional path into a PrepareArgs (extract mode) for the shared tail.
     const prepareArgs = { idea: undefined, fromSession: parsed.value, force: false, error: undefined };

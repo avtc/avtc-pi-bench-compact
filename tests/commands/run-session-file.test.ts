@@ -5,25 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { makeRunSessionFileHandler } from "../../src/commands/run-session-file.js";
 import type { PrepareDeps } from "../../src/production/prepare.js";
 
-function fakeCtx(): { ctx: unknown; notifies: { msg: string; level: string }[] } {
-  const notifies: { msg: string; level: string }[] = [];
-  return {
-    notifies,
-    ctx: {
-      mode: "tui",
-      hasUI: true,
-      ui: {
-        notify: (msg: string, level: string): void => void notifies.push({ msg, level }),
-        setWidget: (): void => {},
-      },
-      switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
-    },
-  };
-}
+import { fakeCommandCtx } from "./helpers.js";
 
 describe("makeRunSessionFileHandler", () => {
   it("missing path → warning notify, no prepare", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const prepareScenario = vi.fn();
     const handler = makeRunSessionFileHandler({ prepareScenario, executeRun: vi.fn(), exists: (): boolean => true });
     await handler("", ctx);
@@ -32,7 +18,7 @@ describe("makeRunSessionFileHandler", () => {
   });
 
   it("non-existent path → warning notify, no prepare", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const prepareScenario = vi.fn();
     const handler = makeRunSessionFileHandler({ prepareScenario, executeRun: vi.fn(), exists: (): boolean => false });
     await handler("/no/such/session.jsonl", ctx);
@@ -41,7 +27,7 @@ describe("makeRunSessionFileHandler", () => {
   });
 
   it("valid path → prepareScenario (extract) → loadManifest → executeRun; buildDeps gets fromSession", async () => {
-    const { ctx } = fakeCtx();
+    const { ctx } = fakeCommandCtx();
     const manifest = { id: "scen-1" };
     const prepareScenario = vi.fn().mockResolvedValue({ repoPath: "/repo/x", manifestPath: "/m.json" });
     const executeRun = vi.fn().mockResolvedValue({ kind: "done" });
@@ -62,7 +48,7 @@ describe("makeRunSessionFileHandler", () => {
   });
 
   it("prepare failure → error notify, no executeRun", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const prepareScenario = vi.fn().mockRejectedValue(new Error("extract guard failed"));
     const handler = makeRunSessionFileHandler({
       prepareScenario,

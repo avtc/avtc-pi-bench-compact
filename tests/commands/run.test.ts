@@ -5,25 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { makeRunHandler } from "../../src/commands/run.js";
 import type { PrepareDeps } from "../../src/production/prepare.js";
 
-function fakeCtx(): { ctx: unknown; notifies: { msg: string; level: string }[] } {
-  const notifies: { msg: string; level: string }[] = [];
-  return {
-    notifies,
-    ctx: {
-      mode: "tui",
-      hasUI: true,
-      ui: {
-        notify: (msg: string, level: string): void => void notifies.push({ msg, level }),
-        setWidget: (): void => {},
-      },
-      switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
-    },
-  };
-}
+import { fakeCommandCtx } from "./helpers.js";
 
 describe("makeRunHandler", () => {
   it("missing idea + no --from-session → warning notify, no prepare", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const prepareScenario = vi.fn();
     const handler = makeRunHandler({ prepareScenario, executeRun: vi.fn() });
     await handler("", ctx);
@@ -32,7 +18,7 @@ describe("makeRunHandler", () => {
   });
 
   it("valid idea → prepareScenario (build) → loadManifest → executeRun with repoPath + manifest", async () => {
-    const { ctx } = fakeCtx();
+    const { ctx } = fakeCommandCtx();
     const manifest = { id: "scen-1" };
     const prepareScenario = vi.fn().mockResolvedValue({ repoPath: "/repo/x", manifestPath: "/m.json" });
     const executeRun = vi.fn().mockResolvedValue({ kind: "done" });
@@ -56,7 +42,7 @@ describe("makeRunHandler", () => {
   });
 
   it("prepare failure → error notify, no executeRun", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const prepareScenario = vi.fn().mockRejectedValue(new Error("simulator blew up"));
     const executeRun = vi.fn();
     const handler = makeRunHandler({ prepareScenario, buildDeps: vi.fn(), executeRun });
@@ -66,7 +52,7 @@ describe("makeRunHandler", () => {
   });
 
   it("invalid manifest after prepare → error notify, no executeRun", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const prepareScenario = vi.fn().mockResolvedValue({ repoPath: "/r", manifestPath: "/m.json" });
     const handler = makeRunHandler({
       prepareScenario,

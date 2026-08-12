@@ -50,6 +50,16 @@ describe("resolveScenarioLayout", () => {
     const layout = resolveScenarioLayout(S1, (): boolean => true);
     expect(layout).toEqual({ ok: true, repoPath: S1_REPO, manifestPath: S1_MANIFEST });
   });
+
+  it("scenario dir with manifest.json but no repo/ subdirectory → error", () => {
+    const exists = (p: string): boolean => p === S1_MANIFEST; // manifest present, repo/ absent
+    const layout = resolveScenarioLayout(S1, exists);
+    expect(layout.ok).toBe(false);
+    if (!layout.ok) {
+      expect(layout.reason).toContain("no repo/");
+      expect(layout.reason).toContain(S1);
+    }
+  });
 });
 
 describe("loadManifestFile", () => {
@@ -125,25 +135,32 @@ describe("executeRun", () => {
     expect(deps.cmdCtx).toBe(ctx);
   });
 
-  it("on stopped → notifies the reason + the resume hint", async () => {
+  it("on stopped → surfaces startRun's detailed stop notify (no double-notify)", async () => {
     const { ctx, notifies } = fakeCtx();
+    const stopMessage = "bench-compact stopped (arm A3): compaction cancelled";
     const result = await executeRun({
       ctx,
       config: { armsEnabled: ["A1"] } as unknown as BenchConfig,
       scenarioRepo: "/repo",
       manifest: MANIFEST,
-      startRun: async () => ({
-        kind: "stopped",
-        arm: null,
-        attempt: null,
-        phase: "phase-1",
-        reason: "cancelled",
-        message: "arm A3 compaction cancelled",
-        runId: "2026-01-01-1",
-      }),
+      startRun: async (deps) => {
+        // realistic: startRun notifies the detailed stop via deps.notify
+        deps.notify?.(stopMessage);
+        return {
+          kind: "stopped",
+          arm: "A3",
+          attempt: null,
+          phase: "phase-1",
+          reason: "cancelled",
+          message: "compaction cancelled",
+          runId: "2026-01-01-1",
+        };
+      },
     });
     expect(result.kind).toBe("stopped");
-    expect(notifies.some((m) => m.includes("stopped") && m.includes("/bench-compact:resume"))).toBe(true);
+    expect(notifies).toContain(stopMessage);
+    // executeRun must NOT add its own redundant stop notify
+    expect(notifies.filter((m) => m.includes("/bench-compact:resume"))).toHaveLength(0);
   });
 
   it("sets the widget active (so /abort can reach it)", async () => {
@@ -179,5 +196,21 @@ describe("executeRun", () => {
       startRun: async () => ({ kind: "done", runId: "r", cfgId: "c", resultsPath: "/p", reportPath: "/r" }),
     });
     expect(result.kind).toBe("done");
+  });
+
+  it("unexpected startRun error → notify 'run failed' + rethrow (stop-and-surface)", async () => {
+    const { ctx, notifies } = fakeCtx();
+    await expect(
+      executeRun({
+        ctx,
+        config: { armsEnabled: ["A1"] } as unknown as BenchConfig,
+        scenarioRepo: "/repo",
+        manifest: MANIFEST,
+        startRun: async () => {
+          throw new Error("config resolution blew up");
+        },
+      }),
+    ).rejects.toThrow("config resolution blew up");
+    expect(notifies.some((m) => m.includes("run failed") && m.includes("config resolution blew up"))).toBe(true);
   });
 });

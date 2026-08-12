@@ -18,13 +18,13 @@ import { parsePositional } from "./parse.js";
 import {
   type ExecuteRunOptions,
   executeRun,
+  guardPreflight,
   loadManifestFile,
   notifyOf,
   type RunHandlerContext,
   registerHandler,
   resolveScenarioLayout,
 } from "./run-shared.js";
-import { preflight } from "./validate.js";
 
 /** Injectable inputs for {@link makeRunScenarioHandler} (tests inject fakes). */
 export interface RunScenarioHandlerOptions {
@@ -46,16 +46,8 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
     const notify = notifyOf(handlerCtx);
 
     const parsed = parsePositional(args);
-    if (parsed.value === undefined) {
-      notify("provide a scenario folder path", "warning");
-      return;
-    }
-    const folder = parsed.value;
-    const check = preflight(getBenchConfig(), "run-scenario", { value: parsed.value }, exists);
-    if (!check.ok) {
-      notify(check.reason, "warning");
-      return;
-    }
+    if (!guardPreflight(handlerCtx, "run-scenario", { value: parsed.value }, exists)) return;
+    const folder = parsed.value ?? ""; // preflight rejected undefined above
 
     const layout = resolveScenarioLayout(folder, exists);
     if (!layout.ok) {

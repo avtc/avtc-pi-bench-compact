@@ -25,6 +25,8 @@ import { setActiveWidget } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
 import type { PrepareArgs } from "./parse.js";
 import { computeScenarioId, defaultBuildPrepareDeps } from "./prepare-scenario.js";
+import type { CommandArgs, CommandKind } from "./validate.js";
+import { preflight } from "./validate.js";
 
 /** A resolved scenario layout: where the git repo + manifest live for a folder. */
 export type ScenarioLayout =
@@ -36,15 +38,21 @@ export type ScenarioLayout =
  * folder. The folder may be either the scenario directory (holds `manifest.json` +
  * `repo/`) or the repo itself (the path `prepare-scenario` prints — `manifest.json`
  * then lives in the parent). Prefers the scenario-dir interpretation when both
- * candidates exist.
+ * candidates exist. Verifies the resolved repo path exists too (a malformed scenario
+ * — manifest present but `repo/` missing — fails loudly here, not opaquely deep in the run).
  */
 export function resolveScenarioLayout(folder: string, exists: (path: string) => boolean): ScenarioLayout {
   const dirManifest = join(folder, "manifest.json");
   if (exists(dirManifest)) {
-    return { ok: true, repoPath: join(folder, "repo"), manifestPath: dirManifest };
+    const repoPath = join(folder, "repo");
+    if (!exists(repoPath)) {
+      return { ok: false, reason: `scenario dir ${folder} has manifest.json but no repo/ subdirectory` };
+    }
+    return { ok: true, repoPath, manifestPath: dirManifest };
   }
   const parentManifest = join(dirname(folder), "manifest.json");
   if (exists(parentManifest)) {
+    // `folder` IS the repo — its existence is the preflight's job; trust it here.
     return { ok: true, repoPath: folder, manifestPath: parentManifest };
   }
   return {
@@ -156,6 +164,8 @@ export interface RunShorthandOptions {
   readonly prepareScenario?: typeof prepareScenarioImpl;
   readonly executeRun?: (opts: ExecuteRunOptions) => Promise<unknown>;
   readonly readManifest?: (path: string, opts: { encoding: "utf-8" }) => string;
+  /** Path-existence checker for preflight (default = fs.existsSync). */
+  readonly exists?: (path: string) => boolean;
 }
 
 /** Resolve the shorthand defaults + run the prepare→run tail. Shared by `run` +
@@ -194,6 +204,23 @@ export function registerHandler(
   pi.registerCommand(name, { description, handler });
 }
 
+/** Run preflight + notify on failure. Returns true if the command may proceed, false
+ *  (after notifying the reason as a warning) if it should abort. Shared by the run
+ *  handlers (collapses the preflight + guard + notify block). */
+export function guardPreflight(
+  ctx: RunHandlerContext,
+  kind: CommandKind,
+  args: CommandArgs,
+  exists: (path: string) => boolean,
+): boolean {
+  const check = preflight(getBenchConfig(), kind, args, exists);
+  if (!check.ok) {
+    notifyOf(ctx)(check.reason, "warning");
+    return false;
+  }
+  return true;
+}
+
 /** The common run tail: build the widget + StartRunDeps, drive the run, notify the
  *  operator of the outcome. Returns the run result (for the handler to surface). */
 export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
@@ -217,12 +244,22 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     },
   };
   const run = opts.startRun ?? startRunImpl;
-  const result = await run(deps);
-
+  let result: RunResult;
+  try {
+    result = await run(deps);
+  } catch (err) {
+    // Unexpected error (startRun setup fault, uncaught throw) — surface it so the
+    // operator sees the run halted, then rethrow (pi's command runner handles the
+    // rejection). The notify is the stop-and-surface channel (failure handling).
+    const msg = err instanceof Error ? err.message : String(err);
+    opts.ctx.ui.notify(`run failed: ${msg}`, "error");
+    throw err;
+  }
   if (result.kind === "done") {
     opts.ctx.ui.notify(`run ${result.runId} done: ${result.resultsPath}`, "info");
-  } else {
-    opts.ctx.ui.notify(`run stopped (${result.reason}): /bench-compact:resume`, "warning");
   }
+  // stopped: startRun already notified the detailed stop message via deps.notify
+  // (arm/attempt/phase + message) — do NOT double-notify. The live-progress widget
+  // also shows the resume hint (setStatus stopped).
   return result;
 }

@@ -5,26 +5,13 @@ import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { makeRunScenarioHandler } from "../../src/commands/run-scenario.js";
 
+import { fakeCommandCtx } from "./helpers.js";
+
 /** A capturing fake ctx with the notify + widget surface. */
-function fakeCtx(): { ctx: unknown; notifies: { msg: string; level: string }[] } {
-  const notifies: { msg: string; level: string }[] = [];
-  return {
-    notifies,
-    ctx: {
-      mode: "tui",
-      hasUI: true,
-      ui: {
-        notify: (msg: string, level: string): void => void notifies.push({ msg, level }),
-        setWidget: (): void => {},
-      },
-      switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
-    },
-  };
-}
 
 describe("makeRunScenarioHandler", () => {
   it("missing folder arg → warning notify, no run", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const executeRun = vi.fn();
     const handler = makeRunScenarioHandler({ executeRun });
     await handler("", ctx);
@@ -33,14 +20,14 @@ describe("makeRunScenarioHandler", () => {
   });
 
   it("non-existent folder → warning notify, no run", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const handler = makeRunScenarioHandler({ executeRun: vi.fn(), exists: (): boolean => false });
     await handler("/no/such/folder", ctx);
     expect(notifies.some((n) => n.level === "warning" && n.msg.includes("not found"))).toBe(true);
   });
 
   it("folder with no manifest.json → warning notify (layout resolution failure)", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const folder = "/scen/repo";
     const handler = makeRunScenarioHandler({
       executeRun: vi.fn(),
@@ -51,7 +38,7 @@ describe("makeRunScenarioHandler", () => {
   });
 
   it("valid folder → resolves layout + loads manifest + calls executeRun with repoPath + manifest", async () => {
-    const { ctx } = fakeCtx();
+    const { ctx } = fakeCommandCtx();
     const folder = "/scen/repo";
     const manifest = { id: "scen-1" };
     const executeRun = vi
@@ -76,7 +63,7 @@ describe("makeRunScenarioHandler", () => {
   });
 
   it("invalid manifest JSON → error notify (load failure)", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const folder = "/scen/repo";
     const parentManifest = join(dirname(folder), "manifest.json");
     const handler = makeRunScenarioHandler({

@@ -10,19 +10,19 @@
 
 import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getBenchConfig } from "../config/accessor.js";
 import { parsePrepareArgs } from "./parse.js";
 import {
+  guardPreflight,
   invokeShorthand,
   notifyOf,
   type RunHandlerContext,
   type RunShorthandOptions,
   registerHandler,
 } from "./run-shared.js";
-import { preflight } from "./validate.js";
 
 /** Build the handler for `/bench-compact:run`. */
 export function makeRunHandler(opts: RunShorthandOptions) {
+  const exists = opts.exists ?? existsSync;
   return async (args: string, ctx: unknown): Promise<void> => {
     const handlerCtx = ctx as RunHandlerContext;
     const notify = notifyOf(handlerCtx);
@@ -32,11 +32,7 @@ export function makeRunHandler(opts: RunShorthandOptions) {
       notify(parsed.error, "warning");
       return;
     }
-    const check = preflight(getBenchConfig(), "run", parsed, existsSync);
-    if (!check.ok) {
-      notify(check.reason, "warning");
-      return;
-    }
+    if (!guardPreflight(handlerCtx, "run", parsed, exists)) return;
 
     await invokeShorthand(handlerCtx, parsed, opts);
   };
