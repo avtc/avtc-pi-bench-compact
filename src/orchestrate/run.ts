@@ -44,8 +44,8 @@ import { type Phase2Result, Phase2StoppedError, type Phase2StopReason, runContin
 import { type ProbeOps, ProbeStoppedError, type ProbeStopReason, runProbes } from "./probes.js";
 import { setRunState, updateRunState } from "./run-state.js";
 import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
-import type { TestSpecOps, TestSpecResult } from "./testspec.js";
-import { runTestSpec } from "./testspec.js";
+import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
+import { runTestSpec, TestSpecFaultError } from "./testspec.js";
 import type { RunTrace } from "./trace.js";
 
 /** A run-scoped abort controller (owned by startRun; threaded into Phase 2/probes/
@@ -55,7 +55,12 @@ import type { RunTrace } from "./trace.js";
 type RunSignal = AbortSignal;
 
 /** Why a run halted (stop-and-surface), across phases. */
-export type RunStopReason = Phase1StopReason | Phase2StopReason | ProbeStopReason | JudgeErrorCategory;
+export type RunStopReason =
+  | Phase1StopReason
+  | Phase2StopReason
+  | ProbeStopReason
+  | TestSpecStopReason
+  | JudgeErrorCategory;
 
 /** Discriminated result of a run. The done branch is Phase-3 (results written);
  *  the stopped branch carries the phase + the arm/attempt (null for a score stop). */
@@ -232,10 +237,20 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // The embedded testSpec runs on each committed attempt branch's project files.
     const testSpecByBranch = new Map<string, TestSpecResult>();
     for (const trace of contResult.traces) {
-      testSpecByBranch.set(
-        trace.branch,
-        testSpec({ repo: deps.scenarioRepo, branch: trace.branch, manifest: deps.manifest, ops: deps.testSpecOps }),
-      );
+      const specResult = testSpec({
+        repo: deps.scenarioRepo,
+        branch: trace.branch,
+        manifest: deps.manifest,
+        ops: deps.testSpecOps,
+      });
+      // A harness fault (runError: spawn error / timeout / checkout fault) is NOT a
+      // subject failure to score — it is a fault the operator must inspect (the
+      // testspec contract promises stop-and-surface; do NOT silently degrade the
+      // task-quality signal).
+      if (specResult.kind === "ran" && specResult.runError) {
+        throw new TestSpecFaultError(trace.branch, specResult.output);
+      }
+      testSpecByBranch.set(trace.branch, specResult);
     }
 
     // --- Phase 3: score every captured run → results.json + report.md ---
@@ -291,6 +306,14 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
     deps.notify?.(`bench-compact stopped (arm ${arm} probe ${probeId}): ${message}`);
     log.warn(`run ${runId} stopped: arm ${arm} probe ${probeId} ${reason} — ${message}`);
     return { kind: "stopped", arm, attempt: null, phase: "probe", reason, message, runId };
+  }
+  if (err instanceof TestSpecFaultError) {
+    const { branch, reason, message } = err;
+    updateRunState({ lastStopReason: message });
+    widget?.setStatus("stopped", "/bench-compact:resume");
+    deps.notify?.(`bench-compact stopped (testSpec on ${branch}): ${message}`);
+    log.warn(`run ${runId} stopped: testSpec on ${branch} ${reason} — ${message}`);
+    return { kind: "stopped", arm: null, attempt: null, phase: "probe", reason, message, runId };
   }
   if (err instanceof BenchJudgeError) {
     const { category, message } = err;

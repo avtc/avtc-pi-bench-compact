@@ -14,6 +14,7 @@ import { type Phase2Deps, type Phase2Result, Phase2StoppedError } from "../../sr
 import { ProbeStoppedError } from "../../src/orchestrate/probes.js";
 import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
+import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 import { setActiveWidget } from "../../src/widget/active-widget.js";
@@ -134,7 +135,7 @@ function probesMock(
 
 /** A typed testSpec mock. */
 function testSpecMock(
-  impl: (deps: { repo: string; branch: string; manifest: ScenarioManifest }) => { kind: "skipped" },
+  impl: (deps: { repo: string; branch: string; manifest: ScenarioManifest }) => TestSpecResult,
 ): ReturnType<typeof vi.fn> {
   return vi.fn(impl);
 }
@@ -611,5 +612,30 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
         modelsPath: join(root, "no-such-models.json"),
       }),
     ).toThrow(/model-unavailable|pricing for evaluated model/);
+  });
+});
+
+describe("startRun — testSpec harness fault (R2-1)", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-testspec-fault-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("a testSpec harness fault (runError) → stopped (probe phase, reason testspec-fault) + notify", async () => {
+    const notify = vi.fn();
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const testSpec = testSpecMock(() => ({ kind: "ran", pass: false, output: "spawn timeout", runError: true }));
+    const deps = makeDeps({ arms: ["A1"], root, notify, phase1, continuations, testSpec });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("stopped");
+    if (result.kind !== "stopped") return;
+    expect(result.phase).toBe("probe");
+    expect(result.reason).toBe("testspec-fault");
+    expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*testSpec/i));
   });
 });

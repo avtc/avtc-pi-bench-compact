@@ -76,6 +76,25 @@ export type TestSpecResult =
   | { readonly kind: "skipped" }
   | { readonly kind: "ran"; readonly pass: boolean; readonly output: string; readonly runError: boolean };
 
+/** Why a testSpec run must stop-and-surface (a harness fault — the command did not
+ *  run, distinct from the subject's failing test which IS the signal). */
+export type TestSpecStopReason = "testspec-fault";
+
+/** Thrown/recorded when an embedded-testSpec run hit a harness fault (`runError:
+ *  true` — spawn error / timeout / checkout fault). The run driver catches it,
+ *  records the reason, notifies the operator, and yields — a harness fault is NOT a
+ *  subject failure to score, it is a fault the operator must inspect. */
+export class TestSpecFaultError extends Error {
+  readonly branch: string;
+  readonly reason: TestSpecStopReason;
+  constructor(branch: string, output: string) {
+    super(`testSpec on ${branch} hit a harness fault (spawn error / timeout): ${output}`);
+    this.name = "TestSpecFaultError";
+    this.branch = branch;
+    this.reason = "testspec-fault";
+  }
+}
+
 /** A minimal view of the exception `execSync` throws on non-zero exit / spawn error. */
 interface ExecException {
   readonly status?: number | null;
