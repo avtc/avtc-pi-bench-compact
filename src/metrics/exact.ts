@@ -27,15 +27,12 @@ import { phaseOneCompactionIndex, sumAssistantOutput } from "./trace-read.js";
 
 /** The stage name for a native pi compaction (no per-stage details). */
 const NATIVE_SUMMARY_STAGE = "native-summary";
+/** The stage name for a present-but-nameless per-stage detail (distinct from native). */
+const UNNAMED_STAGE = "unnamed-stage";
 
-/** One stage of an at-compaction arm's per-stage breakdown (name only for now). */
-export interface StageUsage {
-  readonly name: string;
-}
-
-/** Aggregated cost of the continuation compactions (a run may compact again). */
-export interface Phase2CompactionCost {
-  readonly count: number;
+/** One Phase-2 (continuation) compaction's cost — lossless per-compaction (Task 19
+ * aggregates). `[]` when the run never re-compacted. */
+export interface Phase2CompactionEntry {
   readonly tokensIn: number;
   readonly tokensOut: number;
   readonly cacheRead: number;
@@ -52,33 +49,35 @@ export interface C4Result {
   readonly cacheWrite: number;
   readonly dollars: number;
   readonly wallMs: number;
-  readonly stages: StageUsage[];
-  readonly phase2Compactions: Phase2CompactionCost;
+  readonly stages: string[];
+  readonly phase2Compactions: Phase2CompactionEntry[];
 }
 
 /** A per-stage entry as emitted in CompactionEntry.details.compactionStages. */
 type StageDetail = string | { readonly stage?: string; readonly name?: string; readonly stageName?: string };
 
-/** Extract the stage name from one per-stage detail (defensive over its shape). */
+/** Extract the stage name from one per-stage detail (defensive over its shape).
+ * A present-but-nameless stage object → "unnamed-stage" (NOT native-summary, to avoid
+ * conflating a malformed non-native stage with the native arm). */
 function stageNameOf(detail: StageDetail): string {
   if (typeof detail === "string") return detail;
-  return detail.stage ?? detail.name ?? detail.stageName ?? NATIVE_SUMMARY_STAGE;
+  return detail.stage ?? detail.name ?? detail.stageName ?? UNNAMED_STAGE;
 }
 
 /**
- * Read the boundary compaction's per-stage breakdown. At-compaction arms emit
- * `details.compactionStages` (a per-stage list); the native arm's pi compaction
- * has no such field (its details is { readFiles, modifiedFiles }), so it defaults
- * to a single native-summary stage.
+ * Read the boundary compaction's per-stage breakdown (a list of stage names).
+ * At-compaction arms emit `details.compactionStages` (a per-stage list); the native
+ * arm's pi compaction has no such field (its details is { readFiles, modifiedFiles }),
+ * so it defaults to a single native-summary stage.
  */
-function readStages(details: unknown): StageUsage[] {
+function readStages(details: unknown): string[] {
   if (details !== null && typeof details === "object") {
     const stages = (details as { compactionStages?: unknown }).compactionStages;
     if (Array.isArray(stages) && stages.length > 0) {
-      return stages.map((stage) => ({ name: stageNameOf(stage as StageDetail) }));
+      return stages.map((stage) => stageNameOf(stage as StageDetail));
     }
   }
-  return [{ name: NATIVE_SUMMARY_STAGE }];
+  return [NATIVE_SUMMARY_STAGE];
 }
 
 /** Sum a list of compactions' token quadruples (each usage field guarded to 0). */
@@ -125,44 +124,42 @@ export function computeC3(trace: RunTrace): number {
   return sumAssistantOutput(trace.entries.slice(start));
 }
 
-/** Zeroed continuation-compaction aggregate (when the run never re-compacted). */
-const EMPTY_PHASE2: Phase2CompactionCost = {
-  count: 0,
-  tokensIn: 0,
-  tokensOut: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  dollars: 0,
-  wallMs: 0,
-};
+/** Zeroed continuation-compaction list (when the run never re-compacted). */
+const NO_PHASE2: readonly Phase2CompactionEntry[] = Object.freeze([]);
+
+/** One continuation compaction's per-compaction cost (tokens + dollars + bench wallMs). */
+function phase2Entry(
+  captured: { readonly entry: CompactionEntry; readonly wallMs: number },
+  pricing: Pricing,
+): Phase2CompactionEntry {
+  const tokens = usageTokens(captured.entry.usage);
+  return {
+    tokensIn: tokens.tokensIn,
+    tokensOut: tokens.tokensOut,
+    cacheRead: tokens.cacheRead,
+    cacheWrite: tokens.cacheWrite,
+    dollars: costDollars(tokens, pricing),
+    wallMs: captured.wallMs,
+  };
+}
 
 /**
  * Compaction cost summed across EVERY compaction in the trace: the token
  * quadruple (in/out/cacheRead/cacheWrite, each guarded to 0) summed over all
  * compactions' usage, priced into dollars, plus the bench-captured wall-clock
  * summed over all compactions. `stages` is the boundary (first) compaction's
- * per-stage breakdown (native-summary when absent); `phase2Compactions`
- * aggregates any continuation compactions separately. Pure + deterministic.
+ * per-stage names (native-summary when absent); `phase2Compactions` is the
+ * lossless per-compaction list of any continuation compactions ([] when none).
+ * Pure + deterministic.
  */
 export function computeC4(trace: RunTrace, pricing: Pricing): C4Result {
   const all = trace.compactions;
   const total = sumCompactionTokens(all);
   const phase2List = all.slice(1);
-  const phase2Tokens = sumCompactionTokens(phase2List);
   const boundary = all[0];
-  const stages = boundary === undefined ? [{ name: NATIVE_SUMMARY_STAGE }] : readStages(boundary.entry.details);
-  const phase2Compactions: Phase2CompactionCost =
-    phase2List.length === 0
-      ? EMPTY_PHASE2
-      : {
-          count: phase2List.length,
-          tokensIn: phase2Tokens.tokensIn,
-          tokensOut: phase2Tokens.tokensOut,
-          cacheRead: phase2Tokens.cacheRead,
-          cacheWrite: phase2Tokens.cacheWrite,
-          dollars: costDollars(phase2Tokens, pricing),
-          wallMs: sumWallMs(phase2List),
-        };
+  const stages = boundary === undefined ? [NATIVE_SUMMARY_STAGE] : readStages(boundary.entry.details);
+  const phase2Compactions: Phase2CompactionEntry[] =
+    phase2List.length === 0 ? [...NO_PHASE2] : phase2List.map((captured) => phase2Entry(captured, pricing));
 
   return {
     tokensIn: total.tokensIn,

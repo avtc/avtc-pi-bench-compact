@@ -139,6 +139,18 @@ describe("computeC3 (post-compaction output tokens)", () => {
 
     expect(computeC3(trace)).toBe(computeC3(trace));
   });
+
+  it("sums the whole run's assistant output when the branch has no compaction (lenient fallback)", () => {
+    const entries: SessionEntry[] = [
+      userEntry("u0", null),
+      assistantEntry("a0", "u0", 60),
+      userEntry("u1", "a0"),
+      assistantEntry("a1", "u1", 40),
+    ];
+    const trace = traceOf(entries, []);
+
+    expect(computeC3(trace)).toBe(100);
+  });
 });
 
 describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
@@ -165,17 +177,18 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     // Wall-clock summed from the bench-captured per-compaction timings.
     expect(result.wallMs).toBe(7000);
     // Stages read from the boundary compaction's per-stage details.
-    expect(result.stages).toEqual([{ name: "Observer" }, { name: "Builder" }]);
-    // The continuation compaction's cost is aggregated separately.
-    expect(result.phase2Compactions).toEqual({
-      count: 1,
-      tokensIn: 50000,
-      tokensOut: 300,
-      cacheRead: 40000,
-      cacheWrite: 100,
-      dollars: 0.11405,
-      wallMs: 5000,
-    });
+    expect(result.stages).toEqual(["Observer", "Builder"]);
+    // The continuation compaction's cost is captured losslessly per-compaction (Task 19 aggregates).
+    expect(result.phase2Compactions).toEqual([
+      {
+        tokensIn: 50000,
+        tokensOut: 300,
+        cacheRead: 40000,
+        cacheWrite: 100,
+        dollars: 0.11405,
+        wallMs: 5000,
+      },
+    ]);
   });
 
   it("reads stage names whether emitted as objects or as bare strings", () => {
@@ -184,7 +197,7 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     });
     const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
 
-    expect(computeC4(trace, pricing).stages).toEqual([{ name: "Observer" }, { name: "Builder" }]);
+    expect(computeC4(trace, pricing).stages).toEqual(["Observer", "Builder"]);
   });
 
   it("defaults stages to native-summary when the boundary compaction has no per-stage details (native arm)", () => {
@@ -196,11 +209,11 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     });
     expect(
       computeC4(traceOf([userEntry("u0", null), withNativeDetails.entry], [withNativeDetails]), pricing).stages,
-    ).toEqual([{ name: "native-summary" }]);
+    ).toEqual(["native-summary"]);
 
     const noDetails = compaction("c1", "u0", "summary", makeUsage(1, 1));
     expect(computeC4(traceOf([userEntry("u0", null), noDetails.entry], [noDetails]), pricing).stages).toEqual([
-      { name: "native-summary" },
+      "native-summary",
     ]);
   });
 
@@ -220,15 +233,12 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     expect(result.wallMs).toBe(100);
   });
 
-  it("aggregates phase2Compactions to zero count when the run never re-compacted", () => {
+  it("returns an empty phase2Compactions list when the run never re-compacted", () => {
     const c1 = compaction("c1", "u0", "summary", makeUsageFull(100, 10, 50, 0), { wallMs: 300 });
     const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
 
     const phase2 = computeC4(trace, pricing).phase2Compactions;
-    expect(phase2.count).toBe(0);
-    expect(phase2.tokensIn).toBe(0);
-    expect(phase2.dollars).toBe(0);
-    expect(phase2.wallMs).toBe(0);
+    expect(phase2).toEqual([]);
   });
 
   it("is deterministic — the same trace + pricing yield the same result", () => {
@@ -239,5 +249,25 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
 
     expect(computeC4(trace, pricing)).toEqual(computeC4(trace, pricing));
+  });
+
+  it("returns all-zero C4 + [native-summary] stages + [] phase2 when the trace has no compactions", () => {
+    const trace = traceOf([userEntry("u0", null)], []);
+    const result = computeC4(trace, pricing);
+    expect(result.tokensIn).toBe(0);
+    expect(result.dollars).toBe(0);
+    expect(result.wallMs).toBe(0);
+    expect(result.stages).toEqual(["native-summary"]);
+    expect(result.phase2Compactions).toEqual([]);
+  });
+
+  it("a present-but-nameless stage object → 'unnamed-stage' (NOT native-summary, no conflation)", () => {
+    // A malformed non-native stage with no stage/name/stageName field must not be
+    // mislabeled native-summary (which is reserved for the native arm / absent details).
+    const c1 = compaction("c1", "u0", "summary", makeUsage(1, 1), {
+      details: { compactionStages: [{ unknown: "x" }] },
+    });
+    const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
+    expect(computeC4(trace, pricing).stages).toEqual(["unnamed-stage"]);
   });
 });
