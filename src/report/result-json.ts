@@ -224,6 +224,29 @@ function armToolName(armId: ArmId): string {
 }
 
 /**
+ * Extract the comparable SCALAR per metric from a result-JSON arm's metrics (the
+ * inverse of serialization): binary -> rate, comparative -> rank, exact footprint/
+ * run-cost -> mean, recall-cost -> mean (null when all notRecovered), compaction-
+ * cost -> dollars. Consumed by the report + comparison to derive ΔvsA1 live
+ * (via stats/delta.ts a1Delta) without stored deltas. Pure.
+ */
+export function extractJsonScalars(
+  metrics: Readonly<Partial<Record<MetricId, MetricJson>>>,
+): Partial<Record<MetricId, number | null>> {
+  const scalars: Partial<Record<MetricId, number | null>> = {};
+  for (const [metricId, m] of Object.entries(metrics) as [MetricId, MetricJson | undefined][]) {
+    if (m === undefined) continue;
+    if ("rate" in m) scalars[metricId] = m.rate;
+    else if ("rank" in m) scalars[metricId] = m.rank;
+    else if ("dollars" in m) scalars[metricId] = m.dollars;
+    else if ("notRecoveredRate" in m)
+      scalars[metricId] = m.mean; // recall-cost: null when none recovered
+    else if ("mean" in m) scalars[metricId] = m.mean; // footprint / run-cost
+  }
+  return scalars;
+}
+
+/**
  * Serialize + write the result-JSON to `<root>/runs/<runId>/results.json`. Creates
  * the run dir if absent. Returns the written path.
  */

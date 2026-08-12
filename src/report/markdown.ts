@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+// The operator-facing headline report (markdown) from /bench-compact:results.
+// Renders the result-JSON (exact per-arm values) as the headline report: a header
+// (scenario + runId + cfgId + full config incl. per-arm tool versions), a results
+// table (rates as %, [95% CI], baseline-delta polarity-aware, net-negative
+// flagged, rank 1=best, ↑/↓ polarity), one-line verdicts per comparative axis,
+// a compaction-cost breakdown, a reliability section, + artifact paths. The
+// baseline delta / net-negative are DERIVED LIVE from the exact values +
+// metricDefs.polarity (not stored), so toggling the baseline arm or comparing
+// cross-run stays correct. Omitted when the baseline arm is absent.
+
+import type { ArmId } from "../config/types.js";
+import type { MetricId, MetricPolarity } from "../metrics/defs.js";
+import { a1Delta, isNetNegative, type PerMetricDelta } from "../stats/delta.js";
+import type { BenchResultJson, C4MetricJson, MetricJson } from "./result-json.js";
+import { extractJsonScalars } from "./result-json.js";
+
+/** The canonical metric display order (binary, comparative, then exact). */
+const METRIC_ORDER: readonly MetricId[] = [
+  "E2",
+  "E4",
+  "E5",
+  "E6",
+  "E8", // binary (lowerBetter / higherBetter)
+  "E1",
+  "E3",
+  "E7",
+  "E10", // comparative (rankLowerBetter)
+  "C1",
+  "C3",
+  "C2",
+  "C4", // exact (lowerBetter)
+];
+
+/** Format a rate ∈[0,1] as a percentage with no decimals (62%). */
+function pct(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+/** Format a large count with a K/M suffix (1200 -> 1.2K). */
+function count(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+/** Format a signed delta ([+52] / [-14]). */
+function signed(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+/** The polarity arrow for a metric label (↓ lower-better, ↑ higher-better, rank). */
+function polarityArrow(polarity: MetricPolarity): string {
+  if (polarity === "higherBetter") return "↑";
+  if (polarity === "lowerBetter") return "↓";
+  return ""; // rankLowerBetter — label says "(rank)"
+}
+
+/** Per-arm baseline-delta derived live (null when the baseline arm is absent or a metric missing). */
+function deriveDeltas(result: BenchResultJson): {
+  a1Present: boolean;
+  deltas: Readonly<Partial<Record<ArmId, PerMetricDelta>>>;
+} {
+  const a1 = result.arms.A1;
+  if (a1 === undefined) return { a1Present: false, deltas: {} };
+  const a1Scalars = extractJsonScalars(a1.metrics);
+  const deltas: Partial<Record<ArmId, PerMetricDelta>> = {};
+  for (const [armId, arm] of Object.entries(result.arms) as [ArmId, BenchResultJson["arms"][ArmId]][]) {
+    if (arm === undefined || armId === "A1") continue;
+    const armScalars = extractJsonScalars(arm.metrics);
+    deltas[armId] = a1Delta(armScalars, a1Scalars, result.metricDefs);
+  }
+  return { a1Present: true, deltas };
+}
+
+/** Render one metric cell for one arm (value + CI + Δ + ⚠). */
+function renderCell(
+  metricValue: MetricJson | undefined,
+  delta: number | null | undefined,
+  a1Present: boolean,
+  polarity: MetricPolarity,
+): string {
+  if (metricValue === undefined) return "—";
+  let value: string;
+  if ("rate" in metricValue) value = `${pct(metricValue.rate)} [${pct(metricValue.ci[0])}–${pct(metricValue.ci[1])}]`;
+  else if ("rank" in metricValue) value = String(metricValue.rank);
+  else if ("dollars" in metricValue) value = `$${metricValue.dollars}`;
+  else if ("notRecoveredRate" in metricValue) value = metricValue.mean === null ? "n/a" : count(metricValue.mean);
+  else value = count(metricValue.mean); // exact footprint / run-cost
+  // Baseline delta (omitted for the baseline arm itself + when absent + when delta is null).
+  if (a1Present && delta !== undefined && delta !== null) {
+    const scaled = polarity === "higherBetter" || polarity === "lowerBetter" ? delta : delta;
+    // binary rate-deltas render as percentage points; comparative/exact as raw (count-scaled).
+    let deltaStr: string;
+    if ("rate" in metricValue) deltaStr = `[${signed(Math.round(delta * 100))}]`;
+    else if ("rank" in metricValue) deltaStr = `[${signed(delta)}]`;
+    else deltaStr = `[${signed(Math.round(delta))}]`;
+    value = `${value} ${deltaStr}${isNetNegative(scaled) ? "⚠" : ""}`;
+    void count; // count not used for delta here (raw ints kept readable)
+  }
+  return value;
+}
+
+/** The arms present in the result, in canonical arm order. */
+function armsPresent(result: BenchResultJson): ArmId[] {
+  return (["A1", "A2", "A3", "A4", "A5"] as ArmId[]).filter((a) => result.arms[a] !== undefined);
+}
+
+/** Render the full headline report. Pure. */
+export function renderHeadline(result: BenchResultJson): string {
+  const lines: string[] = [];
+  const arms = armsPresent(result);
+  const { a1Present, deltas } = deriveDeltas(result);
+
+  // --- Header ---
+  lines.push(`# bench-compact — ${result.scenario.id} · run ${result.runId}`);
+  lines.push("");
+  lines.push(
+    `Started ${result.timestamp} · cfg ${result.cfgId} · scenario ${result.scenario.id} · backup ${result.config.backupMode}`,
+  );
+  const c = result.config;
+  lines.push(
+    `Config: eval=${c.evaluatedModel ?? "(default)"} (${c.evaluatedThinkingLevel}) · judge=${c.judgeModel ?? "(default)"} (${c.judgeThinkingLevel}) · N=${c.N} · compactionBoundary=${c.compactionBoundary} · arms ${c.armsEnabled.join(",")}`,
+  );
+  const toolLine = arms
+    .map((a) => {
+      const v = result.toolVersions[a];
+      const ver = v === undefined ? "n/a" : v.source === "git" ? v.commit : v.commit;
+      return `${a} ${result.arms[a]?.tool ?? ""}${v !== undefined ? `@${ver}` : ""}`;
+    })
+    .join(" · ");
+  lines.push(`Tool versions: ${toolLine}`);
+  lines.push("");
+
+  // --- Results table ---
+  const resultsDesc = a1Present
+    ? "## Results   (rates in %; [95% CI]; ΔvsA1 polarity-aware (+ = better than A1; net-negative flagged); rank 1=best; ↑/↓ polarity)"
+    : "## Results   (rates in %; [95% CI]; rank 1=best; ↑/↓ polarity — no A1 baseline)";
+  lines.push(resultsDesc);
+  const header = `| Metric | ${arms.map((a) => `${a} ${result.arms[a]?.tool ?? ""}`).join(" | ")} |`;
+  const sep = `|---|${arms.map(() => "---").join("|")}|`;
+  lines.push(header);
+  lines.push(sep);
+  // rows: union of metrics any arm has, in canonical order
+  const presentMetrics = METRIC_ORDER.filter((m) => arms.some((a) => result.arms[a]?.metrics[m] !== undefined));
+  for (const metric of presentMetrics) {
+    const def = result.metricDefs[metric];
+    const polarity = def?.polarity ?? "lowerBetter";
+    const arrow = polarityArrow(polarity);
+    const chan = def?.channel ?? "exact";
+    const label = `${metric} ${def?.name ?? ""}${chan === "comparative" ? " (rank)" : arrow ? ` (${arrow})` : ""}`;
+    const cells = arms.map((a) => {
+      const mv = result.arms[a]?.metrics[metric];
+      const delta = a === "A1" ? null : (deltas[a]?.[metric] ?? null);
+      return renderCell(mv, delta, a1Present, polarity);
+    });
+    lines.push(`| ${label} | ${cells.join(" | ")} |`);
+  }
+  lines.push("");
+
+  // --- Verdicts (one-line per comparative axis) ---
+  const comparativeAxes = (Object.keys(result.ranks) as MetricId[]).sort();
+  if (comparativeAxes.length > 0) {
+    lines.push("## Verdicts (one-line per comparative axis)");
+    for (const axis of comparativeAxes) {
+      const def = result.metricDefs[axis];
+      const order = result.ranks[axis]?.order ?? [];
+      lines.push(`- ${axis} ${def?.name ?? ""}: ${order.join(" > ")}`);
+    }
+    lines.push("");
+  }
+
+  // --- Compaction-cost breakdown ---
+  const c4Arms = arms.filter((a) => {
+    const m = result.arms[a]?.metrics.C4;
+    return m !== undefined && "dollars" in (m as MetricJson);
+  });
+  if (c4Arms.length > 0) {
+    lines.push("## C4 breakdown (per arm: tokens in/out/cacheR/cacheW + $ + wall + stages)");
+    lines.push("| Arm | in | out | cacheR | cacheW | $ | wall | stages |");
+    lines.push("|---|---|---|---|---|---|---|---|");
+    for (const a of c4Arms) {
+      const c4 = result.arms[a]?.metrics.C4 as C4MetricJson | undefined;
+      if (c4 === undefined) continue;
+      lines.push(
+        `| ${a} ${result.arms[a]?.tool} | ${count(c4.tokensIn)} | ${count(c4.tokensOut)} | ${count(c4.cacheRead)} | ${count(c4.cacheWrite)} | $${c4.dollars} | ${(c4.wallMs / 1000).toFixed(0)}s | ${c4.stages.join("+")} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  // --- Reliability ---
+  lines.push("## Reliability (per arm: completed/failed)");
+  for (const a of arms) {
+    const arm = result.arms[a];
+    const completed = arm?.runsCompleted ?? 0;
+    const failed = arm?.runsFailed ?? 0;
+    lines.push(`- ${a} ${arm?.tool}: ${completed}/${completed + failed} completed, ${failed} failed`);
+  }
+  lines.push("");
+
+  // --- Artifacts ---
+  lines.push("## Artifacts");
+  lines.push(`- scenario repo: ${result.artifacts.scenarioRepo}`);
+  lines.push(
+    `- result-JSON: ${result.artifacts.config.replace("configs", "runs").replace(/cfg-[^/]+\.json$/, `${result.runId}/results.json`)}`,
+  );
+  lines.push(`- judge outputs: ${result.artifacts.judgeDir}`);
+  lines.push(`- config: ${result.artifacts.config}`);
+  return lines.join("\n");
+}
