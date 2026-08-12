@@ -295,11 +295,13 @@ export async function runContinuations(deps: Phase2Deps): Promise<RunTrace[]> {
         currentCtx = sessionCtx;
         const pi = getBenchPi();
         // Phase-2 per-run budget = the model's resolved window, read live from the
-        // switched session's context usage. The simulator paces toward the window (NOT the
-        // Phase-0/1 compactionBoundary, which is strictly below it) so Phase-2 work can run
-        // long enough to trigger the natural auto-compactions the trace must capture.
-        // The context monitor (below) steers the simulator to wrap up near the same window.
-        // Fallback to compactionBoundary only if the window is unavailable (degenerate model).
+        // switched session's context usage (NOT the Phase-0/1 compactionBoundary, which is
+        // strictly below it). Pacing is OWNED by the context monitor (below) — it fires
+        // `onApproachingWindow` near the window to set budgetReached + stop further injects.
+        // `targetContext` itself feeds only the simulator's qualitative prompt guidance
+        // (long vs moderate build); the window value keeps that guidance honest + lets the
+        // run reach the natural auto-compactions the trace must capture. Fallback to
+        // compactionBoundary only if the window is unavailable (degenerate model).
         const usage = sessionCtx.getContextUsage();
         const window = usage?.contextWindow ?? 0;
         const targetContext = window > 0 ? window : deps.config.compactionBoundary;
