@@ -134,10 +134,12 @@ interface MessageLike {
 }
 
 /**
- * Extract the agent's answer to the probe: the LAST assistant message's text on the
- * branch. Iterates from the end; the first (most recent) assistant message whose
- * content has ≥1 `text` block wins, its text blocks concatenated. Returns "" when
- * the branch has no assistant text (an empty/degenerate answer — scored as-is).
+ * Extract the agent's answer to the probe: the most-recent assistant message's text
+ * AFTER the most-recent USER message (the probe inject). The scan is bounded to after
+ * the inject so the compacted-base history (which has its own user/assistant messages)
+ * is never scanned. Returns the concatenated `text` blocks of that assistant message,
+ * or "" if the agent's response was tool-call-only / had no text / there was no
+ * assistant response after the inject (an empty/degenerate answer — scored as-is).
  *
  * Pure transformation of the parsed session entries.
  */
