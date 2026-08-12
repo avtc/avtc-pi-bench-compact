@@ -4,11 +4,13 @@
 import { describe, expect, it } from "vitest";
 import {
   count,
+  dollars,
   formatDeltaSuffix,
   formatMetricValue,
   pct,
   polarityArrow,
   signed,
+  signedCount,
   versionTag,
 } from "../../src/report/format.js";
 
@@ -33,6 +35,16 @@ describe("format primitives", () => {
     expect(signed(0)).toBe("+0");
   });
 
+  it("signedCount: sign + K/M-suffix", () => {
+    expect(signedCount(7200)).toBe("+7.2K");
+    expect(signedCount(-7200)).toBe("-7.2K");
+    expect(signedCount(0)).toBe("+0");
+  });
+  it("dollars: 3-decimal $ value", () => {
+    expect(dollars(0.034567)).toBe("$0.035");
+    expect(dollars(0.034)).toBe("$0.034");
+    expect(dollars(0)).toBe("$0.000");
+  });
   it("polarityArrow: ↑ higher / ↓ lower / empty rank", () => {
     expect(polarityArrow("higherBetter")).toBe("↑");
     expect(polarityArrow("lowerBetter")).toBe("↓");

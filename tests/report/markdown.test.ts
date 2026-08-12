@@ -164,6 +164,24 @@ describe("renderHeadline", () => {
     expect(md).toContain("$0.034"); // A3 dollars
   });
 
+  it("renders dollars to 3 decimals in BOTH the results-table C4 cell + the C4 breakdown (parity)", () => {
+    // A raw-decimal dollar (0.034567) must round to $0.035 in BOTH sites — not raw in one.
+    // Reconstruct immutably (metrics is readonly) overriding A3's C4 dollars.
+    const base = syntheticResult(false);
+    const a3 = base.arms.A3;
+    const a3Metrics = a3?.metrics;
+    const c4 = a3Metrics?.C4;
+    const c4Override = c4 !== undefined && "dollars" in c4 ? ({ ...c4, dollars: 0.034567 } as typeof c4) : c4;
+    const result: BenchResultJson = {
+      ...base,
+      arms: { ...base.arms, A3: a3 !== undefined ? { ...a3, metrics: { ...a3Metrics, C4: c4Override } } : a3 },
+    };
+    const md = renderHeadline(result);
+    expect(md).toContain("$0.035/41s"); // results-table C4 row ($/wall)
+    expect(md).toContain("| $0.035 |"); // C4 breakdown table $ column
+    expect(md).not.toContain("$0.034567"); // no raw decimals anywhere
+  });
+
   it("renders reliability (completed/failed per arm) + stop-and-surface failure notes", () => {
     const md = renderHeadline(syntheticResult(false));
     expect(md).toContain("Reliability");

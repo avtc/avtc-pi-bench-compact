@@ -14,7 +14,15 @@
 import type { ArmId } from "../config/types.js";
 import type { MetricId } from "../metrics/defs.js";
 import { a1Delta, type PerMetricDelta } from "../stats/delta.js";
-import { count, formatDeltaSuffix, formatMetricValue, METRIC_ORDER, polarityArrow, versionTag } from "./format.js";
+import {
+  count,
+  dollars,
+  formatDeltaSuffix,
+  formatMetricValue,
+  METRIC_ORDER,
+  polarityArrow,
+  versionTag,
+} from "./format.js";
 import type { BenchResultJson, C4MetricJson, MetricJson } from "./result-json.js";
 import { extractJsonScalars } from "./result-json.js";
 
@@ -127,7 +135,7 @@ export function renderHeadline(result: BenchResultJson): string {
       const c4 = result.arms[a]?.metrics.C4 as C4MetricJson | undefined;
       if (c4 === undefined) continue;
       lines.push(
-        `| ${a} ${result.arms[a]?.tool} | ${count(c4.tokensIn)} | ${count(c4.tokensOut)} | ${count(c4.cacheRead)} | ${count(c4.cacheWrite)} | $${c4.dollars} | ${(c4.wallMs / 1000).toFixed(0)}s | ${c4.stages.join("+")} |`,
+        `| ${a} ${result.arms[a]?.tool} | ${count(c4.tokensIn)} | ${count(c4.tokensOut)} | ${count(c4.cacheRead)} | ${count(c4.cacheWrite)} | ${dollars(c4.dollars)} | ${(c4.wallMs / 1000).toFixed(0)}s | ${c4.stages.join("+")} |`,
       );
     }
     lines.push("");

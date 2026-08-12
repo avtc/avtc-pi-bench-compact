@@ -37,7 +37,13 @@ export function signedCount(n: number): string {
 /** Sign-prefixed dollar delta (3 decimals): +$0.011 / -$0.033 / +$0.000. For compaction-cost deltas. */
 export function signedDollars(n: number): string {
   const sign = n > 0 ? "+" : n < 0 ? "-" : "+";
-  return `${sign}$${Math.abs(n).toFixed(3)}`;
+  return `${sign}${dollars(Math.abs(n))}`;
+}
+
+/** Bare dollar value (3 decimals): $0.034 / $0.035. Shared by the results-table cell
+ *  + the compaction-cost breakdown so both render dollars identically. */
+export function dollars(n: number): string {
+  return `$${n.toFixed(3)}`;
 }
 
 /** The polarity arrow for a metric label (↓ lower-better, ↑ higher-better). */
@@ -75,7 +81,7 @@ export const METRIC_ORDER: readonly MetricId[] = [
 export function formatMetricValue(v: MetricJson): string {
   if ("rate" in v) return `${pct(v.rate)} [${pct(v.ci[0])}–${pct(v.ci[1])}]`;
   if ("rank" in v) return String(v.rank);
-  if ("dollars" in v) return `$${v.dollars.toFixed(3)}/${Math.round(v.wallMs / 1000)}s`; // $/wall (compaction-cost row, 3-decimal $)
+  if ("dollars" in v) return `${dollars(v.dollars)}/${Math.round(v.wallMs / 1000)}s`; // $/wall (compaction-cost row, 3-decimal $)
   if ("notRecoveredRate" in v) return v.mean === null ? "n/a" : count(v.mean);
   return count(v.mean); // exact footprint / run-cost
 }
