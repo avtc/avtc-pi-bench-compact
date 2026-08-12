@@ -270,4 +270,30 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
     expect(computeC4(trace, pricing).stages).toEqual(["unnamed-stage"]);
   });
+
+  it("a present-but-EMPTY compactionStages array → [] (NOT native-summary; the arm ran, emitted no stages)", () => {
+    // R2-1: an empty array is present (the arm is NOT native) — must not fall through
+    // to native-summary. Only an ABSENT compactionStages field (native arm) gets it.
+    const c1 = compaction("c1", "u0", "summary", makeUsage(1, 1), {
+      details: { compactionStages: [] },
+    });
+    const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
+    expect(computeC4(trace, pricing).stages).toEqual([]);
+  });
+
+  it("captures ≥2 Phase-2 compactions as a lossless per-compaction array in file order", () => {
+    // R2-2: §3.8 permits multiple Phase-2 compactions; the array length + ordering
+    // must be locked in (boundary c1 + phase-2 c2, c3 → 2 entries, file order).
+    const c1 = compaction("c1", "u0", "s1", makeUsageFull(100, 10, 50, 0), { wallMs: 1000 });
+    const c2 = compaction("c2", "c1", "s2", makeUsageFull(200, 20, 30, 0), { wallMs: 2000 });
+    const c3 = compaction("c3", "c2", "s3", makeUsageFull(300, 30, 10, 0), { wallMs: 3000 });
+    const trace = traceOf([userEntry("u0", null), c1.entry, c2.entry, c3.entry], [c1, c2, c3]);
+
+    const phase2 = computeC4(trace, pricing).phase2Compactions;
+    expect(phase2).toHaveLength(2);
+    expect(phase2[0]?.tokensIn).toBe(200); // c2 first
+    expect(phase2[0]?.wallMs).toBe(2000);
+    expect(phase2[1]?.tokensIn).toBe(300); // c3 second
+    expect(phase2[1]?.wallMs).toBe(3000);
+  });
 });

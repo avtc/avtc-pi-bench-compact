@@ -68,12 +68,14 @@ function stageNameOf(detail: StageDetail): string {
  * Read the boundary compaction's per-stage breakdown (a list of stage names).
  * At-compaction arms emit `details.compactionStages` (a per-stage list); the native
  * arm's pi compaction has no such field (its details is { readFiles, modifiedFiles }),
- * so it defaults to a single native-summary stage.
+ * so it defaults to a single native-summary stage. A PRESENT-but-empty array is NOT
+ * the native arm — return [] (the arm emitted no stages), avoiding the same conflation
+ * fixed earlier for nameless stage objects.
  */
 function readStages(details: unknown): string[] {
   if (details !== null && typeof details === "object") {
     const stages = (details as { compactionStages?: unknown }).compactionStages;
-    if (Array.isArray(stages) && stages.length > 0) {
+    if (Array.isArray(stages)) {
       return stages.map((stage) => stageNameOf(stage as StageDetail));
     }
   }
