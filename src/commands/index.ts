@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
+import { hideActiveWidget } from "../widget/active-widget.js";
 import { parsePositional, parsePrepareArgs } from "./parse.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { registerResultsCommand } from "./results.js";
@@ -59,13 +60,13 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // abort: real-minimal now (not a stub — it is a real handler). No
-  // run-state or widget exists yet (Tasks 18/19), so this just signals abort intent
-  // without crashing. `preflight` is not applicable (abort needs no args/config).
+  // abort: stops the run cleanly + tears down the live-progress widget.
+  // `preflight` is not applicable (abort needs no args/config).
   pi.registerCommand("bench-compact:abort", {
     description: "Stop the run cleanly (tears down the progress widget).",
     handler: async (_args, ctx) => {
-      ctx.ui.notify("aborted (no run in progress)", "info");
+      hideActiveWidget();
+      ctx.ui.notify("aborted", "info");
     },
   });
 

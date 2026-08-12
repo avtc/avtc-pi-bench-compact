@@ -31,6 +31,8 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
 import { benchRoot, runDir } from "../storage/paths.js";
+import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
+import { NO_DETAIL } from "../widget/tracker.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -70,6 +72,9 @@ export interface StartRunDeps {
   ops?: Partial<Phase1Ops>;
   /** Tool-version resolver (default = real filesystem resolution). Tests inject a fake. */
   versionResolver?: VersionResolver;
+  /** The live-progress widget (TUI-only). Null in non-TUI/batch → the run simply
+   *  drives it through phase transitions; the widget itself is a no-op when null. */
+  widget?: WidgetPort | null;
 }
 
 /** Why a run halted (stop-and-surface), across phases. */
@@ -148,6 +153,14 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   });
   log.info(`run ${runId} started: cfg ${cfgId}, arms [${deps.config.armsEnabled.join(", ")}]`);
 
+  // Show the live-progress widget from run start (Phase-1 = compact cell). The
+  // widget is null in non-TUI/batch → these calls are skipped. Register it as the
+  // active widget so `/bench-compact:abort` can tear it down.
+  const widget = deps.widget ?? null;
+  setActiveWidget(widget);
+  widget?.show();
+  widget?.startPhase("compact", NO_DETAIL);
+
   const phase1 = deps.phase1 ?? runPhase1;
   const continuations = deps.continuations ?? runContinuations;
   try {
@@ -167,6 +180,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // deps.cmdCtx (switchSession invalidates the ctx it's called on). Passing the
     // stale cmdCtx here would make the first continuation's switchSession throw.
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
+    widget?.startPhase("resume", NO_DETAIL);
     const traces = await continuations({
       cmdCtx: finalCtx,
       armBases: bases,
@@ -180,11 +194,14 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // Phase-3 scoring. Deferred to Task 14 because runProbes needs the final fresh
     // ctx threaded out of runContinuations (a Task-13a return change); the modules
     // (src/orchestrate/probes.ts, src/orchestrate/testspec.ts) are ready.
+    // Phase-2 done → the widget stays visible (done line) until /bench-compact:abort.
+    widget?.setStatus("done", "/bench-compact:results");
     return { kind: "phase2-done", bases, traces, runId, cfgId };
   } catch (err) {
     if (err instanceof Phase1StoppedError) {
       const { arm, reason, message } = err;
       updateRunState({ lastStopReason: message });
+      widget?.setStatus("stopped", "/bench-compact:resume");
       deps.notify?.(`bench-compact stopped (arm ${arm}): ${message}`);
       log.warn(`run ${runId} stopped: arm ${arm} ${reason} — ${message}`);
       return { kind: "stopped", arm, attempt: null, reason, message, runId };
@@ -192,6 +209,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     if (err instanceof Phase2StoppedError) {
       const { arm, attempt, reason, message } = err;
       updateRunState({ lastStopReason: message });
+      widget?.setStatus("stopped", "/bench-compact:resume");
       deps.notify?.(`bench-compact stopped (arm ${arm} attempt ${attempt}): ${message}`);
       log.warn(`run ${runId} stopped: arm ${arm} attempt ${attempt} ${reason} — ${message}`);
       return { kind: "stopped", arm, attempt, reason, message, runId };

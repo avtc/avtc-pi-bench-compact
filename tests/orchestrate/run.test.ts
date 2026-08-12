@@ -18,6 +18,8 @@ import { type Phase2Deps, Phase2StoppedError } from "../../src/orchestrate/phase
 import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
+import type { WidgetPort } from "../../src/widget/active-widget.js";
+import { setActiveWidget } from "../../src/widget/active-widget.js";
 
 function makeConfig(arms: BenchConfig["armsEnabled"]): BenchConfig {
   return {
@@ -54,6 +56,7 @@ function makeDeps(opts: {
   continuations?: ReturnType<typeof vi.fn<(deps: Phase2Deps) => Promise<RunTrace[]>>>;
   now?: () => Date;
   notify?: (m: string) => void;
+  widget?: WidgetPort | null;
 }): StartRunDeps {
   // The fresh pi + proxies are NOT passed to startRun — runPhase1 reads them from
   // globalThis inside each withSession (bench-ctx.ts). Only cmdCtx is threaded.
@@ -65,6 +68,7 @@ function makeDeps(opts: {
     root: opts.root,
     now: opts.now ?? (() => new Date("2026-08-11T10:00:00Z")),
     notify: opts.notify,
+    widget: opts.widget ?? null,
     phase1: opts.phase1,
     // Default = a no-op continuations stub so tests never run the real Phase 2.
     continuations: opts.continuations ?? continuationsMock(async () => []),
@@ -117,8 +121,29 @@ function fakeTraces(arms: BenchConfig["armsEnabled"]): RunTrace[] {
   }));
 }
 
+/** A capturing WidgetPort: records every method call in order. */
+function capturingWidget(): WidgetPort & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    show: () => {
+      calls.push("show");
+    },
+    startPhase: (phase, detail) => {
+      calls.push(`startPhase:${phase}:${detail ?? "-"}`);
+    },
+    setStatus: (status, hint) => {
+      calls.push(`setStatus:${status}:${hint ?? "-"}`);
+    },
+    hide: () => {
+      calls.push("hide");
+    },
+  };
+}
+
 afterEach(() => {
   clearRunState();
+  setActiveWidget(null);
 });
 
 describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)", () => {
@@ -277,3 +302,49 @@ describe("startRun — Phase-2 stop-and-surface", () => {
 
 // Phase 2b probes + Phase 3 scoring are appended by later tasks.
 void (undefined as unknown as Phase1Ops);
+
+describe("startRun — live-progress widget wiring", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-widget-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("shows on run start (compact cell), advances to resume on Phase-2, done on completion", async () => {
+    const widget = capturingWidget();
+    const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
+    const deps = makeDeps({ arms: ["A1"], root, phase1, widget });
+
+    await startRun(deps);
+
+    // show + compact at start, resume after Phase-1, done on Phase-2 completion.
+    expect(widget.calls).toEqual([
+      "show",
+      "startPhase:compact:-",
+      "startPhase:resume:-",
+      "setStatus:done:/bench-compact:results",
+    ]);
+  });
+
+  it("Phase-1 stop → setStatus stopped with the resume hint (stays visible)", async () => {
+    const widget = capturingWidget();
+    const phase1 = phase1Mock(async () => {
+      throw new Phase1StoppedError("A3", "cancelled", "arm A3 compaction cancelled");
+    });
+    const deps = makeDeps({ arms: ["A3"], root, phase1, widget });
+
+    const result = await startRun(deps);
+
+    expect(result.kind).toBe("stopped");
+    expect(widget.calls).toContain("setStatus:stopped:/bench-compact:resume");
+    expect(widget.calls).not.toContain("setStatus:done:/bench-compact:results");
+  });
+
+  it("null widget (non-TUI) → run proceeds with no widget calls (no throw)", async () => {
+    const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
+    const deps = makeDeps({ arms: ["A1"], root, phase1, widget: null });
+    await expect(startRun(deps)).resolves.toMatchObject({ kind: "phase2-done" });
+  });
+});

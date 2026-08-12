@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
+
+// Module-level active-widget ref — the one widget currently shown for the
+// active bench run. The orchestrator sets it on run start (so `/bench-compact:abort`
+// can reach it without a ctx/handle threaded through the command); abort hides it.
+// Mirrors run-state's globalThis singleton pattern (one active widget per process).
+
+import type { WidgetPhase, WidgetStatus } from "./render.js";
+
+/** The narrow widget surface the orchestrator + abort use. {@link WidgetController}
+ *  satisfies this structurally; tests inject capturing implementations. */
+export interface WidgetPort {
+  show(): void;
+  startPhase(phase: WidgetPhase, detail: string | null): void;
+  setStatus(status: WidgetStatus, hint: string | null): void;
+  hide(): void;
+}
+
+const GLOBAL_KEY = "__benchCompactActiveWidget";
+
+function read(): WidgetPort | null {
+  return ((globalThis as Record<string, unknown>)[GLOBAL_KEY] as WidgetPort | null) ?? null;
+}
+
+function write(w: WidgetPort | null): void {
+  if (w === null) {
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = null;
+  } else {
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = w;
+  }
+}
+
+/** Set the active widget (the run-start widget), or null to clear. */
+export function setActiveWidget(widget: WidgetPort | null): void {
+  write(widget);
+}
+
+/** The active widget, or null when no run is active. */
+export function getActiveWidget(): WidgetPort | null {
+  return read();
+}
+
+/** Hide the active widget (tear down its TUI line). No-op when none is active. */
+export function hideActiveWidget(): void {
+  read()?.hide();
+}
