@@ -7,6 +7,7 @@ import { executeRun, loadManifestFile, resolveScenarioLayout } from "../../src/c
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { getActiveWidget, setActiveWidget } from "../../src/widget/active-widget.js";
+import { fakeCommandCtx } from "./helpers.js";
 
 const S1 = join("root", "scenarios", "s1");
 const S1_REPO = join(S1, "repo");
@@ -75,40 +76,10 @@ describe("loadManifestFile", () => {
   });
 });
 
-/** A fake command ctx (mode/hasUI/ui + switchSession) capturing notifies + widget sets. */
-function fakeCtx(opts: { mode?: string; hasUI?: boolean } = {}): {
-  ctx: {
-    mode: string;
-    hasUI: boolean;
-    ui: {
-      notify: (m: string, l: string) => void;
-      setWidget: (k: string, c: unknown, o: { placement: string }) => void;
-    };
-    switchSession: (p: string, o?: { withSession?: (c: unknown) => Promise<void> }) => Promise<{ cancelled: boolean }>;
-  };
-  notifies: string[];
-} {
-  const notifies: string[] = [];
-  return {
-    notifies,
-    ctx: {
-      mode: opts.mode ?? "tui",
-      hasUI: opts.hasUI ?? true,
-      ui: {
-        notify: (m: string): void => {
-          notifies.push(m);
-        },
-        setWidget: (): void => {},
-      },
-      switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
-    },
-  };
-}
-
 describe("executeRun", () => {
   it("on done → notifies the results path + returns the run result", async () => {
     setActiveWidget(null);
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const config = { armsEnabled: ["A1"] } as unknown as BenchConfig;
     const captured: unknown[] = [];
     const result = await executeRun({
@@ -128,7 +99,7 @@ describe("executeRun", () => {
       },
     });
     expect(result.kind).toBe("done");
-    expect(notifies.some((m) => m.includes("done") && m.includes("/runs/r1/results.json"))).toBe(true);
+    expect(notifies.some((n) => n.msg.includes("done") && n.msg.includes("/runs/r1/results.json"))).toBe(true);
     const deps = captured[0] as { cmdCtx: unknown; config: unknown; scenarioRepo: string; manifest: ScenarioManifest };
     expect(deps.scenarioRepo).toBe("/repo");
     expect(deps.manifest.id).toBe("scen-1");
@@ -136,7 +107,7 @@ describe("executeRun", () => {
   });
 
   it("on stopped → surfaces startRun's detailed stop notify (no double-notify)", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     const stopMessage = "bench-compact stopped (arm A3): compaction cancelled";
     const result = await executeRun({
       ctx,
@@ -158,9 +129,9 @@ describe("executeRun", () => {
       },
     });
     expect(result.kind).toBe("stopped");
-    expect(notifies).toContain(stopMessage);
+    expect(notifies.some((n) => n.msg === stopMessage)).toBe(true);
     // executeRun must NOT add its own redundant stop notify
-    expect(notifies.filter((m) => m.includes("/bench-compact:resume"))).toHaveLength(0);
+    expect(notifies.filter((n) => n.msg.includes("/bench-compact:resume"))).toHaveLength(0);
   });
 
   it("sets the widget active (so /abort can reach it)", async () => {
@@ -187,7 +158,7 @@ describe("executeRun", () => {
   });
 
   it("non-TUI ctx → widget is inert (null deps) but run still proceeds", async () => {
-    const { ctx } = fakeCtx({ mode: "json", hasUI: false });
+    const { ctx } = fakeCommandCtx({ mode: "json", hasUI: false });
     const result = await executeRun({
       ctx,
       config: { armsEnabled: ["A1"] } as unknown as BenchConfig,
@@ -199,7 +170,7 @@ describe("executeRun", () => {
   });
 
   it("unexpected startRun error → notify 'run failed' + rethrow (stop-and-surface)", async () => {
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies } = fakeCommandCtx();
     await expect(
       executeRun({
         ctx,
@@ -211,6 +182,8 @@ describe("executeRun", () => {
         },
       }),
     ).rejects.toThrow("config resolution blew up");
-    expect(notifies.some((m) => m.includes("run failed") && m.includes("config resolution blew up"))).toBe(true);
+    expect(notifies.some((n) => n.msg.includes("run failed") && n.msg.includes("config resolution blew up"))).toBe(
+      true,
+    );
   });
 });
