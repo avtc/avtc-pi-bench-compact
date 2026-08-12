@@ -77,9 +77,9 @@ export interface CalibrationGateInput {
 export interface CalibrationGateResult {
   /** True iff both gates pass (or the respective sample set is empty). */
   readonly pass: boolean;
-  /** Fraction of binary samples where the judge matched gold (0 when no binary samples). */
+  /** Fraction of binary samples where the judge matched gold (1 when there are none — the gate trivially passes). */
   readonly binaryAgreement: number;
-  /** Fraction of slots whose WHOLE judge order is within +/-1 of gold (0 when none). */
+  /** Fraction of slots whose WHOLE judge order is within +/-1 of gold (1 when there are none — the gate trivially passes). */
   readonly rankAccuracy: number;
   readonly binaryCount: number;
   readonly comparativeCount: number;
