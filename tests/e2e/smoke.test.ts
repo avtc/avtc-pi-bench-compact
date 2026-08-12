@@ -32,43 +32,15 @@ import type { BenchResultJson } from "../../src/report/result-json.js";
 import { initScenarioRepo } from "../../src/storage/repo.js";
 import { fakeCommandCtx } from "../commands/helpers.js";
 import {
+  buildProbeAnswers,
   buildRealisticTrace,
+  FINAL_CTX,
+  fakeBases,
   makeBenchConfig,
   makeScoreDeps,
   makeSmokeManifest,
   makeVersionResolver,
 } from "./helpers.js";
-
-/** A sentinel for the threaded fresh ctx (so tests can assert it is forwarded, not the original cmdCtx). */
-const FINAL_CTX = { __finalCtx: true } as unknown as ExtensionCommandContext;
-
-/** Build the per-arm compacted bases the Phase-1 mock returns (one per enabled arm). */
-function fakeBases(arms: readonly ArmId[]): ArmBase[] {
-  const toolOf: Record<ArmId, string> = {
-    A1: "bare-pi",
-    A2: "om-default",
-    A3: "memkeeper-builder",
-    A4: "memkeeper-selector",
-    A5: "om-full",
-  };
-  return arms.map((arm) => ({
-    arm,
-    tool: toolOf[arm],
-    ver: arm === "A1" ? undefined : "gabcdef",
-    cfgId: "cfg-x",
-    branch: `arm-${arm}-base`,
-    wallMs: 4200,
-    usage: undefined,
-  }));
-}
-
-/** Build the two direct-probe answers for one arm (matching the smoke manifest's probes by position). */
-function buildProbeAnswers(arm: ArmId): ProbeTrace[] {
-  return [
-    { arm, probeId: "1", branch: `probe-${arm}-1`, answer: "the production formula", kept: true },
-    { arm, probeId: "2", branch: `probe-${arm}-2`, answer: "I cannot decide without more information", kept: true },
-  ];
-}
 
 /** Read + parse the run's results.json into the typed result-v1 shape. */
 function readResultJson(resultsPath: string): BenchResultJson {

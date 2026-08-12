@@ -9,7 +9,8 @@
 // StartRunDeps) and tests/orchestrate/score.test.ts (CallJudge / stage seams /
 // realistic RunTrace), consolidated into one place so the two smoke cases stay DRY.
 
-import type { CompactionEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import type { CompactionEntry, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { VersionResolver } from "../../src/arms/version.js";
 import type { ArmId, BenchConfig } from "../../src/config/types.js";
 import type { Shuffle } from "../../src/judge/ranking.js";
@@ -18,8 +19,11 @@ import type { JsonToolStageSeams } from "../../src/judge/stage-runner.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import type { MetricId } from "../../src/metrics/defs.js";
 import type { Pricing } from "../../src/metrics/pricing.js";
-import type { BuildScoreDepsArgs } from "../../src/orchestrate/run.js";
+import type { ArmBase } from "../../src/orchestrate/phase1.js";
+import type { ProbeTrace } from "../../src/orchestrate/probes.js";
+import type { BuildScoreDepsArgs, StartRunDeps } from "../../src/orchestrate/run.js";
 import type { ScoreRunDeps } from "../../src/orchestrate/score.js";
+import { scoreRun } from "../../src/orchestrate/score.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
 import type { StageRunInput } from "../../src/runtime/agent-loop.js";
 import type { JsonOutputTool } from "../../src/runtime/tools.js";
@@ -298,4 +302,81 @@ export function makeVersionResolver(): VersionResolver {
     gitHead: () => "abcdef1234567890",
     npmVersion: () => null,
   };
+}
+
+/** Sentinel for the threaded fresh ctx (so tests can assert it is forwarded, not the original cmdCtx). */
+export const FINAL_CTX = { __finalCtx: true } as unknown as ExtensionCommandContext;
+
+/** The descriptive tool name for each arm id (mirrors the production arm→tool map). */
+const ARM_TOOL: Record<ArmId, string> = {
+  A1: "bare-pi",
+  A2: "om-default",
+  A3: "memkeeper-builder",
+  A4: "memkeeper-selector",
+  A5: "om-full",
+};
+
+/** The boundary wall-clock every compacted base reports. */
+const BASE_WALL_MS = 4200;
+
+/** Build the per-arm compacted bases (one per enabled arm). */
+export function fakeBases(arms: readonly ArmId[]): ArmBase[] {
+  return arms.map((arm) => ({
+    arm,
+    tool: ARM_TOOL[arm],
+    ver: arm === "A1" ? undefined : "gabcdef",
+    cfgId: "cfg-x",
+    branch: `arm-${arm}-base`,
+    wallMs: BASE_WALL_MS,
+    usage: undefined,
+  }));
+}
+
+/** The compaction stage names a memory arm carries (the native arm passes null). */
+const MEMORY_STAGES: readonly string[] = ["observer", "builder", "selector"];
+
+/** Build the two direct-probe answers for one arm (matching the smoke manifest's probes by position). */
+export function buildProbeAnswers(arm: ArmId): ProbeTrace[] {
+  return [
+    { arm, probeId: "1", branch: `probe-${arm}-1`, answer: "the production formula", kept: true },
+    { arm, probeId: "2", branch: `probe-${arm}-2`, answer: "I cannot decide without more information", kept: true },
+  ];
+}
+
+/** Build the realistic continuation traces for the enabled arms (native arm single-stage; memory arms multi-stage). */
+function buildArmTraces(arms: readonly ArmId[]): RunTrace[] {
+  return arms.map((arm) =>
+    arm === "A1"
+      ? buildRealisticTrace("A1", "arm-A1-1", null)
+      : buildRealisticTrace(arm, `arm-${arm}-1`, MEMORY_STAGES),
+  );
+}
+
+/**
+ * Build a complete StartRunDeps for a 2-arm (or wider) run: plain (non-spy) phase
+ * functions returning realistic traces, the REAL scoring orchestrator, the canned
+ * judge/pricing deps, + the fake version resolver. Used by tests that drive the
+ * full pipeline for determinism/shape assertions WITHOUT needing per-phase call
+ * counts (the smoke test wires its OWN vi.fn spies for those). Pure: every call
+ * rebuilds fresh closures, so two drives with the same args behave identically.
+ */
+export function makeSmokeDeps(root: string, arms: readonly ArmId[]): StartRunDeps {
+  const traces = buildArmTraces(arms);
+  const bases = fakeBases(arms);
+  return {
+    cmdCtx: {} as unknown as ExtensionCommandContext,
+    config: makeBenchConfig(arms),
+    scenarioRepo: join(root, "scenario-repo"),
+    manifest: makeSmokeManifest(),
+    root,
+    now: () => new Date("2026-08-11T10:00:00Z"),
+    widget: null,
+    phase1: async () => ({ bases, finalCtx: FINAL_CTX }),
+    continuations: async () => ({ traces, finalCtx: FINAL_CTX }),
+    probes: async (d: { armBase: ArmBase }) => ({ traces: buildProbeAnswers(d.armBase.arm), finalCtx: FINAL_CTX }),
+    testSpec: () => ({ kind: "skipped" as const }),
+    score: scoreRun,
+    buildScoreDeps: makeScoreDeps,
+    versionResolver: makeVersionResolver(),
+  } as unknown as StartRunDeps;
 }
