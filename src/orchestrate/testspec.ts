@@ -139,7 +139,20 @@ export function runTestSpec(deps: TestSpecDeps): TestSpecResult {
     return { kind: "skipped" };
   }
 
-  ops.checkout(deps.repo, deps.branch);
+  // Checkout is part of the runError contract: a checkout fault (corrupt branch / git
+  // error) is a HARNESS fault, not a subject failure. Wrap it so the discriminated
+  // result is always returned (never throws past the contract the JSDoc promises).
+  try {
+    ops.checkout(deps.repo, deps.branch);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      kind: "ran",
+      pass: false,
+      output: `testSpec checkout failed: ${message}`,
+      runError: true,
+    };
+  }
   const result = ops.exec(testSpec, deps.repo, TESTSPEC_TIMEOUT_MS);
   const pass = result.exitCode === EXIT_SUCCESS;
   const runError = result.exitCode === null; // null = spawn error / timeout (did not run)

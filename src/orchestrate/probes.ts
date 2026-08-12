@@ -23,10 +23,8 @@
 // `ProbeStoppedError`; the run driver catches + notifies. An abort (run signal)
 // is `probe-hung`; any other error is `probe-failed`.
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import type { ArmId } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
@@ -39,6 +37,7 @@ import { isQaOnlyBranch } from "../storage/probe-lifecycle.js";
 import { branchExists, checkout, commitAll, forkBranch, resetBranch } from "../storage/repo.js";
 import { getBenchPi } from "./bench-ctx.js";
 import type { ArmBase } from "./phase1.js";
+import { readSessionEntries } from "./trace.js";
 
 /** Separator between the anti-peek preamble and the probe question in the inject body. */
 const ANTI_PEEK_SEPARATOR = "\n\n";
@@ -134,11 +133,6 @@ interface MessageLike {
   };
 }
 
-/** True for a parsed file entry that is a real session entry (not the file header). */
-function isParsedEntry(entry: { type: string }): entry is SessionEntry {
-  return entry.type !== "session";
-}
-
 /**
  * Extract the agent's answer to the probe: the LAST assistant message's text on the
  * branch. Iterates from the end; the first (most recent) assistant message whose
@@ -148,13 +142,29 @@ function isParsedEntry(entry: { type: string }): entry is SessionEntry {
  * Pure transformation of the parsed session entries.
  */
 export function extractProbeAnswer(entries: readonly SessionEntry[]): string {
+  // The answer is the agent's response to the probe inject. We bound the scan to AFTER
+  // the most-recent USER message (the probe inject): the compacted-base history has its
+  // own user/assistant messages, so without this bound a tool-call-only probe response
+  // (or a run with no assistant response) would scan backward into the base + return a
+  // STALE base message as the probe "answer" (silent probe scoring corruption).
+  let injectIdx = -1;
   for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i] as SessionEntry as MessageLike;
+    const candidate = entries[i] as MessageLike;
+    if (candidate.type === "message" && candidate.message?.role === "user") {
+      injectIdx = i;
+      break;
+    }
+  }
+  if (injectIdx === -1) return ""; // no user message — no probe inject found
+  // Return the most-recent assistant message's text AFTER the inject ("" if the agent's
+  // final message was tool-call-only — no clean text answer).
+  for (let i = entries.length - 1; i > injectIdx; i--) {
+    const entry = entries[i] as MessageLike;
     if (entry.type !== "message") continue;
     const message = entry.message;
     if (message === undefined || message.role !== "assistant") continue;
     const content = message.content;
-    if (!Array.isArray(content)) continue;
+    if (!Array.isArray(content)) return "";
     const texts: string[] = [];
     for (const block of content) {
       if (typeof block !== "object" || block === null) continue;
@@ -163,9 +173,9 @@ export function extractProbeAnswer(entries: readonly SessionEntry[]): string {
         texts.push(blockLike.text);
       }
     }
-    if (texts.length > 0) return texts.join("");
+    return texts.join("");
   }
-  return "";
+  return ""; // no assistant message after the inject
 }
 
 /**
@@ -175,10 +185,7 @@ export function extractProbeAnswer(entries: readonly SessionEntry[]): string {
  * (so the answer is captured on the live, uncommitted transcript).
  */
 function readProbeAnswer(repo: string): string {
-  const tracePath = join(repo, SESSION_FILE);
-  const content = readFileSync(tracePath, "utf8");
-  const entries = parseSessionEntries(content).filter(isParsedEntry);
-  return extractProbeAnswer(entries);
+  return extractProbeAnswer(readSessionEntries(repo));
 }
 
 const DEFAULT_OPS: ProbeOps = {

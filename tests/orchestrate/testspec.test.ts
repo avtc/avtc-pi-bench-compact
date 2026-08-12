@@ -101,3 +101,23 @@ describe("runTestSpec — checkout + exec wiring", () => {
     expect(ops.exec).toHaveBeenCalledWith("npm test", REPO, TESTSPEC_TIMEOUT_MS);
   });
 });
+
+describe("runTestSpec — checkout-fault handling (R1-6: a harness fault, not a thrown contract break)", () => {
+  it("a checkout error → {ran, pass:false, runError:true} (never throws past the runError contract)", () => {
+    const ops: TestSpecOps = {
+      exec: vi.fn((): TestSpecExecResult => ({ exitCode: 0, output: "" })),
+      checkout: vi.fn(() => {
+        throw new Error("fatal: not a valid object name");
+      }),
+    };
+    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    expect(result).toEqual({
+      kind: "ran",
+      pass: false,
+      output: expect.stringContaining("testSpec checkout failed"),
+      runError: true,
+    });
+    // exec never ran (checkout failed first).
+    expect(ops.exec).not.toHaveBeenCalled();
+  });
+});

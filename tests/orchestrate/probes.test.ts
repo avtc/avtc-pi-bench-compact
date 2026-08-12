@@ -343,16 +343,19 @@ describe("extractProbeAnswer — last assistant message text off parsed entries"
     return { type, id: `e${seq++}` } as unknown as SessionEntry;
   }
 
-  it("returns the LAST assistant message's text (most recent wins)", () => {
+  it("returns the assistant response text after the probe inject (most recent wins)", () => {
     const entries: SessionEntry[] = [
+      msgEntry("assistant", [{ type: "text", text: "stale base answer" }]),
+      msgEntry("user", [{ type: "text", text: "probe question" }]),
       msgEntry("assistant", [{ type: "text", text: "first answer" }]),
       msgEntry("assistant", [{ type: "text", text: "final answer" }]),
     ];
     expect(extractProbeAnswer(entries)).toBe("final answer");
   });
 
-  it("joins multiple text blocks of the last assistant message", () => {
+  it("joins multiple text blocks of the response", () => {
     const entries: SessionEntry[] = [
+      msgEntry("user", [{ type: "text", text: "q" }]),
       msgEntry("assistant", [
         { type: "text", text: "part one. " },
         { type: "text", text: "part two." },
@@ -361,8 +364,9 @@ describe("extractProbeAnswer — last assistant message text off parsed entries"
     expect(extractProbeAnswer(entries)).toBe("part one. part two.");
   });
 
-  it("ignores thinking blocks (only `text` blocks count as the answer)", () => {
+  it("ignores thinking blocks (only text blocks count as the answer)", () => {
     const entries: SessionEntry[] = [
+      msgEntry("user", [{ type: "text", text: "q" }]),
       msgEntry("assistant", [
         { type: "thinking", text: "internal reasoning" },
         { type: "text", text: "the visible answer" },
@@ -371,28 +375,41 @@ describe("extractProbeAnswer — last assistant message text off parsed entries"
     expect(extractProbeAnswer(entries)).toBe("the visible answer");
   });
 
-  it("ignores user + non-message entries, scanning back to the last assistant with text", () => {
+  it("bounds to after the inject — does NOT scan into the compacted-base history (R1-1 contamination regression)", () => {
+    // The probe response is tool-call-only (no text); the base has a prior assistant text.
+    // The extractor MUST return "" (no clean text answer), NOT the stale base text.
     const entries: SessionEntry[] = [
-      msgEntry("assistant", [{ type: "text", text: "the answer" }]),
-      msgEntry("user", [{ type: "text", text: "thanks" }]),
-      otherEntry("compaction"),
-    ];
-    expect(extractProbeAnswer(entries)).toBe("the answer");
-  });
-
-  it("a toolCall-only last assistant message falls through to the last assistant WITH text", () => {
-    // The agent's final assistant message has only a toolCall (no text); the textual
-    // answer lives in the prior assistant message. The extractor returns the last
-    // assistant message that actually has text.
-    const entries: SessionEntry[] = [
-      msgEntry("assistant", [{ type: "text", text: "the real answer" }]),
+      msgEntry("user", [{ type: "text", text: "base user msg" }]),
+      msgEntry("assistant", [{ type: "text", text: "STALE BASE ANSWER" }]),
+      msgEntry("user", [{ type: "text", text: "probe question" }]),
       msgEntry("assistant", [{ type: "toolCall", name: "read_file", args: {} }]),
     ];
-    expect(extractProbeAnswer(entries)).toBe("the real answer");
+    expect(extractProbeAnswer(entries)).toBe("");
   });
 
-  it("returns '' when there is no assistant text anywhere", () => {
-    const entries: SessionEntry[] = [msgEntry("user", [{ type: "text", text: "hi" }]), otherEntry("compaction")];
+  it("a tool-call-only response after the inject returns '' (no clean text answer)", () => {
+    const entries: SessionEntry[] = [
+      msgEntry("user", [{ type: "text", text: "q" }]),
+      msgEntry("assistant", [{ type: "toolCall", name: "read_file", args: {} }]),
+    ];
     expect(extractProbeAnswer(entries)).toBe("");
+  });
+
+  it("no assistant response after the inject returns '' (no scan into base)", () => {
+    const entries: SessionEntry[] = [
+      msgEntry("assistant", [{ type: "text", text: "stale base" }]),
+      msgEntry("user", [{ type: "text", text: "probe question" }]),
+      otherEntry("compaction"),
+    ];
+    expect(extractProbeAnswer(entries)).toBe("");
+  });
+
+  it("no user message (no inject) returns ''", () => {
+    const entries: SessionEntry[] = [msgEntry("assistant", [{ type: "text", text: "orphan" }])];
+    expect(extractProbeAnswer(entries)).toBe("");
+  });
+
+  it("returns '' for an empty entry list", () => {
+    expect(extractProbeAnswer([])).toBe("");
   });
 });

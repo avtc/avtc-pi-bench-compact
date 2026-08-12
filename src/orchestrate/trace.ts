@@ -56,6 +56,14 @@ function isSessionEntry(entry: { type: string }): entry is SessionEntry {
   return entry.type !== "session";
 }
 
+/** Read + parse a scenario repo's `session.jsonl` into real session entries (header
+ * filtered). Shared by trace capture + probe-answer extraction so both use ONE parse path. */
+export function readSessionEntries(repo: string): SessionEntry[] {
+  const tracePath = join(repo, SESSION_FILE);
+  const content = readFileSync(tracePath, "utf8");
+  return parseSessionEntries(content).filter(isSessionEntry);
+}
+
 /**
  * Read `branch`'s `session.jsonl` from the scenario repo working tree + return the
  * structured trace: all entries + every compaction paired with its bench-measured
@@ -66,10 +74,7 @@ function isSessionEntry(entry: { type: string }): entry is SessionEntry {
  * @param perCompactionWallMs — bench-captured wall time per compaction entry id.
  */
 export function captureTrace(repo: string, branch: string, perCompactionWallMs: Map<string, number>): RunTrace {
-  const tracePath = join(repo, SESSION_FILE);
-  const content = readFileSync(tracePath, "utf8");
-  const parsed = parseSessionEntries(content);
-  const entries = parsed.filter(isSessionEntry);
+  const entries = readSessionEntries(repo);
   const compactions: CapturedCompaction[] = [];
   for (const entry of entries) {
     if (entry.type !== "compaction") continue;
@@ -79,5 +84,5 @@ export function captureTrace(repo: string, branch: string, perCompactionWallMs: 
       wallMs: perCompactionWallMs.get(compaction.id) ?? UNCAPTURED_WALL_MS,
     });
   }
-  return { branch, entries, compactions, tracePath };
+  return { branch, entries, compactions, tracePath: join(repo, SESSION_FILE) };
 }
