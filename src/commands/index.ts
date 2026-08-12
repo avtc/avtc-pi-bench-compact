@@ -15,14 +15,18 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
-import { parsePositional, parsePrepareArgs, parseResultsArgs } from "./parse.js";
+import { parsePositional, parsePrepareArgs } from "./parse.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
+import { registerResultsCommand } from "./results.js";
 import { type CommandArgs, type CommandKind, preflight } from "./validate.js";
 
 /** Register all bench-compact commands (except settings) on `pi`. Called from activate. */
 export function registerBenchCommands(pi: ExtensionAPI): void {
   // --- real: prepare-scenario (Task 10) -------------------------------------
   registerPrepareScenarioCommand(pi);
+
+  // --- real: results -------------------------------------------------------
+  registerResultsCommand(pi);
 
   // --- stub commands: preflight -> "not implemented" ------------------------
   stub(pi, "bench-compact:run", "Prepare + run a scenario from <idea>.", "run", (args) => parsePrepareArgs(args));
@@ -35,13 +39,6 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
   );
   stub(pi, "bench-compact:run-session-file", "Extract a real session file + run.", "run-session-file", (args) =>
     parsePositional(args),
-  );
-  stub(
-    pi,
-    "bench-compact:results",
-    "Render the headline report for <runId>[:arms] (compare multiple).",
-    "results",
-    (args) => parseResultsArgs(args),
   );
 
   // --- real-minimal control commands ---------------------------------------

@@ -131,7 +131,7 @@ describe("registerBenchCommands", () => {
       ["bench-compact:run", "an incremental game idea"],
       ["bench-compact:run-scenario", dir],
       ["bench-compact:run-session-file", file],
-      ["bench-compact:results", "run-2026-08-10-1"],
+      // bench-compact:results is a REAL command now (registerResultsCommand), not a stub.
     ];
     for (const [name, args] of cases) {
       notifies.length = 0;
