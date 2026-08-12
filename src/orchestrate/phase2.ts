@@ -40,6 +40,7 @@ import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
+import { widgetStageHooks } from "../widget/tracker.js";
 import { getBenchPi } from "./bench-ctx.js";
 import { type ContextMonitor, makeContextMonitor } from "./context-monitor.js";
 import type { ArmBase } from "./phase1.js";
@@ -206,8 +207,7 @@ export function createDefaultSimulatorFactory(
       signal: args.signal,
       inject: args.inject,
       onStop: args.onStop,
-      onEvent: args.widget?.onEvent.bind(args.widget),
-      onModelResolved: (model) => args.widget?.setCtxWindow(model.contextWindow ?? null),
+      ...widgetStageHooks(args.widget),
     });
 }
 

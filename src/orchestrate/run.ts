@@ -31,7 +31,7 @@ import { writeRunConfig } from "../storage/configs.js";
 import { benchRoot, runDir } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
-import { NO_DETAIL } from "../widget/tracker.js";
+import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -410,12 +410,16 @@ function buildScoreMeta(
  *  from the run config's judge fields), the evaluated-model pricing, a seeded rank
  *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read. */
 export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
+  // K>1 judges fan out in parallel; their events would interleave into the widget's
+  // shared two-tier accumulator → meaningless tok/ctx. Suppress ctx/tok for K>1
+  // (K=1 default keeps it; metrics are read from the trace, never the widget).
+  const hooks = args.runConfig.judgesNumber === 1 ? widgetStageHooks(args.widget) : undefined;
   const transport = defaultJudgeTransport(args.ctx, {
     maxTokens: JUDGE_MAX_TOKENS,
     signal: args.signal,
     rateLimitOptions: null,
-    onEvent: args.widget?.onEvent.bind(args.widget),
-    onModelResolved: (model) => args.widget?.setCtxWindow(model.contextWindow ?? null),
+    onEvent: hooks?.onEvent,
+    onModelResolved: hooks?.onModelResolved,
   });
   const ensemble = buildJudgeEnsemble(args.runConfig, transport);
   const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);

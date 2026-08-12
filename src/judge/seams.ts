@@ -145,6 +145,7 @@ export function buildStageSeams(spec: JudgeSpec, transport: JudgeTransport): Jso
   return {
     resolveModel: () => transport.resolveModel(transport.ctx, spec.model),
     runStage: transport.runStage,
+    onEvent: transport.onEvent,
   };
 }
 

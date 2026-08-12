@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import type { BenchConfig } from "../../src/config/types.js";
@@ -115,9 +115,7 @@ describe("buildCallJudge", () => {
   it("forwards transport.onEvent to runStage + fires onModelResolved after resolve", async () => {
     const events: string[] = [];
     const resolvedWindows: unknown[] = [];
-    const fakeEvent = { type: "message_update" } as unknown as StageRunInput["onEvent"] extends (e: infer E) => void
-      ? E
-      : never;
+    const fakeEvent = { type: "message_update" } as unknown as AgentEvent;
     const captured: StageRunInput[] = [];
     const callJudge = buildCallJudge(
       { model: "p/m", reasoning: "high" },

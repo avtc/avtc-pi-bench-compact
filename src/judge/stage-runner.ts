@@ -10,7 +10,7 @@
 // system prompt + maps the captured payload to its own shape; this module owns
 // the run + the StageRunInput literal (single source of truth).
 
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentTool } from "@earendil-works/pi-agent-core";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
@@ -29,6 +29,8 @@ import { type RateLimitOptions, withRateLimit } from "./rate-limit.js";
 export interface JsonToolStageSeams {
   readonly resolveModel: () => Promise<ResolvedBenchModel>;
   readonly runStage: (input: StageRunInput) => Promise<StageRunResult>;
+  /** Optional event sink forwarded to the stage's runStage (the widget subscribes for ctx/tok). */
+  readonly onEvent?: (event: AgentEvent) => void;
 }
 
 /** The transport fields every stage caller threads straight from its own deps
@@ -115,7 +117,7 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
       maxTurns: NO_TURN_LIMIT, // multi-turn: inspect, then the terminal tool
       maxTokens: deps.maxTokens,
       timeoutMs: null, // tool-bearing stage may run slow reads/greps/bash
-      onEvent: NO_EVENT_SINK,
+      onEvent: deps.seams.onEvent ?? NO_EVENT_SINK,
       onStageEnd: NO_STAGE_END_HOOK,
       loopFn: NO_LOOP_OVERRIDE,
     });

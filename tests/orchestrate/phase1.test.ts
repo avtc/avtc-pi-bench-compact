@@ -5,6 +5,26 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CompactionEntry, ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { WidgetPort } from "../../src/widget/active-widget.js";
+
+/** A capturing WidgetPort: records setArm calls. */
+function capturingWidget(): WidgetPort & { arms: string[] } {
+  const arms: string[] = [];
+  return {
+    arms,
+    show: () => {},
+    startPhase: () => {},
+    setStatus: () => {},
+    setArm: (index, total, tool) => {
+      arms.push(`${index}/${total}:${tool}`);
+    },
+    setDetail: () => {},
+    setCtxWindow: () => {},
+    onEvent: () => {},
+    hide: () => {},
+  };
+}
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Usage shape (from @earendil-works/pi-ai) — typed via CompactionEntry.usage to avoid a fragile cross-package import. */
@@ -138,6 +158,7 @@ function makeDeps(opts: {
   scenarioRepo: string;
   armsEnabled: BenchConfig["armsEnabled"];
   cmdCtx?: ExtensionCommandContext;
+  widget?: WidgetPort | null;
 }): Phase1Deps {
   return {
     cmdCtx: opts.cmdCtx ?? ({ id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext),
@@ -148,6 +169,7 @@ function makeDeps(opts: {
     toolVersions: { A2: { source: "git", commit: "gabc123", full: "abcdef1234567890" } },
     omFullReflectionThresholdTokens: 4000,
     armsEnabled: opts.armsEnabled,
+    widget: opts.widget,
     ops: opts.ops as unknown as Phase1Ops,
   };
 }
@@ -196,6 +218,13 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     expect(b2.arm).toBe("A3");
     expect(b2.tool).toBe("memkeeper-builder");
     expect(b2.ver).toBeUndefined(); // A3 has no toolVersions entry in the fake deps
+  });
+
+  it("calls widget.setArm per arm (index/total/tool)", async () => {
+    const ops = makeFakeOps();
+    const widget = capturingWidget();
+    await runPhase1(makeDeps({ ops, scenarioRepo: repo, armsEnabled: ["A1", "A3"], widget }));
+    expect(widget.arms).toEqual(["1/2:bare-pi", "2/2:memkeeper-builder"]);
   });
 
   it("reads the FRESH pi from globalThis inside each withSession (not the stale command-handler pi)", async () => {

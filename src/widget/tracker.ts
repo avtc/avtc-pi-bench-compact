@@ -13,6 +13,7 @@
 // The main eval agent is already visible in pi's TUI and is NOT mirrored here.
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { deltaTextOf, deltaTokens, messageEndUsage, streamedOutputUsage } from "../runtime/streaming-tokens.js";
 import { getTermWidth } from "./fitline.js";
@@ -210,5 +211,29 @@ export function makeTuiWidgetDeps(ctx: {
     hide: () => {
       ctx.ui.setWidget(WIDGET_KEY, HIDE_WIDGET, { placement: WIDGET_PLACEMENT });
     },
+  };
+}
+
+// --- stage-hook binding (shared by the simulator + judge transports) ------
+
+/** The widget hooks a background-agent stage forwards: the event sink (drives the
+ *  two-tier accumulator) + the model-resolved hook (sets the ctx window). */
+export interface WidgetStageHooks {
+  readonly onEvent: (event: AgentEvent) => void;
+  readonly onModelResolved: (model: Model<Api>) => void;
+}
+
+/** Build the widget stage-hook pair bound to `widget`, or `undefined` when the widget
+ *  is absent (non-TUI). Shared by the user-simulator factory (resume) + the judge
+ *  transport (score) so the `.bind` + `setCtxWindow` plumbing lives in one place.
+ *  Callers that must suppress ctx/tok (e.g. K>1 parallel judges whose events would
+ *  interleave into the shared accumulator) pass `undefined` instead. */
+export function widgetStageHooks(
+  widget: { onEvent(event: AgentEvent): void; setCtxWindow(ctxWindow: number | null): void } | null | undefined,
+): WidgetStageHooks | undefined {
+  if (widget === null || widget === undefined) return undefined;
+  return {
+    onEvent: widget.onEvent.bind(widget),
+    onModelResolved: (model) => widget.setCtxWindow(model.contextWindow ?? null),
   };
 }
