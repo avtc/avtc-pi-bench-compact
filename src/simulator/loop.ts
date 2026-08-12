@@ -19,7 +19,8 @@
 // **The harness owns pacing + stop.** The driver signals stop (boundary / error);
 // it never captures the backup or compacts (Task 10/12 does).
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { log } from "../log.js";
 import {
@@ -122,6 +123,12 @@ export interface SimulatorDriverDeps {
   /** Cooperative-abort signal (the run/compaction signal). */
   readonly signal: AbortSignal;
   readonly hooks?: SimulatorHooks;
+  /** Optional sink for the simulator's agentLoop events (forwarded to runStage's
+   *  onEvent). The live-progress widget subscribes here for ctx/tok during resume. */
+  readonly onEvent?: (event: AgentEvent) => void;
+  /** Optional hook fired after a successful model resolution (the widget sets its
+   *  context window from the resolved model). */
+  readonly onModelResolved?: (model: Model<Api>) => void;
 }
 
 /** Chunk options for the simulator's render: one chunk (the whole gap), no entry
@@ -196,6 +203,7 @@ export class SimulatorDriver {
         this.deps.hooks?.onStop?.({ contextTokens: this._contextTokens, reason: "error", error: resolved.error });
         return;
       }
+      this.deps.onModelResolved?.(resolved.model);
 
       // 4. build the simulator input (rendered context + the harness's step instruction)
       const harnessInstruction = nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
@@ -213,7 +221,7 @@ export class SimulatorDriver {
         maxTurns: 1,
         maxTokens: this.deps.maxTokens,
         timeoutMs: null,
-        onEvent: NO_EVENT_SINK,
+        onEvent: this.deps.onEvent ?? NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
       });
@@ -284,6 +292,10 @@ export interface BuildSimulatorDriverArgs {
   readonly signal: AbortSignal;
   readonly inject: (text: string) => void;
   readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
+  /** Optional event sink forwarded to the simulator's runStage (the widget subscribes for ctx/tok). */
+  readonly onEvent?: (event: AgentEvent) => void;
+  /** Optional hook fired after a successful model resolution (the widget sets its ctx window). */
+  readonly onModelResolved?: (model: Model<Api>) => void;
 }
 
 /** Construct a real {@link SimulatorDriver} wired to the fresh session ctx (branch +
@@ -308,6 +320,8 @@ export function buildSimulatorDriver(args: BuildSimulatorDriverArgs): SimulatorD
     maxTokens: args.maxTokens,
     signal: args.signal,
     hooks: { onStop: args.onStop },
+    onEvent: args.onEvent,
+    onModelResolved: args.onModelResolved,
   });
 }
 

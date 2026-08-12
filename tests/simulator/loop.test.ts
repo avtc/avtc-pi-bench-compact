@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model, UserMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -264,5 +264,33 @@ describe("SimulatorDriver", () => {
     expect(captured[1]).not.toContain("please add a combat system");
     // ... and NOT agent-resp-1 (already rendered in cycle 1)
     expect(captured[1]).not.toContain("made the core loop");
+  });
+
+  it("forwards onEvent to runStage + calls onModelResolved after a successful resolve", async () => {
+    const events: string[] = [];
+    const resolvedModels: unknown[] = [];
+    const fakeEvent = { type: "message_update" } as unknown as AgentEvent;
+    const seams = makeSeams({
+      runStage: async (input) => {
+        (input.onEvent as (e: AgentEvent) => void)?.(fakeEvent);
+        return fakeStageResult("Build the next system.");
+      },
+    });
+    const driver = new SimulatorDriver({
+      seams,
+      systemPrompt: "SYSTEM",
+      targetContext: 140_000,
+      maxTokens: 1024,
+      signal: new AbortController().signal,
+      onEvent: (e) => {
+        events.push(e.type);
+      },
+      onModelResolved: (m) => {
+        resolvedModels.push(m);
+      },
+    });
+    await driver.onAgentSettled();
+    expect(events).toEqual(["message_update"]); // the fake event reached the onEvent sink
+    expect(resolvedModels).toHaveLength(1); // onModelResolved fired after a successful resolve
   });
 });

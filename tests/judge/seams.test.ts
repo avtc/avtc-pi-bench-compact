@@ -112,6 +112,44 @@ describe("buildCallJudge", () => {
     expect(run0.reasoning).toBe("high");
   });
 
+  it("forwards transport.onEvent to runStage + fires onModelResolved after resolve", async () => {
+    const events: string[] = [];
+    const resolvedWindows: unknown[] = [];
+    const fakeEvent = { type: "message_update" } as unknown as StageRunInput["onEvent"] extends (e: infer E) => void
+      ? E
+      : never;
+    const captured: StageRunInput[] = [];
+    const callJudge = buildCallJudge(
+      { model: "p/m", reasoning: "high" },
+      {
+        resolveModel: async () => ({
+          ok: true,
+          model: { id: "m", contextWindow: 200000 } as unknown as StageRunInput["model"],
+          apiKey: "k",
+        }),
+        runStage: async (input) => {
+          captured.push(input);
+          (input.onEvent as (e: unknown) => void)?.(fakeEvent);
+          return stageResult("answer");
+        },
+        ctx: FAKE_CTX,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+        rateLimitOptions: null,
+        onEvent: (e) => {
+          events.push((e as { type: string }).type);
+        },
+        onModelResolved: (m) => {
+          resolvedWindows.push((m as { contextWindow?: number }).contextWindow);
+        },
+      },
+    );
+    await callJudge("sys", "u");
+    expect(events).toEqual(["message_update"]); // transport.onEvent reached runStage's onEvent
+    expect(resolvedWindows).toEqual([200000]); // onModelResolved fired with the resolved model's window
+    expect(captured[0]?.onEvent).toBeDefined();
+  });
+
   it("throws BenchJudgeError(model-unavailable) when the model does not resolve", async () => {
     const callJudge = buildCallJudge(
       { model: "bad/m", reasoning: "high" },

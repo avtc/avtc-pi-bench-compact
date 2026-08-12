@@ -136,6 +136,8 @@ export interface BuildScoreDepsArgs {
   signal: RunSignal;
   /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
   modelsPath: string;
+  /** The live-progress widget (the judge transport wires its onEvent + ctx-window for score ctx/tok). */
+  widget?: WidgetPort | null;
 }
 
 /** Per-run output-token cap for the judge stages (single-call slices + agentLoop summaries). */
@@ -268,6 +270,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       meta,
       signal,
       modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
+      widget,
     });
     const { resultJson, markdown } = await score(input, scoreDeps);
 
@@ -411,6 +414,8 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     maxTokens: JUDGE_MAX_TOKENS,
     signal: args.signal,
     rateLimitOptions: null,
+    onEvent: args.widget?.onEvent.bind(args.widget),
+    onModelResolved: (model) => args.widget?.setCtxWindow(model.contextWindow ?? null),
   });
   const ensemble = buildJudgeEnsemble(args.runConfig, transport);
   const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);

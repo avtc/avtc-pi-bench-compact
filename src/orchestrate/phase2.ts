@@ -99,6 +99,8 @@ export interface MakeSimulatorArgs {
   readonly signal: AbortSignal;
   /** The driver's stop hook — fires on pacing-stop (boundary) or an error. */
   readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
+  /** The live-progress widget (the factory wires its onEvent + ctx-window). Null/absent → no ctx/tok. */
+  readonly widget?: WidgetPort | null;
 }
 
 /** Injectable operations — the I/O / non-deterministic seams. Defaults are the real
@@ -204,6 +206,8 @@ export function createDefaultSimulatorFactory(
       signal: args.signal,
       inject: args.inject,
       onStop: args.onStop,
+      onEvent: args.widget?.onEvent.bind(args.widget),
+      onModelResolved: (model) => args.widget?.setCtxWindow(model.contextWindow ?? null),
     });
 }
 
@@ -285,7 +289,15 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
         const targetContext = window > 0 ? window : deps.config.compactionBoundary;
         const injectSeam = makeContinuationInject(pi);
         const { stop, onStop } = makeDriveStop();
-        const driver = ops.makeSimulator({ pi, ctx: sessionCtx, targetContext, inject: injectSeam, signal, onStop });
+        const driver = ops.makeSimulator({
+          pi,
+          ctx: sessionCtx,
+          targetContext,
+          inject: injectSeam,
+          signal,
+          onStop,
+          widget: deps.widget,
+        });
         let budgetReached = false;
         const monitor: ContextMonitor = ops.makeMonitor(pi, sessionCtx, {
           onApproachingWindow: () => {

@@ -42,6 +42,7 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     hide: () => {},
   };
 }
+
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { buildAttemptBranch } from "../../src/storage/branches.js";
 

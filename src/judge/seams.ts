@@ -15,7 +15,8 @@
 // model, a timeout, or an abort (the orchestrate layer catches these +
 // stop-and-surfaces).
 
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { JudgeEnsembleConfig } from "../config/types.js";
 import {
@@ -54,6 +55,10 @@ export interface JudgeTransport {
   readonly maxTokens: number;
   readonly signal: AbortSignal;
   readonly rateLimitOptions?: RateLimitOptions | null;
+  /** Optional event sink forwarded to the judge's runStage (the widget subscribes for ctx/tok during score). */
+  readonly onEvent?: (event: AgentEvent) => void;
+  /** Optional hook fired after a successful model resolution (the widget sets its ctx window). */
+  readonly onModelResolved?: (model: Model<Api>) => void;
 }
 
 /** Options for {@link defaultJudgeTransport}. */
@@ -61,6 +66,8 @@ export interface JudgeTransportOptions {
   readonly maxTokens: number;
   readonly signal: AbortSignal;
   readonly rateLimitOptions?: RateLimitOptions | null;
+  readonly onEvent?: (event: AgentEvent) => void;
+  readonly onModelResolved?: (model: Model<Api>) => void;
 }
 
 /** Build a {@link JudgeTransport} wired to the real resolveBenchModel + runBenchStage. */
@@ -72,6 +79,8 @@ export function defaultJudgeTransport(ctx: ExtensionContext, opts: JudgeTranspor
     maxTokens: opts.maxTokens,
     signal: opts.signal,
     rateLimitOptions: opts.rateLimitOptions,
+    onEvent: opts.onEvent,
+    onModelResolved: opts.onModelResolved,
   };
 }
 
@@ -96,6 +105,7 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
     if (!resolved.ok) {
       throw new BenchJudgeError("model-unavailable", `judge model not available: ${resolved.error}`);
     }
+    transport.onModelResolved?.(resolved.model);
     const run = (): Promise<StageRunResult> =>
       transport.runStage({
         systemPrompt,
@@ -112,7 +122,7 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
         // A per-turn wall-clock cap: a hung cloud-judge call surfaces as a
         // BenchJudgeError("timeout") instead of hanging until the run idle-alert.
         timeoutMs: JUDGE_TURN_TIMEOUT_MS,
-        onEvent: NO_EVENT_SINK,
+        onEvent: transport.onEvent ?? NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
       });
