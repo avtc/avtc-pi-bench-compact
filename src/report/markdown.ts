@@ -12,8 +12,9 @@
 // cross-run stays correct. Omitted when the baseline arm is absent.
 
 import type { ArmId } from "../config/types.js";
-import type { MetricId, MetricPolarity } from "../metrics/defs.js";
-import { a1Delta, isNetNegative, type PerMetricDelta } from "../stats/delta.js";
+import type { MetricId } from "../metrics/defs.js";
+import { a1Delta, type PerMetricDelta } from "../stats/delta.js";
+import { count, formatDeltaSuffix, formatMetricValue, polarityArrow, versionTag } from "./format.js";
 import type { BenchResultJson, C4MetricJson, MetricJson } from "./result-json.js";
 import { extractJsonScalars } from "./result-json.js";
 
@@ -34,28 +35,6 @@ const METRIC_ORDER: readonly MetricId[] = [
   "C4", // exact (lowerBetter)
 ];
 
-/** Format a rate ∈[0,1] as a percentage with no decimals (62%). */
-function pct(rate: number): string {
-  return `${Math.round(rate * 100)}%`;
-}
-/** Format a large count with a K/M suffix (1200 -> 1.2K). */
-function count(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(n);
-}
-/** Format a signed delta ([+52] / [-14]). */
-function signed(n: number): string {
-  return n >= 0 ? `+${n}` : `${n}`;
-}
-/** The polarity arrow for a metric label (↓ lower-better, ↑ higher-better, rank). */
-function polarityArrow(polarity: MetricPolarity): string {
-  if (polarity === "higherBetter") return "↑";
-  if (polarity === "lowerBetter") return "↓";
-  return ""; // rankLowerBetter — label says "(rank)"
-}
-
 /** Per-arm baseline-delta derived live (null when the baseline arm is absent or a metric missing). */
 function deriveDeltas(result: BenchResultJson): {
   a1Present: boolean;
@@ -73,30 +52,12 @@ function deriveDeltas(result: BenchResultJson): {
   return { a1Present: true, deltas };
 }
 
-/** Render one metric cell for one arm (value + CI + Δ + ⚠). */
-function renderCell(
-  metricValue: MetricJson | undefined,
-  delta: number | null | undefined,
-  a1Present: boolean,
-  polarity: MetricPolarity,
-): string {
+/** Render one metric cell for one arm (value + Δ suffix when baseline present). */
+function renderCell(metricValue: MetricJson | undefined, delta: number | null | undefined, a1Present: boolean): string {
   if (metricValue === undefined) return "—";
-  let value: string;
-  if ("rate" in metricValue) value = `${pct(metricValue.rate)} [${pct(metricValue.ci[0])}–${pct(metricValue.ci[1])}]`;
-  else if ("rank" in metricValue) value = String(metricValue.rank);
-  else if ("dollars" in metricValue) value = `$${metricValue.dollars}`;
-  else if ("notRecoveredRate" in metricValue) value = metricValue.mean === null ? "n/a" : count(metricValue.mean);
-  else value = count(metricValue.mean); // exact footprint / run-cost
-  // Baseline delta (omitted for the baseline arm itself + when absent + when delta is null).
+  let value = formatMetricValue(metricValue);
   if (a1Present && delta !== undefined && delta !== null) {
-    const scaled = polarity === "higherBetter" || polarity === "lowerBetter" ? delta : delta;
-    // binary rate-deltas render as percentage points; comparative/exact as raw (count-scaled).
-    let deltaStr: string;
-    if ("rate" in metricValue) deltaStr = `[${signed(Math.round(delta * 100))}]`;
-    else if ("rank" in metricValue) deltaStr = `[${signed(delta)}]`;
-    else deltaStr = `[${signed(Math.round(delta))}]`;
-    value = `${value} ${deltaStr}${isNetNegative(scaled) ? "⚠" : ""}`;
-    void count; // count not used for delta here (raw ints kept readable)
+    value += formatDeltaSuffix(delta, metricValue);
   }
   return value;
 }
@@ -125,8 +86,8 @@ export function renderHeadline(result: BenchResultJson): string {
   const toolLine = arms
     .map((a) => {
       const v = result.toolVersions[a];
-      const ver = v === undefined ? "n/a" : v.source === "git" ? v.commit : v.commit;
-      return `${a} ${result.arms[a]?.tool ?? ""}${v !== undefined ? `@${ver}` : ""}`;
+      const tag = versionTag(v);
+      return `${a} ${result.arms[a]?.tool ?? ""}${tag ? `@${tag}` : ""}`;
     })
     .join(" · ");
   lines.push(`Tool versions: ${toolLine}`);
@@ -152,7 +113,7 @@ export function renderHeadline(result: BenchResultJson): string {
     const cells = arms.map((a) => {
       const mv = result.arms[a]?.metrics[metric];
       const delta = a === "A1" ? null : (deltas[a]?.[metric] ?? null);
-      return renderCell(mv, delta, a1Present, polarity);
+      return renderCell(mv, delta, a1Present);
     });
     lines.push(`| ${label} | ${cells.join(" | ")} |`);
   }
