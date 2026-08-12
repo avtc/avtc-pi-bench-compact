@@ -261,6 +261,24 @@ describe("acceptance — run-config id is reproducible + sensitive", () => {
     const b: RunConfig = { ...a, omFullReflectionThresholdTokens: 8000 };
     expect(buildCfgId(a)).not.toBe(buildCfgId(b));
   });
+
+  it("differing judgeThinkingLevel ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, judgeThinkingLevel: "medium" };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing judge2ThinkingLevel alone ⇒ different id (judge2 model stays null)", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, judge2ThinkingLevel: "medium" };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing judge3ThinkingLevel alone ⇒ different id (judge3 model stays null)", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, judge3ThinkingLevel: "medium" };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
 });
 
 // ---------------------------------------------------------------------------
