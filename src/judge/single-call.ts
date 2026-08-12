@@ -15,6 +15,7 @@
 // rate-limit.ts.
 
 import type { MetricId } from "../metrics/defs.js";
+import { BenchJudgeError } from "./errors.js";
 import { JUDGE_RUBRICS } from "./rubrics.js";
 
 /**
@@ -49,12 +50,15 @@ const DEFAULT_MAX_RETRIES = 2;
  * Raised when the judge emits malformed JSON for `maxRetries + 1` consecutive
  * calls. The caller STOP-and-surfaces — never silently scores.
  */
-export class JudgeMalformedJsonError extends Error {
+export class JudgeMalformedJsonError extends BenchJudgeError {
   constructor(
     readonly axis: MetricId,
     readonly attempts: number,
   ) {
-    super(`judge emitted malformed JSON for axis ${axis} after ${attempts} attempt(s) — STOP+surface`);
+    super(
+      "malformed-json",
+      `judge emitted malformed JSON for axis ${axis} after ${attempts} attempt(s) — STOP+surface`,
+    );
     this.name = "JudgeMalformedJsonError";
   }
 }

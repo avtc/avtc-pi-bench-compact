@@ -13,6 +13,7 @@ import { Type } from "typebox";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { MetricId } from "../metrics/defs.js";
 import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
 import { JUDGE_RUBRICS } from "./rubrics.js";
 import { type JsonToolStageSeams, type RunJsonToolStageDeps, runJsonToolStage } from "./stage-runner.js";
@@ -122,16 +123,25 @@ function validateAxisCompleteness(grades: TrajectoryGrade[], requestedAxes: read
   const seen = new Set<MetricId>();
   for (const g of grades) {
     if (!expected.has(g.axis)) {
-      throw new Error(`trajectory grading: unknown axis "${g.axis}" (not a requested axis) — STOP+surface`);
+      throw new BenchJudgeError(
+        "incomplete-output",
+        `trajectory grading: unknown axis "${g.axis}" (not a requested axis) — STOP+surface`,
+      );
     }
     if (seen.has(g.axis)) {
-      throw new Error(`trajectory grading: duplicate axis "${g.axis}" in judge response — STOP+surface`);
+      throw new BenchJudgeError(
+        "incomplete-output",
+        `trajectory grading: duplicate axis "${g.axis}" in judge response — STOP+surface`,
+      );
     }
     seen.add(g.axis);
   }
   for (const axis of expected) {
     if (!seen.has(axis)) {
-      throw new Error(`trajectory grading: missing axis "${axis}" (judge omitted a requested axis) — STOP+surface`);
+      throw new BenchJudgeError(
+        "incomplete-output",
+        `trajectory grading: missing axis "${axis}" (judge omitted a requested axis) — STOP+surface`,
+      );
     }
   }
   return grades;

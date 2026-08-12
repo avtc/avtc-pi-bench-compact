@@ -90,6 +90,35 @@ describe("rankAxis (combined)", () => {
       }),
     ).rejects.toThrow(/unknown.*label|invented/i);
   });
+
+  // R2-1: the combined order must be a PERMUTATION of the known labels (right
+  // count, no dups, none omitted) — same completeness class as c2/trajectory.
+  it("re-prompts when the order has a duplicate label, then succeeds (R2-1)", async () => {
+    const responses = [JSON.stringify({ order: ["A", "A"] }), JSON.stringify({ order: ["A", "B"] })];
+    let i = 0;
+    const callJudge: CallJudge = async () => responses[i++] ?? "";
+    const ranking = await rankAxis({
+      callJudge,
+      axis: "E7",
+      armSlices: { arm1: "s1", arm2: "s2" },
+      shuffle: identityShuffle,
+      options: { maxRetries: 2 },
+    });
+    expect(ranking.order).toEqual(["arm1", "arm2"]);
+  });
+
+  it("surfaces when the order omits a label past maxRetries (R2-1)", async () => {
+    const callJudge: CallJudge = async () => JSON.stringify({ order: ["A"] }); // B omitted
+    await expect(
+      rankAxis({
+        callJudge,
+        axis: "E7",
+        armSlices: { arm1: "s1", arm2: "s2" },
+        shuffle: identityShuffle,
+        options: { maxRetries: 1 },
+      }),
+    ).rejects.toThrow(/permutation|omit|duplicate|incomplete/i);
+  });
 });
 
 describe("rankAxis (pairwise)", () => {

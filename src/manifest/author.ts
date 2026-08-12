@@ -41,7 +41,6 @@ export interface KnownCondition {
   readonly entryId: string;
 }
 
-/** Injectable seams over the model + stage-runner dependencies (faked in tests). */
 /** Injectable seams: resolve the authoring model + run the bench stage (faked in tests).
  *  Alias of the shared {@link JsonToolStageSeams} (the manifest author uses the same
  *  stage-runner as the judge trajectory/boundary stages). */

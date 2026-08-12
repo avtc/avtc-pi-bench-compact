@@ -22,6 +22,7 @@ import {
 } from "../runtime/agent-loop.js";
 import type { ResolvedBenchModel } from "../runtime/model.js";
 import type { JsonOutputTool } from "../runtime/tools.js";
+import { BenchJudgeError } from "./errors.js";
 import { type RateLimitOptions, withRateLimit } from "./rate-limit.js";
 
 /** Injectable seams: resolve the judge model + run the bench stage (faked in tests). */
@@ -58,7 +59,7 @@ export interface RunJsonToolStageDeps {
 export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unknown> {
   const resolved = await deps.seams.resolveModel();
   if (!resolved.ok) {
-    throw new Error(`${deps.label} model not available: ${resolved.error}`);
+    throw new BenchJudgeError("model-unavailable", `${deps.label} model not available: ${resolved.error}`);
   }
   // Auto-append the terminal tool if the caller didn't (R7: source of truth is
   // terminalTool alone; dedup by name so an explicit inclusion isn't duplicated).
@@ -83,14 +84,17 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
     });
   const result = await withRateLimit(runStage, deps.rateLimitOptions ?? null);
   if (result.timedOut) {
-    throw new Error(`${deps.label} stage timed out before ${deps.terminalTool.name}`);
+    throw new BenchJudgeError("timeout", `${deps.label} stage timed out before ${deps.terminalTool.name}`);
   }
   if (result.aborted) {
-    throw new Error(`${deps.label} stage was aborted before ${deps.terminalTool.name}`);
+    throw new BenchJudgeError("aborted", `${deps.label} stage was aborted before ${deps.terminalTool.name}`);
   }
   const captured = deps.terminalTool._captured;
   if (captured.length === 0) {
-    throw new Error(`${deps.label} agent did not call ${deps.terminalTool.name} — nothing captured`);
+    throw new BenchJudgeError(
+      "no-capture",
+      `${deps.label} agent did not call ${deps.terminalTool.name} — nothing captured`,
+    );
   }
   return captured[captured.length - 1];
 }

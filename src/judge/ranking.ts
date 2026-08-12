@@ -17,6 +17,7 @@
 // is re-prompted <= maxRetries then STOP+surface. Pure aside from the seam.
 
 import type { MetricId } from "../metrics/defs.js";
+import { BenchJudgeError } from "./errors.js";
 import { JUDGE_RUBRICS } from "./rubrics.js";
 import { type CallJudge, extractJsonObject } from "./single-call.js";
 
@@ -65,12 +66,12 @@ class RankNeedsReprompt extends Error {
 }
 
 /** Raised when the judge's ranking response stays malformed past maxRetries (STOP+surface). */
-export class RankMalformedJsonError extends Error {
+export class RankMalformedJsonError extends BenchJudgeError {
   constructor(
     readonly axis: MetricId,
     readonly reason: string,
   ) {
-    super(`ranking for axis ${axis} malformed after retries — ${reason} — STOP+surface`);
+    super("malformed-json", `ranking for axis ${axis} malformed after retries — ${reason} — STOP+surface`);
     this.name = "RankMalformedJsonError";
   }
 }
@@ -152,6 +153,13 @@ function parseOrderResponse(raw: string, knownLabels: ReadonlySet<string>, retri
       if (retries <= 0) throw new RankMalformedJsonError(axis, `unknown/invented label: ${String(label)}`);
       throw new RankNeedsReprompt();
     }
+  }
+  // Combined-order completeness: the order must be a PERMUTATION of the known
+  // labels — right count, no duplicates, none omitted. ["A","A"] or ["A"] for
+  // {A,B} silently drops an arm (same completeness class as the recall-cost + trajectory stages).
+  if (labels.length !== knownLabels.size || new Set(labels).size !== labels.length) {
+    if (retries <= 0) throw new RankMalformedJsonError(axis, "order is not a permutation of the labels (dup/omitted)");
+    throw new RankNeedsReprompt();
   }
   return labels as string[];
 }

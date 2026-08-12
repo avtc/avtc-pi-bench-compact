@@ -11,6 +11,7 @@
 import { Type } from "typebox";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
 import { type JsonToolStageSeams, type RunJsonToolStageDeps, runJsonToolStage } from "./stage-runner.js";
 
@@ -125,16 +126,25 @@ function validateBoundaryCompleteness(boundaries: C2Boundary[], manifest: Scenar
   const seen = new Set<string>();
   for (const b of boundaries) {
     if (!expected.has(b.factId)) {
-      throw new Error(`recall-cost boundary: unknown factId "${b.factId}" (not a manifest recallFact) — STOP+surface`);
+      throw new BenchJudgeError(
+        "incomplete-output",
+        `recall-cost boundary: unknown factId "${b.factId}" (not a manifest recallFact) — STOP+surface`,
+      );
     }
     if (seen.has(b.factId)) {
-      throw new Error(`recall-cost boundary: duplicate factId "${b.factId}" in judge response — STOP+surface`);
+      throw new BenchJudgeError(
+        "incomplete-output",
+        `recall-cost boundary: duplicate factId "${b.factId}" in judge response — STOP+surface`,
+      );
     }
     seen.add(b.factId);
   }
   for (const id of expected) {
     if (!seen.has(id)) {
-      throw new Error(`recall-cost boundary: missing factId "${id}" (judge omitted a recallFact) — STOP+surface`);
+      throw new BenchJudgeError(
+        "incomplete-output",
+        `recall-cost boundary: missing factId "${id}" (judge omitted a recallFact) — STOP+surface`,
+      );
     }
   }
   return boundaries;
