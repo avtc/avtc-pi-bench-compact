@@ -13,10 +13,11 @@ import { Type } from "typebox";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { MetricId } from "../metrics/defs.js";
 import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import { renderDoneOps } from "./context.js";
 import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
 import { JUDGE_RUBRICS } from "./rubrics.js";
-import { type JsonToolStageSeams, type RunJsonToolStageDeps, runJsonToolStage } from "./stage-runner.js";
+import { buildStageDeps, type JsonToolStageSeams, runJsonToolStage } from "./stage-runner.js";
 
 /** One trajectory grade: the axis + the pass/fail judgment + a one-line citation. */
 export interface TrajectoryGrade {
@@ -63,9 +64,6 @@ function buildSystemPrompt(axes: readonly MetricId[], manifest: ScenarioManifest
   const recallFacts = manifest.recallFacts
     .map((rf) => `  - ${rf.id}: ${rf.fact} (accept: ${rf.accept.join(" | ")})`)
     .join("\n");
-  const doneOps = manifest.doneOps
-    .map((op) => `  - ${op.id}: ${op.description} (${op.artifact}) [${op.reworkable ? "reworkable" : "done"}]`)
-    .join("\n");
   return [
     "You are a strict benchmark judge grading a post-compaction TRAJECTORY.",
     `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect session.jsonl + the project files.`,
@@ -77,7 +75,7 @@ function buildSystemPrompt(axes: readonly MetricId[], manifest: ScenarioManifest
     "recallFacts:",
     recallFacts.length > 0 ? recallFacts : "  (none)",
     "doneOps (completed work — re-executing a [done] one is a redo):",
-    doneOps.length > 0 ? doneOps : "  (none)",
+    renderDoneOps(manifest),
     "",
     "Inspect the trajectory, then call record_grades ONCE with a grade per axis above.",
   ].join("\n");
@@ -96,17 +94,13 @@ export async function gradeTrajectory(deps: GradeTrajectoryDeps): Promise<Trajec
     RECORD_GRADES_DESCRIPTION,
     RECORD_GRADES_SCHEMA,
   );
-  const stageDeps: RunJsonToolStageDeps = {
-    seams: deps.seams,
+  const stageDeps = buildStageDeps(deps, {
     tools: [...benchReadOnlyTools(deps.cwd), terminalTool],
     systemPrompt: buildSystemPrompt(deps.axes, deps.manifest, deps.cwd),
     terminalTool,
     label: "trajectory grading",
     userMessageContent: `Inspect the trajectory in ${deps.cwd} and grade the axes. Call record_grades once with all your grades.`,
-    maxTokens: deps.maxTokens,
-    signal: deps.signal,
-    rateLimitOptions: deps.rateLimitOptions,
-  };
+  });
   const payload = (await runJsonToolStage(stageDeps)) as { grades?: unknown };
   const raw = Array.isArray(payload.grades) ? (payload.grades as TrajectoryGrade[]) : [];
   return validateAxisCompleteness(raw, deps.axes);

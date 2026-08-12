@@ -4,7 +4,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { type JsonToolStageSeams, runJsonToolStage } from "../../src/judge/stage-runner.js";
+import { buildStageDeps, type JsonToolStageSeams, runJsonToolStage } from "../../src/judge/stage-runner.js";
 import { type JsonOutputTool, makeJsonOutputTool } from "../../src/runtime/tools.js";
 import { capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
 
@@ -160,5 +160,35 @@ describe("runJsonToolStage", () => {
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/did not call emit|no.*captured/i);
+  });
+});
+
+describe("buildStageDeps", () => {
+  it("threads the transport fields (seams/maxTokens/signal/rateLimitOptions) + content into RunJsonToolStageDeps", () => {
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const ctrl = new AbortController();
+    const transportSeams: JsonToolStageSeams = {
+      resolveModel: async () => OK_MODEL,
+      runStage: async () => cleanResult(),
+    };
+    const deps = buildStageDeps(
+      { seams: transportSeams, maxTokens: 1234, signal: ctrl.signal, rateLimitOptions: null },
+      {
+        tools: [terminal] as AgentTool[],
+        systemPrompt: "sys",
+        terminalTool: terminal,
+        label: "my-stage",
+        userMessageContent: "go",
+      },
+    );
+    expect(deps.seams).toBe(transportSeams);
+    expect(deps.maxTokens).toBe(1234);
+    expect(deps.signal).toBe(ctrl.signal);
+    expect(deps.rateLimitOptions).toBeNull();
+    expect(deps.systemPrompt).toBe("sys");
+    expect(deps.label).toBe("my-stage");
+    expect(deps.terminalTool).toBe(terminal);
+    expect(deps.userMessageContent).toBe("go");
+    expect(deps.tools).toEqual([terminal]);
   });
 });

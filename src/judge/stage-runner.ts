@@ -31,6 +31,43 @@ export interface JsonToolStageSeams {
   readonly runStage: (input: StageRunInput) => Promise<StageRunResult>;
 }
 
+/** The transport fields every stage caller threads straight from its own deps
+ *  (the "how to run" subset of {@link RunJsonToolStageDeps}). Extracted so the
+ *  stage callers do not duplicate the seams/maxTokens/signal/rateLimitOptions
+ *  pass-through (the trajectory grader + the trajectory-summary builder share it). */
+export interface StageTransport {
+  readonly seams: JsonToolStageSeams;
+  readonly maxTokens: number;
+  readonly signal: AbortSignal;
+  readonly rateLimitOptions?: RateLimitOptions | null;
+}
+
+/** The content fields that vary per stage (the "what to run" subset). */
+export interface StageContent {
+  readonly tools: AgentTool[];
+  readonly systemPrompt: string;
+  readonly terminalTool: JsonOutputTool;
+  readonly label: string;
+  readonly userMessageContent: string;
+}
+
+/** Build a {@link RunJsonToolStageDeps} from the shared transport fields + the
+ *  stage's content. Single source for the field-pass-through the stage callers
+ *  share; callers supply only their content (tools/prompt/terminal/label/msg). */
+export function buildStageDeps(transport: StageTransport, content: StageContent): RunJsonToolStageDeps {
+  return {
+    seams: transport.seams,
+    tools: content.tools,
+    systemPrompt: content.systemPrompt,
+    terminalTool: content.terminalTool,
+    label: content.label,
+    userMessageContent: content.userMessageContent,
+    maxTokens: transport.maxTokens,
+    signal: transport.signal,
+    rateLimitOptions: transport.rateLimitOptions,
+  };
+}
+
 /** Inputs to {@link runJsonToolStage}. */
 export interface RunJsonToolStageDeps {
   readonly seams: JsonToolStageSeams;
