@@ -1,7 +1,7 @@
 {
   "name": "avtc-pi-bench-compact",
   "version": "0.0.0",
-  "description": "Benchmarks compaction/memory approaches (arms) on an identical authored workload: samples post-compaction agent behavior over N runs and scores effectiveness + cost via a calibrated LLM judge + exact trace signals.",
+  "description": "Benchmarks compaction/memory approaches (arms) on an identical authored workload: samples post-compaction agent behavior over N runs and scores effectiveness + cost via a multi-judge LLM ensemble + exact trace signals.",
   "type": "module",
   "license": "MIT",
   "keywords": [

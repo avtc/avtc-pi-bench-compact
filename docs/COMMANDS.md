@@ -1,6 +1,11 @@
 # bench-compact commands
 
-Every command uses the `bench-compact:` namespace. Run `/bench-compact:settings` to configure models, `N`, the compaction boundary, which arms are enabled, and the multi-judge ensemble.
+Every command uses the `bench-compact:` namespace.
+
+## Configure
+
+### `/bench-compact:settings`
+Open the settings panel: evaluated model + thinking level, judge model(s) + thinking level(s), multi-judge ensemble size (`judgesNumber` 1 or 3), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (build or extract), and per-arm enables.
 
 ## Prepare / run
 
@@ -104,11 +109,12 @@ Every metric has a stable id (the report columns + the result-JSON `metricDefs` 
 | `C3` | run-cost (post-compaction output tokens) | exact | ↓ |
 | `C4` | compaction-cost (tokens/$/wall per stage) | exact | ↓ |
 | `E1` | resume (resumes in-progress task) | comparative | rank |
-| `E2` | redo-execution (re-executes completed work) | binary | ↓ |
+| `E2` | redo-exec (re-executes completed work) | binary | ↓ |
 | `E3` | redo-plan (re-proposes tried/rejected approaches) | comparative | rank |
 | `E4` | proactive-recall | binary | ↑ |
 | `E5` | recall-accuracy | binary | ↑ |
 | `E6` | abstention | binary | ↑ |
 | `E7` | task-quality | comparative | rank |
 | `E8` | supersession | binary | ↑ |
+| _E9_ | _reserved (unused)_ | — | — |
 | `E10` | goal (stays on the scripted objective) | comparative | rank |

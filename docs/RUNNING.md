@@ -41,7 +41,7 @@ The **prepare-scenario live seams** (the user-simulator drive-and-capture, the t
 The full pipeline is verified without live sessions via the e2e suite:
 
 ```bash
-npm test                              # all lints + 967 tests (incl. e2e smoke + acceptance)
+npm test                              # all lints + 971 tests (incl. e2e smoke + acceptance)
 npx vitest run tests/e2e/             # the smoke (real driver + real score → result-v1) + acceptance checks
 ```
 

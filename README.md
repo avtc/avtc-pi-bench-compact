@@ -57,12 +57,14 @@ A **scenario** is a frozen, reusable workload: a git repo (tracking `session.jso
 
 A prepared scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (the repo at `repo/`, the manifest at `manifest.json`). Re-run it with `/bench-compact:run-scenario <folder>`.
 
+> **Status:** the prepare live-seams (user-simulator drive, trial compaction, manifest authoring) are pending wiring, so `/bench-compact:prepare-scenario` + the `/bench-compact:run` / `/bench-compact:run-session-file` shorthands are not yet runnable; `/bench-compact:run-scenario <folder>` works against a pre-prepared folder. See [docs/RUNNING.md](docs/RUNNING.md).
+
 ## Scoring
 
 Effectiveness is judge-graded; cost is computed exactly off the captured trace (no judge):
 
 - **Exact (no judge):** footprint (compaction summary tokens), recall-cost (tokens until the first correct recall), run-cost (post-compaction output tokens), compaction-cost (tokens/$/wall per stage).
-- **Binary (judge per-run yes/no → rate over N):** redo-execution, proactive-recall, recall-accuracy, abstention, supersession.
+- **Binary (judge per-run yes/no → rate over N):** redo-exec, proactive-recall, recall-accuracy, abstention, supersession.
 - **Comparative (judge ranks the enabled arms):** resume, redo-plan, task-quality, goal.
 
 Every metric has a stable single-letter id (printed in the report columns + the result-JSON `metricDefs` block); see [docs/COMMANDS.md](docs/COMMANDS.md) for the id→name map.
@@ -75,11 +77,11 @@ Judge reliability is an **optional multi-judge ensemble** (not calibration). Set
 
 `/bench-compact:results <runId>` renders a single-run headline report (`report.md`); pass two runs to compare. Conventions:
 
-- **Rates are shown as `%`** (e.g. `72.2%`); the result-JSON stores them as `[0,1]`.
+- **Rates are shown as `%`** (e.g. `72%`); the result-JSON stores them as `[0,1]`.
 - **`[95% CI]`** is a bootstrap confidence interval.
 - **Baseline delta** is polarity-aware (`+` = better than bare-pi). A `⚠` flag marks **net-negative** metrics (the arm is worse than the bare-pi baseline).
 - **Rank `1` = best**; `↑`/`↓` indicate polarity (higher/lower is better).
-- The **compaction-cost** metric breaks down per stage (tokens-in / tokens-out / cache-read / `$` / wall-ms / stages / phase-2-compaction-count).
+- The **compaction-cost** metric renders a per-arm breakdown (tokens-in / tokens-out / cache-read / cache-write / `$` / wall / stages); the result-JSON also carries a phase-2-compaction count per arm.
 - A **reliability** section surfaces run failures + per-arm reliability flags; an **artifacts** section lists the result-JSON, config, and repo paths.
 
 The machine-readable counterpart is `results.json` (`bench-compact.result-v1` schema) — it stores **exact per-arm results only** (no derived deltas); a self-describing `metricDefs` block names every metric, so a consumer needs no cross-reference to the doc.
@@ -93,7 +95,7 @@ All artifacts derive from a single root: `outputDir ?? ~/.pi/bench-compact/`.
 ├── scenarios/<id>/repo/      # scenario git repo (session.jsonl + project files)  [AGENT-VISIBLE]
 │   └── ..                     # branches: main, bench-compact/run-…/arm-<tool>-<ver>
 ├── scenarios/<id>/manifest.json   # scenario manifest                          [agent-hidden]
-├── runs/<runId>/             # judge/, results.json, report.md, run-meta.json [agent-hidden]
+├── runs/<runId>/             # judge/, results.json, report.md            [agent-hidden]
 └── configs/<cfgId>.json      # full run config (the run-condition fingerprint) [agent-hidden]
 ```
 
