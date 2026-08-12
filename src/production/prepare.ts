@@ -3,7 +3,7 @@
 
 // The prepare-scenario orchestrator: build OR extract a pre-compaction
 // backup, author + validate the manifest, then freeze. Reusable by the
-// `/bench-compact:prepare-scenario` command (Task 10h) AND Task 19's `run <idea>`
+// `/bench-compact:prepare-scenario` command (Task 10h) AND the `run <idea>`
 // Phase-0 entry point.
 //
 // - build mode (`scenario` given): `buildBackup` drives the simulator + returns the

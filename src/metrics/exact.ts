@@ -30,7 +30,7 @@ const NATIVE_SUMMARY_STAGE = "native-summary";
 /** The stage name for a present-but-nameless per-stage detail (distinct from native). */
 const UNNAMED_STAGE = "unnamed-stage";
 
-/** One Phase-2 (continuation) compaction's cost — lossless per-compaction (Task 19
+/** One Phase-2 (continuation) compaction's cost — lossless per-compaction (run.ts
  * aggregates). `[]` when the run never re-compacted. */
 export interface Phase2CompactionEntry {
   readonly tokensIn: number;

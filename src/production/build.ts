@@ -8,8 +8,9 @@
 // → re-author); missing essential conditions surface to the user.
 //
 // The live parts (driving SimulatorDriver, capturing the session JSONL, trial-
-// compacting a copy, authoring via the LLM) are injectable seams — their real
-// wiring is Task 19. The orchestration flow + condition-landing loop are unit-tested.
+// compacting a copy, authoring via the LLM) are injectable seams — their real wiring
+// is `buildLiveSeams` (src/production/live-seams.ts). The orchestration flow +
+// condition-landing loop are unit-tested here.
 
 import { join } from "node:path";
 import type { ScenarioManifest } from "../manifest/schema.js";
@@ -33,8 +34,8 @@ export interface BuildSeams {
   author(preSlicedJsonlPath: string): Promise<ScenarioManifest>;
   /** Detect which condition-topics' content lives in the KEPT TAIL (not the span the
    *  author saw). Optional — when absent, missing topics are treated as
-   *  never-materialized (surface). Task 19 wires the real detection (re-author
-   *  against the full backup or tail-text search); default empty = conservative. */
+   *  never-materialized (surface). `buildLiveSeams` does not wire this yet (the default
+   *  BuildSeams leaves it absent → missing tail topics surface); default empty = conservative. */
   findTailContent?(backupPath: string): Promise<ReadonlySet<string>>;
 }
 

@@ -3,7 +3,7 @@
 
 // Shared base for every judge-stage STOP+surface failure. The bench never
 // auto-recovers a judge failure — it surfaces it (stop-and-surface) — so the
-// orchestrate layer (Task 19) catches these, records WHY the run/arm failed in
+// orchestrate layer (run.ts) catches these, records WHY the run/arm failed in
 // the result report, and notifies the operator. A single base + a `category`
 // discriminator lets that layer classify by `instanceof BenchJudgeError` +
 // `.category` instead of parsing message strings.

@@ -57,7 +57,7 @@ A **scenario** is a frozen, reusable workload: a git repo (tracking `session.jso
 
 A prepared scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (the repo at `repo/`, the manifest at `manifest.json`). Re-run it with `/bench-compact:run-scenario <folder>`.
 
-> **Status:** the prepare live-seams (user-simulator drive, trial compaction, manifest authoring) are pending wiring, so `/bench-compact:prepare-scenario` + the `/bench-compact:run` / `/bench-compact:run-session-file` shorthands are not yet runnable; `/bench-compact:run-scenario <folder>` works against a pre-prepared folder. See [docs/RUNNING.md](docs/RUNNING.md).
+> **Status:** the prepare live-seams (user-simulator drive, trial compaction, manifest authoring) are wired via `buildLiveSeams`, so `/bench-compact:prepare-scenario`, `/bench-compact:run <idea>`, and `/bench-compact:run-session-file <path>` are runnable end-to-end. See [docs/RUNNING.md](docs/RUNNING.md).
 
 ## Scoring
 

@@ -3,19 +3,21 @@
 
 // The `/bench-compact:prepare-scenario` command. Thin wrapper: parse args,
 // preflight, compute the scenario id + paths, then call `prepareScenario` (Task 10g).
-// All orchestration lives in prepare.ts for reuse by Task 19's `run <idea>` Phase-0.
+// All orchestration lives in prepare.ts for reuse by the `run <idea>` Phase-0 entry point.
 //
 // The live seam construction (driveAndCapture via SimulatorDriver, trialCompact via
 // ctx.compact, author via runAuthoringAgent) is `buildDeps` — injectable so the
-// command is testable; registerBenchCommands wires a default that computes paths +
-// defers live-seam construction to Task 19.
+// command is testable; registerBenchCommands wires `defaultBuildPrepareDeps`, which
+// assembles the seams via `buildLiveSeams` (src/production/live-seams.ts).
 
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { basename } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { existsSync, mkdirSync } from "node:fs";
+import { basename, join } from "node:path";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
+import { buildLiveSeams } from "../production/live-seams.js";
 import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
+import { benchRoot, scenarioDir, scenarioManifest, scenarioRepo } from "../storage/paths.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
 import { preflight } from "./validate.js";
 
@@ -37,7 +39,7 @@ export interface PrepareScenarioHandlerOptions {
   /** The prepare orchestrator (default: the real `prepareScenario`). */
   readonly prepareScenario?: typeof prepareScenarioImpl;
   /** Build the PrepareDeps from the parsed args + ctx (computes paths + seams).
-   *  The default live-wiring is Task 19; tests inject a fake. */
+   *  The default (`defaultBuildPrepareDeps`) assembles the live seams via `buildLiveSeams`; tests inject a fake. */
   readonly buildDeps: (ctx: unknown, parsed: PrepareArgs, scenarioId: string) => PrepareDeps;
 }
 
@@ -73,17 +75,61 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
   };
 }
 
-/** The default buildDeps for registerBenchCommands — computes paths; live seam
- *  construction (SimulatorDriver/ctx.compact/runAuthoringAgent) is Task 19. Exported
- *  so Task 19 can replace it with the fully-wired version. */
-export function defaultBuildPrepareDeps(_ctx: unknown, parsed: PrepareArgs, scenarioId: string): PrepareDeps {
-  // Paths are computed from the bench root (outputDir ?? ~/.pi/bench-compact/) + scenarioId.
-  // The live seams (driveAndCapture/trialCompact/author) require ctx.compact + SimulatorDriver
-  // + runAuthoringAgent wiring — Task 19. Until then, surface a clear NotImplemented.
-  throw new Error(
-    `prepare-scenario live wiring is Task 19 (scenarioId=${scenarioId}, mode=${parsed.fromSession ? "extract" : "build"}); paths + seams not yet constructed`,
-  );
+/** The default buildDeps for registerBenchCommands — computes paths from the bench
+ *  root + assembles the live BuildSeams (driveAndCapture via SimulatorDriver,
+ *  trialCompact via ctx.compact, author via runAuthoringAgent) bound to the command
+ *  ctx. Extract mode reuses trialCompact + author (driveAndCapture unused). */
+export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scenarioId: string): PrepareDeps {
+  const config = getBenchConfig();
+  const root = benchRoot(config.outputDir);
+  const repo = scenarioRepo(root, scenarioId);
+  const manifestPath = scenarioManifest(root, scenarioId);
+  const preSliceDir = join(scenarioDir(root, scenarioId), PRE_SLICE_DIR_NAME);
+  mkdirSync(repo, { recursive: true });
+  mkdirSync(preSliceDir, { recursive: true });
+
+  const cmdCtx = ctx as ExtensionCommandContext;
+  const compactionPlan = parsed.fromSession !== undefined ? EXTRACT_PLAN : BUILD_PLAN;
+  const scenarioDescription = parsed.idea ?? scenarioId;
+  const seams = buildLiveSeams({
+    cmdCtx,
+    config,
+    repoPath: repo,
+    preSliceDir,
+    scenarioId,
+    scenarioDescription,
+    compactionPlan,
+    signal: PREPARE_SIGNAL,
+  });
+
+  const deps: PrepareDeps = {
+    compactionBoundary: config.compactionBoundary,
+    repoPath: repo,
+    manifestPath,
+    preSliceDir,
+    seams,
+    force: parsed.force,
+    ...(parsed.fromSession !== undefined
+      ? {
+          fromSessionPath: parsed.fromSession,
+          extractOutputPath: join(preSliceDir, EXTRACT_BACKUP_NAME),
+          extractCwd: process.cwd(),
+        }
+      : { scenario: parsed.idea }),
+  };
+  return deps;
 }
+
+/** Sub-directory under the scenario dir for the pre-slice temp files (OUTSIDE the repo). */
+const PRE_SLICE_DIR_NAME = "pre-slice";
+/** Manifest compaction-boundary plan tag for build mode. */
+const BUILD_PLAN = "build";
+/** Manifest compaction-boundary plan tag for extract mode. */
+const EXTRACT_PLAN = "extract";
+/** Filename for the extract-mode cleaned backup (under preSliceDir). */
+const EXTRACT_BACKUP_NAME = "extract-backup.jsonl";
+/** A never-aborting signal for the prepare flow (no run-level abort wired yet). */
+const PREPARE_SIGNAL = new AbortController().signal;
 
 /** Register the prepare-scenario command on `pi`. */
 export function registerPrepareScenarioCommand(pi: ExtensionAPI): void {

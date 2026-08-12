@@ -26,14 +26,10 @@ import type { ExtensionAPI, ExtensionCommandContext, SessionCompactEvent } from 
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
-import { runBenchStage } from "../runtime/agent-loop.js";
-import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
-import { type InjectMode, inject } from "../session/inject.js";
+import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
-import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
-import { SimulatorDriver, type SimulatorHooks, type SimulatorSeams, type StopReason } from "../simulator/loop.js";
-import { buildSimulatorSystemPrompt } from "../simulator/prompt.js";
+import { buildSimulatorDriver, driveUntilStop, makeDriveStop, type SimulatorHooks } from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
@@ -43,10 +39,6 @@ import type { ArmBase } from "./phase1.js";
 import { getRunState, updateRunState } from "./run-state.js";
 import { captureTrace, type RunTrace } from "./trace.js";
 
-/** Separator between the anti-peek preamble and the simulator's first resume message. */
-const ANTI_PEEK_SEPARATOR = "\n\n";
-/** Delivery mode for the continuation injects (queued after the current run settles). */
-const DELIVER_AS_FOLLOW_UP: InjectMode = "followUp";
 /** Per-call output cap for the continuation simulator's stage calls. */
 const SIMULATOR_MAX_TOKENS = 1024;
 /** A signal that never aborts — the default when the caller threads no run signal. */
@@ -154,12 +146,7 @@ export interface Phase2Deps {
  * inject lands on the FRESH pi (captured in the closure) as a follow-up user message.
  */
 export function makeContinuationInject(pi: ExtensionAPI): (text: string) => void {
-  let firstInject = true;
-  return (text: string): void => {
-    const body = firstInject ? `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${text}` : text;
-    firstInject = false;
-    inject(pi, body, DELIVER_AS_FOLLOW_UP);
-  };
+  return makeAntiPeekInject(pi, ANTI_PEEK_PROMPT);
 }
 
 /**
@@ -199,50 +186,21 @@ export function createDefaultSimulatorFactory(
   config: BenchConfig,
   manifest: ScenarioManifest,
 ): (args: MakeSimulatorArgs) => ContinuationDriver {
-  return (args: MakeSimulatorArgs): ContinuationDriver => {
-    const systemPrompt = buildSimulatorSystemPrompt({
+  return (args: MakeSimulatorArgs): ContinuationDriver =>
+    buildSimulatorDriver({
+      pi: args.pi,
+      ctx: args.ctx,
       task: manifest.description,
-      conditionTopics: CONDITION_TOPICS,
-      targetContext: args.targetContext,
-    });
-    const seams: SimulatorSeams = {
-      getBranch: () => args.ctx.sessionManager.getBranch(),
-      resolveModel: (): Promise<ResolvedBenchModel> => resolveBenchModel(args.ctx, config.evaluatedModel),
-      runStage: runBenchStage,
-      inject: args.inject,
-    };
-    const hooks: SimulatorHooks = { onStop: args.onStop };
-    return new SimulatorDriver({
-      seams,
-      systemPrompt,
+      evaluatedModel: config.evaluatedModel,
       targetContext: args.targetContext,
       maxTokens: SIMULATOR_MAX_TOKENS,
       signal: args.signal,
-      hooks,
+      inject: args.inject,
+      onStop: args.onStop,
     });
-  };
 }
 
 // --- per-attempt drive helpers (throw Phase2StoppedError on failure/hang) ---
-
-interface DriveStop {
-  stopped: boolean;
-  reason: StopReason | null;
-  error: string | null;
-}
-
-/** Run one simulator cycle; throw run-failed if it signaled an error stop. */
-async function driveCycle(driver: ContinuationDriver, stop: DriveStop, arm: ArmId, attempt: number): Promise<void> {
-  await driver.onAgentSettled();
-  if (stop.reason === "error") {
-    throw new Phase2StoppedError(
-      arm,
-      attempt,
-      "run-failed",
-      `attempt ${attempt} simulator stopped with an error (${stop.error ?? "unknown"})`,
-    );
-  }
-}
 
 /** Await the agent settling; throw run-hung if it rejects (aborted/stalled). */
 async function awaitSettle(
@@ -316,12 +274,7 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
         const window = usage?.contextWindow ?? 0;
         const targetContext = window > 0 ? window : deps.config.compactionBoundary;
         const injectSeam = makeContinuationInject(pi);
-        const stop: DriveStop = { stopped: false, reason: null, error: null };
-        const onStop: NonNullable<SimulatorHooks["onStop"]> = (info) => {
-          stop.stopped = true;
-          stop.reason = info.reason;
-          stop.error = info.error ?? null;
-        };
+        const { stop, onStop } = makeDriveStop();
         const driver = ops.makeSimulator({ pi, ctx: sessionCtx, targetContext, inject: injectSeam, signal, onStop });
         let budgetReached = false;
         const monitor: ContextMonitor = ops.makeMonitor(pi, sessionCtx, {
@@ -331,22 +284,25 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
         });
         const compaction = makeCompactionTimer(pi);
         try {
-          // Kick-off: the simulator's first cycle injects the anti-peek-prefixed resume.
-          // Note: setAgentQuestion/trackContext are deliberately unwired — the context
-          // monitor (budgetReached) owns wrap-up pacing; the agent's own questions are
-          // answered by its own reasoning (the simulator never short-circuits to a
-          // stop on cycle 1, so the kick-off inject is always followed by a settle).
-          await driveCycle(driver, stop, base.arm, attempt);
           // Drive until stop/budget: ALWAYS settle after an inject (even the kick-off),
           // so the agent's response to the last inject is awaited before returning.
-          // Stops on a simulator stop, the context budget being reached, or an
-          // error/hung (thrown by the helpers). driveCycle throws on a simulator error
-          // (run-failed) before any settle, so the error path never reaches this loop.
-          while (true) {
-            await awaitSettle(ops.awaitSettled, pi, signal, base.arm, attempt);
-            if (stop.stopped || budgetReached) break; // wrap up: do not inject past the budget/stop
-            await driveCycle(driver, stop, base.arm, attempt);
-          }
+          // setAgentQuestion/trackContext are deliberately unwired — the context
+          // monitor (budgetReached) owns wrap-up pacing. Stops on a simulator stop, the
+          // context budget being reached, or an error/hung (thrown by awaitSettle / the
+          // cycle's error-stop). Shared loop helper (same as the Phase 0 build drive).
+          await driveUntilStop({
+            driver,
+            stop,
+            awaitSettled: () => awaitSettle(ops.awaitSettled, pi, signal, base.arm, attempt),
+            shouldBreak: () => stop.stopped || budgetReached,
+            makeCycleError: (error) =>
+              new Phase2StoppedError(
+                base.arm,
+                attempt,
+                "run-failed",
+                `attempt ${attempt} simulator stopped with an error (${error ?? "unknown"})`,
+              ),
+          });
         } finally {
           monitor.dispose();
           compaction.dispose();

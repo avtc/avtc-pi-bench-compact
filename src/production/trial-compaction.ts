@@ -8,8 +8,8 @@
 // in Task 12).
 //
 // The live compaction (switchSession-load the copy → ctx.compact() → read the
-// CompactionEntry) is an injectable seam; the real wiring lives in Task 19. The
-// pure reader is unit-tested here.
+// CompactionEntry) is an injectable seam; the real wiring is `buildTrialCompactSeam`
+// (src/production/live-seams.ts). The pure reader is unit-tested here.
 
 /** Minimal CompactionEntry shape (what trial compaction reads). */
 export interface CompactionEntryLike {
@@ -25,8 +25,9 @@ export interface TrialCut {
 }
 
 /** Injectable seam: compact a COPY of `backupPath` (native, no memory ext) + return
- *  the resulting CompactionEntry. The real impl (Task 19) loads the copy via
- *  `switchSession`, calls `ctx.compact()`, reads the new CompactionEntry. */
+ *  the resulting CompactionEntry. The real impl (`buildTrialCompactSeam` in
+ *  src/production/live-seams.ts) loads the copy via `switchSession`, calls
+ *  `ctx.compact()`, reads the new CompactionEntry. */
 export interface TrialCompactionSeam {
   compactCopy(backupPath: string): Promise<CompactionEntryLike>;
 }

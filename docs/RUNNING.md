@@ -34,7 +34,7 @@ The live-progress widget tracks the phases (`build` → `compact` → `resume` �
 
 The bench is feature-complete for **scoring + reporting** (judge ensemble, exact metrics, statistics, result-JSON + headline report, live-progress widget, results command) — verified by the automated smoke + acceptance tests (`tests/e2e/`) which drive the **real** run driver + real scoring orchestrator end-to-end with mocked live-session phases + canned judges.
 
-The **prepare-scenario live seams** (the user-simulator drive-and-capture, the trial compaction, the manifest authoring agent) are pending wiring — `defaultBuildPrepareDeps` currently surfaces a clear not-implemented error. Until those land, `/bench-compact:run-scenario <folder>` is the runnable entry point against a **pre-prepared** scenario folder; `/bench-compact:prepare-scenario` + the `/bench-compact:run` / `/bench-compact:run-session-file` shorthands await the prepare wiring.
+The **prepare-scenario live seams** (the user-simulator drive-and-capture, the trial compaction, the manifest authoring agent) are wired via `buildLiveSeams` (`src/production/live-seams.ts`) — `/bench-compact:prepare-scenario` drives a real build (or extracts a real session) end-to-end. `/bench-compact:run <idea>` + `/bench-compact:run-session-file <path>` chain through the same wiring. The optional tail-content detection (`findTailContent`) is not yet wired (absent → missing tail topics surface for the operator).
 
 ## Verifying without live LLMs (automated)
 

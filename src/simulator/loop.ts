@@ -20,19 +20,22 @@
 // it never captures the backup or compacts (Task 10/12 does).
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { log } from "../log.js";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
   NO_REASONING,
   NO_STAGE_END_HOOK,
+  runBenchStage,
   type StageRunInput,
   type StageRunResult,
 } from "../runtime/agent-loop.js";
-import type { ResolvedBenchModel } from "../runtime/model.js";
+import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
+import { CONDITION_TOPICS } from "./condition-topics.js";
 import { buildSimulatorInput } from "./messages.js";
 import { buildChunks, type ChunkOptions, computeUnobserved, lastUserMessageId, type RenderedChunk } from "./observe.js";
+import { buildSimulatorSystemPrompt } from "./prompt.js";
 
 // --- pure helpers (tested directly) ----------------------------------------
 
@@ -253,4 +256,104 @@ export class SimulatorDriver {
       this.deps.hooks?.onStop?.({ contextTokens: this._contextTokens, reason: "error", error: msg });
     }
   }
+}
+
+// --- shared drive helpers (build Phase 0 + continuation Phase 2) -----------
+
+/** Mutable drive-stop state shared between the driver's onStop hook + the drive loop. */
+export interface DriveStop {
+  stopped: boolean;
+  reason: StopReason | null;
+  error: string | null;
+}
+
+/** Args to {@link buildSimulatorDriver} — the common inputs both the build (Phase 0)
+ *  + continuation (Phase 2) simulator drivers share. */
+export interface BuildSimulatorDriverArgs {
+  readonly pi: ExtensionAPI;
+  readonly ctx: ExtensionContext;
+  /** The task brief (manifest description / scenario idea) seeding the system prompt. */
+  readonly task: string;
+  /** The evaluated model (`provider/id`, or null = session default) the simulator runs on. */
+  readonly evaluatedModel: string | null;
+  readonly targetContext: number;
+  readonly maxTokens: number;
+  readonly signal: AbortSignal;
+  readonly inject: (text: string) => void;
+  readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
+}
+
+/** Construct a real {@link SimulatorDriver} wired to the fresh session ctx (branch +
+ *  model resolution) + the bench agent-loop runner. Shared by the build + continuation
+ *  simulator factories so the seams/systemPrompt/driver-construction lives in one place. */
+export function buildSimulatorDriver(args: BuildSimulatorDriverArgs): SimulatorDriver {
+  const systemPrompt = buildSimulatorSystemPrompt({
+    task: args.task,
+    conditionTopics: CONDITION_TOPICS,
+    targetContext: args.targetContext,
+  });
+  const seams: SimulatorSeams = {
+    getBranch: () => args.ctx.sessionManager.getBranch(),
+    resolveModel: (): Promise<ResolvedBenchModel> => resolveBenchModel(args.ctx, args.evaluatedModel),
+    runStage: runBenchStage,
+    inject: args.inject,
+  };
+  return new SimulatorDriver({
+    seams,
+    systemPrompt,
+    targetContext: args.targetContext,
+    maxTokens: args.maxTokens,
+    signal: args.signal,
+    hooks: { onStop: args.onStop },
+  });
+}
+
+/** Args to {@link driveUntilStop} — the common drive-loop inputs. */
+export interface DriveUntilStopArgs {
+  /** The driver (runs one simulator cycle per call). */
+  readonly driver: { onAgentSettled(): Promise<void> };
+  /** The shared stop state (mutated by the driver's onStop hook). */
+  readonly stop: DriveStop;
+  /** Await the agent settling (already wrapped to throw the caller's stop-error on abort/stall). */
+  readonly awaitSettled: () => Promise<void>;
+  /** Return true to break the loop (e.g. stop.stopped OR a budget reached). */
+  readonly shouldBreak: () => boolean;
+  /** Build the error thrown when a cycle signals an error-stop (caller picks the typed error). */
+  readonly makeCycleError: (error: string | null) => Error;
+}
+
+/** The shared drive loop: kick-off cycle → { await-settle → check break → cycle } until
+ *  the driver signals stop or the caller's break condition holds. A cycle that signals
+ *  an error-stop throws `makeCycleError(stop.error)`. Shared by build (Phase 0) +
+ *  continuation (Phase 2). */
+export async function driveUntilStop(args: DriveUntilStopArgs): Promise<void> {
+  const cycle = async (): Promise<void> => {
+    await args.driver.onAgentSettled();
+    if (args.stop.reason === "error") {
+      throw args.makeCycleError(args.stop.error);
+    }
+  };
+  await cycle();
+  while (true) {
+    await args.awaitSettled();
+    if (args.shouldBreak()) break;
+    await cycle();
+  }
+}
+
+/** Create the shared mutable drive-stop state + the `onStop` hook that populates it.
+ *  Both the build (Phase 0) + continuation (Phase 2) drivers wire this identical pair. */
+export function makeDriveStop(): {
+  stop: DriveStop;
+  onStop: NonNullable<SimulatorHooks["onStop"]>;
+} {
+  const stop: DriveStop = { stopped: false, reason: null, error: null };
+  return {
+    stop,
+    onStop: (info) => {
+      stop.stopped = true;
+      stop.reason = info.reason;
+      stop.error = info.error ?? null;
+    },
+  };
 }

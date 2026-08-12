@@ -53,7 +53,7 @@ interface CitedCondition {
  *  the KEPT TAIL (not the span the author saw). A topic with no authored condition is
  *  "tail" (auto-continue) when in this set, else "missing" (surface). This resolves the
  *  pre-slice-vs-tail tension: the author sees only the span, so the harness's separate
- *  tail-check (Task 19 wiring) distinguishes content-in-tail from never-materialized. */
+ *  tail-check (harness wiring; default empty) distinguishes content-in-tail from never-materialized. */
 export function classifyLanding(
   manifest: ScenarioManifest,
   firstKeptEntryId: string,
