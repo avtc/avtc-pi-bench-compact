@@ -98,11 +98,9 @@ function modeStages(perRun: readonly (readonly string[])[]): readonly string[] {
   return best.first;
 }
 
-/** Aggregate per-run results: mean over recovered runs + not-recovered rate. */
-function aggregateC2(results: readonly C2Result[], options: BootstrapOptions | null): C2Metric {
-  if (results.length === 0) {
-    return { mean: null, ci: null, notRecoveredRate: Number.NaN };
-  }
+/** Recall-cost aggregate: mean over recovered runs + not-recovered rate. */
+function aggregateC2(results: readonly C2Result[], options: BootstrapOptions | null): C2Metric | undefined {
+  if (results.length === 0) return undefined;
   const recovered = results.filter((r) => !r.notRecovered);
   const notRecoveredCount = results.length - recovered.length;
   const notRecoveredRate = notRecoveredCount / results.length;
@@ -155,7 +153,10 @@ export function aggregateArmMetrics(grades: AllArmsGrades, options: BootstrapOpt
     const ex = armGrades.exact;
     if (ex?.C1 !== undefined) exact.C1 = bootstrapCi(ex.C1, options);
     if (ex?.C3 !== undefined) exact.C3 = bootstrapCi(ex.C3, options);
-    if (ex?.C2 !== undefined) exact.C2 = aggregateC2(ex.C2, options);
+    if (ex?.C2 !== undefined) {
+      const c2 = aggregateC2(ex.C2, options);
+      if (c2 !== undefined) exact.C2 = c2;
+    }
     if (ex?.C4 !== undefined) {
       const c4 = aggregateC4(ex.C4, options);
       if (c4 !== undefined) exact.C4 = c4;

@@ -86,6 +86,12 @@ describe("aggregateArmMetrics — exact C2 channel", () => {
     const result = aggregateArmMetrics(grades, OPTS);
     expect(result.arms.A1?.exact.C2).toEqual({ mean: null, ci: null, notRecoveredRate: 1.0 });
   });
+
+  it("empty C2 results → no C2 metric produced (avoids NaN notRecoveredRate violating the [0,1] contract)", () => {
+    const grades: AllArmsGrades = { arms: { A1: { exact: { C2: [] } } } };
+    const result = aggregateArmMetrics(grades, OPTS);
+    expect(result.arms.A1?.exact.C2).toBeUndefined();
+  });
 });
 
 describe("aggregateArmMetrics — exact C4 channel", () => {
