@@ -181,6 +181,18 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     setStatus: (status, hint) => {
       calls.push(`setStatus:${status}:${hint ?? "-"}`);
     },
+    setArm: (index, total, tool) => {
+      calls.push(`setArm:${index}/${total}:${tool}`);
+    },
+    setDetail: (detail) => {
+      calls.push(`setDetail:${detail ?? "-"}`);
+    },
+    setCtxWindow: (w) => {
+      calls.push(`setCtxWindow:${w ?? "-"}`);
+    },
+    onEvent: (event) => {
+      calls.push(`onEvent:${event.type}`);
+    },
     hide: () => {
       calls.push("hide");
     },
@@ -517,6 +529,7 @@ describe("startRun — live-progress widget wiring", () => {
       "startPhase:compact:-",
       "startPhase:resume:-",
       "startPhase:probe:-",
+      "setArm:1/1:tool-A1",
       "startPhase:score:-",
       "setStatus:done:/bench-compact:results",
     ]);

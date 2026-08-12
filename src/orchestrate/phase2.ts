@@ -39,6 +39,7 @@ import {
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
+import type { WidgetPort } from "../widget/active-widget.js";
 import { getBenchPi } from "./bench-ctx.js";
 import { type ContextMonitor, makeContextMonitor } from "./context-monitor.js";
 import type { ArmBase } from "./phase1.js";
@@ -137,6 +138,8 @@ export interface Phase2Deps {
   readonly N: number;
   /** Run/compaction signal (default = a never-aborting signal). */
   readonly signal?: AbortSignal;
+  /** The live-progress widget (TUI-only; null/absent → no-op). */
+  readonly widget?: WidgetPort | null;
   /** Injectable seams (defaults = real implementations). */
   readonly ops?: Partial<Phase2Ops>;
 }
@@ -254,7 +257,10 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
   let currentCtx: ExtensionCommandContext = deps.cmdCtx;
   const traces: RunTrace[] = [];
   for (const base of deps.armBases) {
+    const armIdx = deps.armBases.indexOf(base) + 1;
     for (let attempt = 1; attempt <= deps.N; attempt++) {
+      deps.widget?.setArm(armIdx, deps.armBases.length, base.tool);
+      deps.widget?.setDetail(`${attempt}/${deps.N}`);
       // Attempt branch = arm-base branch + the -{attemptN} suffix (single source in branches.ts).
       const attemptBranch = appendAttempt(base.branch, attempt);
       if (!ops.branchExists(deps.repo, attemptBranch)) {

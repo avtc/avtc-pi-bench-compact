@@ -21,6 +21,27 @@ import {
 import { clearRunState } from "../../src/orchestrate/run-state.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
 import { AgentSettledAbortedError } from "../../src/session/done.js";
+import type { WidgetPort } from "../../src/widget/active-widget.js";
+
+/** A capturing WidgetPort: records setArm/setDetail calls. */
+function capturingWidget(): WidgetPort & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    show: () => {},
+    startPhase: () => {},
+    setStatus: () => {},
+    setArm: (index, total, tool) => {
+      calls.push(`setArm:${index}/${total}:${tool}`);
+    },
+    setDetail: (detail) => {
+      calls.push(`setDetail:${detail ?? "-"}`);
+    },
+    setCtxWindow: () => {},
+    onEvent: () => {},
+    hide: () => {},
+  };
+}
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { buildAttemptBranch } from "../../src/storage/branches.js";
 
@@ -243,6 +264,30 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       expect(ops.checkout.mock.calls[k - 1]).toEqual([repo, attemptBranch]);
       expect(ops.commit.mock.calls[k - 1]?.[0]).toBe(repo);
     }
+  });
+
+  it("calls widget.setArm + setDetail per arm×attempt", async () => {
+    const ops = makeFakeOps();
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const widget = capturingWidget();
+    await runContinuations({
+      cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+      armBases: [base],
+      config: makeConfig(3),
+      manifest: MANIFEST,
+      repo,
+      N: 3,
+      widget,
+      ops: ops as unknown as Phase2Ops,
+    });
+    expect(widget.calls).toEqual([
+      "setArm:1/1:bare-pi",
+      "setDetail:1/3",
+      "setArm:1/1:bare-pi",
+      "setDetail:2/3",
+      "setArm:1/1:bare-pi",
+      "setDetail:3/3",
+    ]);
   });
 
   it("is idempotent on re-run: skips fork when the attempt branch already exists", async () => {

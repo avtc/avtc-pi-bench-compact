@@ -35,6 +35,8 @@ import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
+import type { WidgetPort } from "../widget/active-widget.js";
+import { NO_DETAIL } from "../widget/tracker.js";
 import { getBenchPi } from "./bench-ctx.js";
 import { getRunState, updateRunState } from "./run-state.js";
 
@@ -118,6 +120,8 @@ export interface Phase1Deps {
   omFullReflectionThresholdTokens: number;
   /** Enabled arms in processing order. */
   armsEnabled: ArmId[];
+  /** The live-progress widget (TUI-only; null/absent → no-op). */
+  widget?: WidgetPort | null;
   /** Injectable seams (defaults = real implementations). */
   ops?: Partial<Phase1Ops>;
 }
@@ -173,6 +177,8 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
   try {
     for (const arm of armsEnabled) {
       const def = ARM_DEFS[arm];
+      deps.widget?.setArm(armsEnabled.indexOf(arm) + 1, armsEnabled.length, def.tool);
+      deps.widget?.setDetail(NO_DETAIL);
       const tv = toolVersions[arm] ?? null;
       const ver = tv?.commit;
       const branch = buildArmBaseBranch({ date, id, cfgId, tool: def.tool, ver });

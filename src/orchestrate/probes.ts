@@ -36,6 +36,7 @@ import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendProbe } from "../storage/branches.js";
 import { isQaOnlyBranch } from "../storage/probe-lifecycle.js";
 import { branchExists, checkout, commitAll, forkBranch, resetBranch } from "../storage/repo.js";
+import type { WidgetPort } from "../widget/active-widget.js";
 import { getBenchPi } from "./bench-ctx.js";
 import type { ArmBase } from "./phase1.js";
 import { readSessionEntries } from "./trace.js";
@@ -127,6 +128,8 @@ export interface ProbeDeps {
   readonly repo: string;
   /** Run signal (default = a never-aborting signal). */
   readonly signal?: AbortSignal;
+  /** The live-progress widget (TUI-only; null/absent → no-op). */
+  readonly widget?: WidgetPort | null;
   /** Injectable seams (defaults = real implementations). */
   readonly ops?: Partial<ProbeOps>;
 }
@@ -225,6 +228,7 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
   const traces: ProbeTrace[] = [];
   for (let i = FIRST_INDEX; i < deps.manifest.probes.length; i++) {
     const probe = deps.manifest.probes[i];
+    deps.widget?.setDetail(`${i + 1}/${deps.manifest.probes.length}`);
     const probeId = String(i + ONE_BASED_OFFSET); // 1-based positional (probes carry no id in the schema)
     const probeBranch = appendProbe(baseBranch, probeId);
 

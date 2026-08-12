@@ -202,6 +202,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       toolVersions: runConfig.toolVersions,
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
       armsEnabled: deps.config.armsEnabled,
+      widget,
       ops: deps.ops,
     });
 
@@ -215,6 +216,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       manifest: deps.manifest,
       repo: deps.scenarioRepo,
       N: deps.config.N,
+      widget,
       signal,
     });
 
@@ -223,11 +225,13 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     let probeCtx = contResult.finalCtx;
     const probeTraces = [];
     for (const base of bases) {
+      widget?.setArm(bases.indexOf(base) + 1, bases.length, base.tool);
       const probeResult = await probes({
         cmdCtx: probeCtx,
         armBase: base,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
+        widget,
         signal,
         ops: deps.probeOps,
       });

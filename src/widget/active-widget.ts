@@ -6,6 +6,7 @@
 // can reach it without a ctx/handle threaded through the command); abort hides it.
 // Mirrors run-state's globalThis singleton pattern (one active widget per process).
 
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { WidgetPhase, WidgetStatus } from "./render.js";
 
 /** The narrow widget surface the orchestrator + abort use. {@link WidgetController}
@@ -14,6 +15,14 @@ export interface WidgetPort {
   show(): void;
   startPhase(phase: WidgetPhase, detail: string | null): void;
   setStatus(status: WidgetStatus, hint: string | null): void;
+  /** Arm counter (`<armN>/<total> <tool>`); the harness calls this per arm/attempt. */
+  setArm(index: number, total: number, tool: string): void;
+  /** Trailing detail on the phase label (e.g. `<attempt>/<N>`). */
+  setDetail(detail: string | null): void;
+  /** Set the background agent's context window when it starts (the <w> in `ctx <u>/<w>`). */
+  setCtxWindow(ctxWindow: number | null): void;
+  /** Forward a background-agent event (user-simulator / judge) → two-tier token accumulator. */
+  onEvent(event: AgentEvent): void;
   hide(): void;
 }
 
