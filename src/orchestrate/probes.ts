@@ -30,6 +30,7 @@ import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
 import { type InjectMode, inject } from "../session/inject.js";
+import { extractContentText } from "../session/message-text.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendProbe } from "../storage/branches.js";
@@ -165,17 +166,8 @@ export function extractProbeAnswer(entries: readonly SessionEntry[]): string {
     if (entry.type !== "message") continue;
     const message = entry.message;
     if (message === undefined || message.role !== "assistant") continue;
-    const content = message.content;
-    if (!Array.isArray(content)) return "";
-    const texts: string[] = [];
-    for (const block of content) {
-      if (typeof block !== "object" || block === null) continue;
-      const blockLike = block as { type?: string; text?: unknown };
-      if (blockLike.type === "text" && typeof blockLike.text === "string") {
-        texts.push(blockLike.text);
-      }
-    }
-    return texts.join("");
+    const text = extractContentText(message.content);
+    return text;
   }
   return ""; // no assistant message after the inject
 }
