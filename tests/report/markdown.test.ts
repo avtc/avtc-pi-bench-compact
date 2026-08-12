@@ -106,7 +106,13 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
     arms,
     ranks: { E1: { order: ["A3", "A1"], elo: { A1: 900, A3: 1100 } } },
     failures: [{ arm: "A3", run: 4, phase: "resume", reason: "agent hang", traceBranch: "b", resolved: true }],
-    artifacts: { scenarioRepo: "/p/repo", branches: ["main"], judgeDir: "/p/judge", config: "/p/cfg.json" },
+    artifacts: {
+      scenarioRepo: "/p/repo",
+      branches: ["main"],
+      judgeDir: "/p/judge",
+      config: "/p/cfg.json",
+      results: "/p/runs/run1/results.json",
+    },
   };
 }
 
@@ -169,5 +175,7 @@ describe("renderHeadline", () => {
     expect(md).toContain("run 4");
     expect(md).toContain("resume");
     expect(md).toContain("resolved");
+    // The result-JSON artifact path is the serializer-populated `results` field (not the config fallback).
+    expect(md).toContain("/p/runs/run1/results.json");
   });
 });

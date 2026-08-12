@@ -56,19 +56,19 @@ describe("formatMetricValue", () => {
   it("exact → K-suffixed mean", () => {
     expect(formatMetricValue({ mean: 12_100, ci: [11_000, 13_000] })).toBe("12.1K");
   });
-  it("compaction-cost → $dollars/wall", () => {
+  it("compaction-cost → $dollars/wall (3-decimal $)", () => {
     expect(
       formatMetricValue({
         tokensIn: 1,
         tokensOut: 1,
         cacheRead: 1,
         cacheWrite: 1,
-        dollars: 0.034,
+        dollars: 0.034567, // raw decimals → rounded to 3 places
         wallMs: 41000,
         stages: ["s"],
         phase2CompactionCount: 0,
       }),
-    ).toBe("$0.034/41s");
+    ).toBe("$0.035/41s");
   });
   it("recall-cost → mean or n/a when all notRecovered", () => {
     expect(formatMetricValue({ mean: 500, ci: [400, 600], notRecoveredRate: 0 })).toBe("500");

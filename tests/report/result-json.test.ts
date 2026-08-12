@@ -210,6 +210,12 @@ describe("serializeResultJson", () => {
     expect(json.artifacts.scenarioRepo).toBe("/path/repo");
     expect(json.artifacts.config).toContain("cfg-a3f2c1");
   });
+
+  it("populates artifacts.results from root + runId (the report reads this, not the config path)", () => {
+    const json = serializeResultJson({ ...baseDeps, root: "/tmp/bench-compact" });
+    expect(json.artifacts.results).toBe(path.join("/tmp/bench-compact", "runs", baseDeps.runId, "results.json"));
+    // the caller-provided artifacts.results (if any) is overwritten by the derived path.
+  });
 });
 
 describe("writeResultJson", () => {

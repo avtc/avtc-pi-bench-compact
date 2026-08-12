@@ -75,7 +75,7 @@ export const METRIC_ORDER: readonly MetricId[] = [
 export function formatMetricValue(v: MetricJson): string {
   if ("rate" in v) return `${pct(v.rate)} [${pct(v.ci[0])}–${pct(v.ci[1])}]`;
   if ("rank" in v) return String(v.rank);
-  if ("dollars" in v) return `$${v.dollars}/${Math.round(v.wallMs / 1000)}s`; // $/wall (compaction-cost row)
+  if ("dollars" in v) return `$${v.dollars.toFixed(3)}/${Math.round(v.wallMs / 1000)}s`; // $/wall (compaction-cost row, 3-decimal $)
   if ("notRecoveredRate" in v) return v.mean === null ? "n/a" : count(v.mean);
   return count(v.mean); // exact footprint / run-cost
 }
