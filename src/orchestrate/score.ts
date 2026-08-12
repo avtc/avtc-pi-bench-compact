@@ -51,6 +51,7 @@ import {
   buildProbeAnswerSlice,
   buildStartSlice,
   buildTwoCheckpointSlice,
+  DEFAULT_ACTIONS_MAX,
   type SliceOptions,
 } from "../judge/slices.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
@@ -63,11 +64,16 @@ import { type C4Result, computeC1, computeC3, computeC4 } from "../metrics/exact
 import type { Pricing } from "../metrics/pricing.js";
 import { phaseOneCompactionIndex } from "../metrics/trace-read.js";
 import { renderHeadline } from "../report/markdown.js";
-import { serializeResultJson, type ResultArtifacts, type ResultFailure, type ResultScenario } from "../report/result-json.js";
-import type { RunConfig } from "../storage/branches.js";
+import {
+  type ResultArtifacts,
+  type ResultFailure,
+  type ResultScenario,
+  serializeResultJson,
+} from "../report/result-json.js";
 import { type AllArmsGrades, type ArmRunGrades, aggregateArmMetrics } from "../stats/aggregate.js";
 import type { BootstrapOptions } from "../stats/bootstrap.js";
 import type { ArmRanking } from "../stats/rank.js";
+import type { RunConfig } from "../storage/branches.js";
 import type { ProbeTrace } from "./probes.js";
 import type { TestSpecResult } from "./testspec.js";
 import type { RunTrace } from "./trace.js";
@@ -441,8 +447,9 @@ export async function gradeTraceBinaryForRun(
 
 // --- Comparative routing (resume/task-quality slices + redo-plan/goal summaries) --
 
-/** The tail of post-compaction entries the done-snapshot renders (the final actions). */
-const DONE_FINAL_ACTIONS = 8;
+/** The tail of post-compaction entries the done-snapshot renders (the final actions,
+ *  sized to the slice render cap so the cap is a no-op — single source: slices.ts). */
+const DONE_FINAL_ACTIONS = DEFAULT_ACTIONS_MAX;
 /** Slice-builder options sentinel: no per-call override (use each builder's defaults). */
 const DEFAULT_SLICE_OPTIONS: SliceOptions | null = null;
 
@@ -524,8 +531,13 @@ export async function gradeSliceComparative(
   };
 }
 
-/** Rank a summary-based axis per attempt: EACH judge summarizes all arms (its own
- *  summaries, checkout per arm) then ranks; Borda-aggregate the K rankings. */
+/** Rank a summary-based axis per attempt. ONE checkout per arm; while that arm's
+ *  branch is checked out, ALL K judges summarize it in parallel (safe — they read
+ *  the same read-only working tree; the terminal write_summary captures into each
+ *  judge's own stage, not the repo). Then each judge ranks using its OWN summaries
+ *  (no checkout — pure strings) + Borda-aggregate the K rankings. The one-checkout-
+ *  per-arm ordering avoids concurrent-checkout races on the shared single-worktree
+ *  repo (the prior per-judge-parallel fan-out corrupted summaries when K > 1). */
 async function rankSummaryAxisPerAttempt(
   axis: "E3" | "E10",
   byAttempt: ReturnType<typeof groupByAttempt>,
@@ -534,22 +546,42 @@ async function rankSummaryAxisPerAttempt(
 ): Promise<ArmRanking[]> {
   const rankings: ArmRanking[] = [];
   for (const armRuns of byAttempt) {
-    const judgeRankings = deps.callJudges.map(async (callJudge, judgeIndex) => {
-      const armSlices: Record<string, string> = {};
-      for (const [arm, run] of armRuns) {
-        deps.checkout(run.repo, run.branch);
-        armSlices[arm] = await summarizeTrajectory({
-          seams: deps.stageSeams[judgeIndex] as JsonToolStageSeams,
-          cwd: run.repo,
-          axis,
-          manifest: deps.manifest,
-          maxTokens: deps.maxTokens,
-          signal: deps.signal,
-          rateLimitOptions: deps.rateLimitOptions,
-        });
-      }
-      return rankAxis({ callJudge, axis, armSlices, shuffle: deps.shuffle, options: { maxRetries: deps.maxRetries } });
+    // Phase 1: build per-judge per-arm summaries. ONE checkout per arm; all K
+    // judges summarize that arm in parallel on the same checked-out tree.
+    const summariesByJudge = new Map<number, Record<string, string>>();
+    deps.callJudges.forEach((_, judgeIndex) => {
+      summariesByJudge.set(judgeIndex, {});
     });
+    for (const [arm, run] of armRuns) {
+      deps.checkout(run.repo, run.branch);
+      const judgeSummaries = await Promise.all(
+        deps.stageSeams.map((seams) =>
+          summarizeTrajectory({
+            seams,
+            cwd: run.repo,
+            axis,
+            manifest: deps.manifest,
+            maxTokens: deps.maxTokens,
+            signal: deps.signal,
+            rateLimitOptions: deps.rateLimitOptions,
+          }),
+        ),
+      );
+      judgeSummaries.forEach((summary, judgeIndex) => {
+        const judgeSlices = summariesByJudge.get(judgeIndex);
+        if (judgeSlices !== undefined) judgeSlices[arm] = summary;
+      });
+    }
+    // Phase 2: each judge ranks using its OWN summaries (no checkout — pure strings).
+    const judgeRankings = deps.callJudges.map((callJudge, judgeIndex) =>
+      rankAxis({
+        callJudge,
+        axis,
+        armSlices: summariesByJudge.get(judgeIndex) ?? {},
+        shuffle: deps.shuffle,
+        options: { maxRetries: deps.maxRetries },
+      }),
+    );
     rankings.push(toArmRanking(await rankEnsemble(judgeRankings, enabledArms)));
   }
   return rankings;

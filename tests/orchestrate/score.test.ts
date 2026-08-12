@@ -754,3 +754,105 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     expect(c2?.notRecoveredRate).toBe(0);
   });
 });
+
+// --- K-ensemble coverage (R1-3) — majority vote + comparative Borda + checkout race ---
+
+describe("K-judge ensemble (K>1)", () => {
+  it("gradeProbeAxesForRun: K=3 majority vote (2 pass + 1 fail -> pass)", async () => {
+    const trace = traceOf([userEntry("u0", null)], []);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [{ arm: "A3", probeId: "1", branch: "b", answer: "yes", kept: true }],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    const manifest: ScenarioManifest = {
+      ...probeManifest,
+      probes: [{ question: "q?", accept: ["yes"], targets: ["rf1"], lanes: ["direct-probe"] }],
+    };
+    // 3 judges: pass, fail, pass -> majority pass
+    const passes = [true, false, true];
+    const callJudges: CallJudge[] = passes.map((p) => async (sys: string) => {
+      const axis = (sys.match(/E\d+/)?.[0] ?? "E5") as MetricId;
+      return JSON.stringify({ pass: p && axis === "E5", evidence: "x" });
+    });
+    const results = await gradeProbeAxesForRun(run, { manifest, callJudges });
+    expect(results).toEqual([{ axis: "E5", pass: true }]); // 2 of 3 -> pass
+  });
+
+  it("gradeTraceBinaryForRun: K=3 majority vote on the trajectory axis", async () => {
+    const c1 = compaction("c1", "u0", "summary", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 10)], [c1]);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    // 3 judges: E4 pass, E4 fail, E4 pass -> majority pass
+    const trajGrades = [true, false, true];
+    const stageSeams: JsonToolStageSeams[] = trajGrades.map((pass) => ({
+      resolveModel: async () => OK_MODEL,
+      runStage: async (input: StageRunInput) => {
+        callTerminal(input, "record_grades", { grades: [{ axis: "E4", pass, evidence: "x" }] });
+        return cleanResult();
+      },
+    }));
+    const result = await gradeTraceBinaryForRun(run, {
+      manifest: probeManifest,
+      callJudges: [callJudgeByAxis({})],
+      stageSeams,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+      checkout: () => undefined,
+    });
+    expect(result.E4).toBe(true); // 2 of 3 -> pass
+  });
+
+  it("gradeSummaryComparative K=2: ONE checkout per arm (no concurrent-checkout race); each judge's summarize sees the correct branch (R1-2 regression)", async () => {
+    const c1 = compaction("c1", "u0", "summary", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 10)], [c1]);
+    let currentBranch = "initial";
+    const checkoutLog: string[] = [];
+    const summarizeBranches: string[] = [];
+    function makeSeams(): JsonToolStageSeams {
+      return {
+        resolveModel: async () => OK_MODEL,
+        runStage: async (input: StageRunInput) => {
+          summarizeBranches.push(currentBranch); // record which branch THIS summarize saw
+          callTerminal(input, "write_summary", { summary: "s" });
+          return cleanResult();
+        },
+      };
+    }
+    const callJudge: CallJudge = async () => JSON.stringify({ order: ["A", "B"] });
+    await gradeSummaryComparative([comparativeRun("A1", trace), comparativeRun("A3", trace)], {
+      manifest: probeManifest,
+      callJudges: [callJudge, callJudge],
+      stageSeams: [makeSeams(), makeSeams()],
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+      shuffle: identityShuffle,
+      checkout: (_repo, branch) => {
+        currentBranch = branch;
+        checkoutLog.push(branch);
+      },
+    });
+    // ONE checkout per arm PER AXIS (E3 then E10): 2 axes x [A1, A3] = 4 total.
+    // The race bug would produce 8 (each judge checks out both arms per axis).
+    expect(checkoutLog).toEqual(["A1-arm-1", "A3-arm-1", "A1-arm-1", "A3-arm-1"]);
+    // 8 summarizes (2 axes x 2 judges x 2 arms); every summarize saw the branch
+    // checked out for ITS arm (no race — never "initial" nor a mismatched branch).
+    // Consecutive pairs are homogeneous: both judges summarize one arm (during its
+    // checkout) before the next arm is checked out.
+    expect(summarizeBranches.length).toBe(8);
+    expect(summarizeBranches.every((b) => b === "A1-arm-1" || b === "A3-arm-1")).toBe(true);
+    for (let i = 0; i < summarizeBranches.length; i += 2) {
+      expect(summarizeBranches[i]).toBe(summarizeBranches[i + 1]); // homogeneous pair
+    }
+  });
+});

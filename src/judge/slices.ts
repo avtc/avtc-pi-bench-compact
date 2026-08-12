@@ -27,7 +27,10 @@ export interface SliceOptions {
 
 /** Default cap on rendered actions in a slice (keeps each call small). */
 const DEFAULT_START_MAX = 5;
-const DEFAULT_ACTIONS_MAX = 8;
+/** The default cap on rendered actions in a done/two-checkpoint slice. Exported so
+ *  the orchestrator can size its done-snapshot tail to match (showing the LAST
+ *  actions, then the render cap is a no-op). */
+export const DEFAULT_ACTIONS_MAX = 8;
 
 /** A minimal view of a session message entry (the fields the renderer reads). */
 interface MessageLike {
