@@ -9,3 +9,4 @@ node_modules/.cache/
 
 # featyard managed storage (symlinked)
 .featyard
+report/

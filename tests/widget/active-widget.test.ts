@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { getActiveWidget, hideActiveWidget, setActiveWidget, type WidgetPort } from "../../src/widget/active-widget.js";
 
 /** A capturing WidgetPort: records every method call. */

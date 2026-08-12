@@ -3,7 +3,13 @@
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WidgetController, type WidgetDeps } from "../../src/widget/tracker.js";
+import {
+  makeTuiWidgetDeps,
+  WIDGET_KEY,
+  WIDGET_PLACEMENT,
+  WidgetController,
+  type WidgetDeps,
+} from "../../src/widget/tracker.js";
 
 /** Fixed wide terminal width (no elision → exact line assertions). */
 const TERM_WIDE = 200;
@@ -105,7 +111,7 @@ describe("WidgetController", () => {
     c.show();
     c.setStatus("done", "/bench-compact:results");
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toBe("🅑 · ■■■■■ done · /bench-compact:results");
+    expect(cap.lines.at(-1)).toBe("🅑 ■■■■■ done · /bench-compact:results");
   });
 
   it("advancePhase moves build→compact→resume→probe→score", () => {
@@ -194,6 +200,77 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     });
     c.show();
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toBe("🅑 · 1/5 memkeeper-builder · ■◧□□□ compact");
+    expect(cap.lines.at(-1)).toBe("🅑 1/5 memkeeper-builder · ■◧□□□ compact");
+  });
+});
+
+describe("makeTuiWidgetDeps — TUI gate", () => {
+  it("returns null for non-TUI modes (json/rpc/print)", () => {
+    const ctx = { mode: "json", hasUI: true, ui: { setWidget: () => {} } };
+    expect(makeTuiWidgetDeps(ctx)).toBeNull();
+  });
+
+  it("returns null when hasUI is false", () => {
+    const ctx = { mode: "tui", hasUI: false, ui: { setWidget: () => {} } };
+    expect(makeTuiWidgetDeps(ctx)).toBeNull();
+  });
+
+  it("publish wraps the fit line in a Text via ctx.ui.setWidget at the aboveEditor slot", () => {
+    const calls: Array<{ key: string; content: unknown; opts: { placement: string } }> = [];
+    const ctx = {
+      mode: "tui",
+      hasUI: true,
+      ui: {
+        setWidget: (key: string, content: unknown, opts: { placement: string }) => {
+          calls.push({ key, content, opts });
+        },
+      },
+    };
+    const deps = makeTuiWidgetDeps(ctx);
+    expect(deps).not.toBeNull();
+    if (deps === null) return;
+
+    deps.publish("🅑 ◧□□□□ build");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.key).toBe(WIDGET_KEY);
+    expect(calls[0]?.opts.placement).toBe(WIDGET_PLACEMENT);
+    // the content is a renderFn returning a Text whose render() yields the line
+    const renderFn = calls[0]?.content as () => { render: (w: number) => string[] };
+    expect(typeof renderFn).toBe("function");
+    expect(renderFn().render(200)[0]?.trim()).toBe("🅑 ◧□□□□ build");
+  });
+
+  it("hide passes HIDE_WIDGET (undefined) at the same slot", () => {
+    const calls: Array<{ key: string; content: unknown }> = [];
+    const ctx = {
+      mode: "tui",
+      hasUI: true,
+      ui: { setWidget: (key: string, content: unknown) => calls.push({ key, content }) },
+    };
+    const deps = makeTuiWidgetDeps(ctx);
+    if (deps === null) return;
+    deps.hide();
+    expect(calls[0]?.key).toBe(WIDGET_KEY);
+    expect(calls[0]?.content).toBeUndefined();
+  });
+});
+
+describe("WidgetController(null deps) — inert", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("every method is a no-op with null deps (no throw, no publish)", () => {
+    const c = new WidgetController(null, { phase: "build" });
+    expect(() => {
+      c.show();
+      c.setArm(1, 5, "tool");
+      c.startPhase("compact", null);
+      c.setStatus("done", null);
+      c.onEvent({ type: "message_end", message: { usage: { totalTokens: 1 } } } as unknown as Parameters<
+        WidgetController["onEvent"]
+      >[0]);
+      c.hide();
+    }).not.toThrow();
+    // nothing to assert beyond no-throw — null deps publishes nothing.
   });
 });

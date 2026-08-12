@@ -15,8 +15,8 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { Text } from "@earendil-works/pi-tui";
 import { deltaTextOf, deltaTokens, messageEndUsage, streamedOutputUsage } from "../runtime/streaming-tokens.js";
-import { fitLine, getTermWidth } from "./fitline.js";
-import { buildSegments, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
+import { getTermWidth } from "./fitline.js";
+import { fitRenderedLine, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
 
 /** Throttle window (ms) — leading + trailing edge. */
 export const THROTTLE_MS = 200;
@@ -70,7 +70,7 @@ const DEFAULT_STATE: WidgetState = {
  */
 export class WidgetController {
   private state: WidgetState;
-  private readonly primaryTokens = { value: 0 }; // two-tier provider-output max (per request)
+  private primaryTokens = 0; // two-tier provider-output max (per request)
   private fallbackTokens = 0; // two-tier chars/4 accumulation (per request)
   private shown = false;
   private lastRender = 0;
@@ -124,7 +124,7 @@ export class WidgetController {
     if (this.deps === null) return;
     if (event.type === "message_start") {
       // New request → reset the current-request token tiers (reset per request).
-      this.primaryTokens.value = 0;
+      this.primaryTokens = 0;
       this.fallbackTokens = 0;
       this.state = { ...this.state, tok: 0 };
     } else if (event.type === "message_end") {
@@ -134,10 +134,10 @@ export class WidgetController {
       // Two-tier: provider usage.output (primary, running max) + chars/4 fallback
       // (accumulates so the counter always moves, incl. during extended thinking).
       const streamed = streamedOutputUsage(event);
-      if (streamed !== null && streamed > this.primaryTokens.value) this.primaryTokens.value = streamed;
+      if (streamed !== null && streamed > this.primaryTokens) this.primaryTokens = streamed;
       const delta = deltaTextOf(event);
       if (delta !== null) this.fallbackTokens += deltaTokens(delta);
-      this.state = { ...this.state, tok: Math.max(this.primaryTokens.value, this.fallbackTokens) };
+      this.state = { ...this.state, tok: Math.max(this.primaryTokens, this.fallbackTokens) };
     } else {
       return; // turn_start/tool_* etc. — no widget state change
     }
@@ -182,7 +182,7 @@ export class WidgetController {
   private render(): void {
     if (this.deps === null) return;
     this.lastRender = this.deps.now();
-    this.deps.publish(fitLine(buildSegments(this.state), this.deps.termWidth()));
+    this.deps.publish(fitRenderedLine(this.state, this.deps.termWidth()));
   }
 }
 

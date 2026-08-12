@@ -15,7 +15,7 @@
 // EXCLUDES ctx/tok: each memory tool renders its own progress widget for its
 // internal stages, so the bench doesn't duplicate them.
 
-import { joinSegments, type Segment } from "./fitline.js";
+import { fitLine, joinSegments, type Segment } from "./fitline.js";
 
 /** The 5 progression phases, in cell order (cell 0 = build, … cell 4 = score). */
 export const PHASE_ORDER = ["build", "compact", "resume", "probe", "score"] as const;
@@ -51,8 +51,9 @@ export interface WidgetState {
   readonly hint: string | null;
 }
 
-/** The 🅑 marker prefixing every line. */
-const BENCH_GLYPH = "🅑";
+/** The 🅑 marker prefixing every line, followed by a SINGLE space (not ` · ` —
+ *  the design glues it to the first content segment: `🅑 <arm|phase-bar>`). */
+export const GLYPH_PREFIX = "🅑 ";
 
 /** Cell glyphs: ■ done, ◧ active, □ pending. */
 const CELL_DONE = "■";
@@ -95,8 +96,8 @@ function phaseLabel(state: WidgetState): string {
  * arm counter is present) is the single elastic segment; all others are fixed.
  * Exposed so the tracker can fit it to the terminal width via `fitLine`.
  */
-export function buildSegments(state: WidgetState): Segment[] {
-  const segs: Segment[] = [BENCH_GLYPH];
+export function buildContentSegments(state: WidgetState): Segment[] {
+  const segs: Segment[] = [];
 
   // Arm counter (omitted during build + done — no per-arm tool / terminal).
   if (state.status !== "done" && state.armIndex !== null && state.armTotal !== null && state.tool !== null) {
@@ -126,7 +127,14 @@ export function buildSegments(state: WidgetState): Segment[] {
   return segs;
 }
 
-/** Render the line (un-fit; the tracker applies `fitLine` to the terminal width). */
+/** Render the line (un-fit; the tracker applies `fitRenderedLine` to the width). */
 export function renderLine(state: WidgetState): string {
-  return joinSegments(buildSegments(state));
+  return GLYPH_PREFIX + joinSegments(buildContentSegments(state));
+}
+
+/** Render + fit the line to `termWidth`: reserve the `🅑 ` glyph prefix, then fit
+ *  the content segments into the remainder (the tool name elides if needed). */
+export function fitRenderedLine(state: WidgetState, termWidth: number): string {
+  const contentWidth = termWidth - GLYPH_PREFIX.length;
+  return GLYPH_PREFIX + fitLine(buildContentSegments(state), Math.max(contentWidth, 1));
 }

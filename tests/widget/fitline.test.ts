@@ -13,9 +13,10 @@ describe("elideMiddle", () => {
     expect(elideMiddle("memkeeper-builder-selector", 12)).toMatch(/^m.+r$/);
     expect(elideMiddle("memkeeper-builder-selector", 12)).toContain("…");
   });
-  it("collapses to a single … when maxLen <= 1", () => {
+  it("returns empty for maxLen<=0 (never overflows); ellipsis for maxLen==1", () => {
+    expect(elideMiddle("anything", 0)).toBe("");
+    expect(elideMiddle("anything", -3)).toBe("");
     expect(elideMiddle("anything", 1)).toBe("…");
-    expect(elideMiddle("anything", 0)).toBe("…");
   });
 });
 

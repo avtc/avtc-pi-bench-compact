@@ -26,9 +26,11 @@ export function getTermWidth(): number {
   return (process.stdout.columns ?? TERM_DEFAULT) - TERM_MARGIN;
 }
 
-/** Middle-elide `text` to at most `maxLen` chars: keep head + tail, `…` between. */
+/** Middle-elide `text` to at most `maxLen` chars: keep head + tail, `…` between.
+ *  maxLen<=0 → empty (never overflow); maxLen==1 → the ellipsis alone. */
 export function elideMiddle(text: string, maxLen: number): string {
-  if (maxLen <= 1) return "…";
+  if (maxLen <= 0) return "";
+  if (maxLen === 1) return "…";
   if (text.length <= maxLen) return text;
   const keep = maxLen - 1; // reserve 1 cell for the ellipsis
   const headLen = Math.ceil(keep / 2);

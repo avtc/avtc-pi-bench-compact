@@ -35,24 +35,24 @@ describe("renderLine — phase-bar + phase name", () => {
       tok: 1100,
       hint: null,
     });
-    expect(md).toBe("🅑 · ◧□□□□ build · ctx 142K/200K · 1.1k tok");
+    expect(md).toBe("🅑 ◧□□□□ build · ctx 142K/200K · 1.1k tok");
   });
 
   it("compact: build done, compact active, ctx/tok EXCLUDED", () => {
     const md = renderLine(running("compact", { tool: "memkeeper-builder" }));
-    expect(md).toBe("🅑 · 1/5 memkeeper-builder · ■◧□□□ compact");
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■◧□□□ compact");
   });
 
   it("resume: build+compact done, resume active, attempt detail + ctx/tok", () => {
     const md = renderLine(running("resume", { detail: "3/10", ctxUsage: 12_000, tok: 300 }));
-    expect(md).toBe("🅑 · 1/5 memkeeper-builder · ■■◧□□ resume 3/10 · ctx 12K/200K · 0.3k tok");
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■◧□□ resume 3/10 · ctx 12K/200K · 0.3k tok");
   });
 
   it("probe: 3 done, probe active, probe detail + ctx/tok (judge)", () => {
     const md = renderLine(
       running("probe", { armIndex: 2, tool: "memkeeper-selector", detail: "5/7", ctxUsage: 8000, tok: 200 }),
     );
-    expect(md).toBe("🅑 · 2/5 memkeeper-selector · ■■■◧□ probe 5/7 · ctx 8K/200K · 0.2k tok");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■◧□ probe 5/7 · ctx 8K/200K · 0.2k tok");
   });
 
   it("score: 4 done, score active, score detail + ctx/tok (judge)", () => {
@@ -66,7 +66,7 @@ describe("renderLine — phase-bar + phase name", () => {
         tok: 1200,
       }),
     );
-    expect(md).toBe("🅑 · 2/5 memkeeper-selector · ■■■■◧ score 5/7 · ctx 124K/256K · 1.2k tok");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■◧ score 5/7 · ctx 124K/256K · 1.2k tok");
   });
 
   it("probe with no judge (ctxUsage null): ctx/tok omitted", () => {
@@ -80,14 +80,14 @@ describe("renderLine — phase-bar + phase name", () => {
         tok: null,
       }),
     );
-    expect(md).toBe("🅑 · 2/5 memkeeper-selector · ■■■◧□ probe 5/7");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■◧□ probe 5/7");
   });
 });
 
 describe("renderLine — terminal states (stay visible)", () => {
   it("done: all cells ■, phase 'done', hint = results command", () => {
     const md = renderLine(running("score", { status: "done", hint: "/bench-compact:results" }));
-    expect(md).toBe("🅑 · ■■■■■ done · /bench-compact:results");
+    expect(md).toBe("🅑 ■■■■■ done · /bench-compact:results");
   });
 
   it("stopped: bar reflects where it stopped, status word + resume hint", () => {
@@ -100,7 +100,7 @@ describe("renderLine — terminal states (stay visible)", () => {
         hint: "/bench-compact:resume",
       }),
     );
-    expect(md).toBe("🅑 · 2/5 memkeeper-selector · ■■◧□□ resume 3/10 · stopped · /bench-compact:resume");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■◧□□ resume 3/10 · stopped · /bench-compact:resume");
   });
 });
 
@@ -129,6 +129,6 @@ describe("renderLine — formatting", () => {
       tok: null,
       hint: null,
     });
-    expect(md).toBe("🅑 · ◧□□□□ build");
+    expect(md).toBe("🅑 ◧□□□□ build");
   });
 });
