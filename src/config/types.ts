@@ -33,6 +33,36 @@ export const ARM_ENABLED_KEY: Record<ArmId, keyof BenchConfig> = {
 
 export type BackupMode = "build" | "extract";
 
+/** The judge-ensemble fields shared by {@link BenchConfig} (live settings) + the
+ *  persisted {@link RunConfig} snapshot (so cfgId + reproducibility cover them).
+ *  Extracted to avoid duplicating the 7-field block across the two interfaces. */
+export interface JudgeEnsembleConfig {
+  judgeModel: string | null;
+  judgeThinkingLevel: ThinkingLevel;
+  /** Multi-judge ensemble size: 1 (single judge, default) or 3 (majority/Borda). */
+  judgesNumber: number;
+  /** Judge 2 model (used when judgesNumber >= 2). null = fall through to session default. */
+  judge2Model: string | null;
+  judge2ThinkingLevel: ThinkingLevel;
+  /** Judge 3 model (used when judgesNumber >= 3). null = fall through to session default. */
+  judge3Model: string | null;
+  judge3ThinkingLevel: ThinkingLevel;
+}
+
+/** Project the 7 judge-ensemble fields off a config (single source for RunConfig
+ *  mapping + cfgId canonical form). */
+export function judgeEnsembleFields(c: JudgeEnsembleConfig): JudgeEnsembleConfig {
+  return {
+    judgeModel: c.judgeModel,
+    judgeThinkingLevel: c.judgeThinkingLevel,
+    judgesNumber: c.judgesNumber,
+    judge2Model: c.judge2Model,
+    judge2ThinkingLevel: c.judge2ThinkingLevel,
+    judge3Model: c.judge3Model,
+    judge3ThinkingLevel: c.judge3ThinkingLevel,
+  };
+}
+
 /**
  * The fully-resolved bench configuration. `armsEnabled` is DERIVED from
  * the five per-arm booleans by the accessor (not stored in settings).
@@ -42,12 +72,10 @@ export type BackupMode = "build" | "extract";
  * config (contextWindow / keepRecentTokens) — those come from the model config
  * (UD30). `null` model = fall through to the session default.
  */
-export interface BenchConfig {
+export interface BenchConfig extends JudgeEnsembleConfig {
   // Models tab
   evaluatedModel: string | null;
   evaluatedThinkingLevel: ThinkingLevel;
-  judgeModel: string | null;
-  judgeThinkingLevel: ThinkingLevel;
   // Run tab
   N: number;
   compactionBoundary: number;

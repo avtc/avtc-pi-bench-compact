@@ -29,6 +29,11 @@ export const DEFAULTS = {
   evaluatedThinkingLevel: "high",
   judgeModel: NO_MODEL,
   judgeThinkingLevel: "high",
+  judgesNumber: 1,
+  judge2Model: NO_MODEL,
+  judge2ThinkingLevel: "high",
+  judge3Model: NO_MODEL,
+  judge3ThinkingLevel: "high",
   N: 10,
   compactionBoundary: 140000,
   backupMode: "build" as BackupMode,
@@ -80,6 +85,40 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "thinking-level",
     defaultValue: DEFAULTS.judgeThinkingLevel,
   }),
+  setting("judgesNumber", {
+    label: "Multi-judge ensemble size",
+    description:
+      "Number of independent judges per grading call. 1 = single judge (cheap dev default); 3 = majority/Borda aggregation (robust final runs).",
+    type: "number",
+    defaultValue: DEFAULTS.judgesNumber,
+    min: 1,
+    max: 3,
+    presets: [1, 3],
+  }),
+  setting("judge2Model", {
+    label: "Judge 2 model",
+    description: "Second judge model (used when ensemble size >= 2). Empty = session default.",
+    type: "model",
+    defaultValue: DEFAULTS.judge2Model,
+  }),
+  setting("judge2ThinkingLevel", {
+    label: "Judge 2 thinking level",
+    description: "Thinking level for judge 2.",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.judge2ThinkingLevel,
+  }),
+  setting("judge3Model", {
+    label: "Judge 3 model",
+    description: "Third judge model (used when ensemble size >= 3). Empty = session default.",
+    type: "model",
+    defaultValue: DEFAULTS.judge3Model,
+  }),
+  setting("judge3ThinkingLevel", {
+    label: "Judge 3 thinking level",
+    description: "Thinking level for judge 3.",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.judge3ThinkingLevel,
+  }),
   // --- Run tab ---
   setting("N", {
     label: "N (continuation runs per arm)",
@@ -106,7 +145,7 @@ const SETTINGS: readonly SettingSchema[] = [
   setting("scenario", {
     label: "Scenario folder",
     description:
-      "Path/id of a prepared scenario folder to run by default (§2.12). null = the folder must be passed to /bench-compact:run-scenario.",
+      "Path/id of a prepared scenario folder to run by default. null = the folder must be passed to /bench-compact:run-scenario.",
     type: "string",
     defaultValue: DEFAULTS.scenario,
   }),
@@ -159,7 +198,20 @@ const SETTINGS: readonly SettingSchema[] = [
 ];
 
 const TABS: readonly SettingsTabSchema[] = [
-  { label: "Models", settingIds: ["evaluatedModel", "evaluatedThinkingLevel", "judgeModel", "judgeThinkingLevel"] },
+  {
+    label: "Models",
+    settingIds: [
+      "evaluatedModel",
+      "evaluatedThinkingLevel",
+      "judgeModel",
+      "judgeThinkingLevel",
+      "judgesNumber",
+      "judge2Model",
+      "judge2ThinkingLevel",
+      "judge3Model",
+      "judge3ThinkingLevel",
+    ],
+  },
   {
     label: "Run",
     settingIds: ["N", "compactionBoundary", "backupMode", "scenario", "outputDir"],

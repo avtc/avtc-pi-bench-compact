@@ -12,6 +12,11 @@ function validConfig(): BenchConfig {
     evaluatedThinkingLevel: "high",
     judgeModel: null,
     judgeThinkingLevel: "high",
+    judgesNumber: 1,
+    judge2Model: null,
+    judge2ThinkingLevel: "high",
+    judge3Model: null,
+    judge3ThinkingLevel: "high",
     N: 10,
     compactionBoundary: 140000,
     backupMode: "build",
@@ -134,5 +139,37 @@ describe("validateBenchConfig", () => {
     cfg.compactionBoundary = 25000;
     cfg.omFullReflectionThresholdTokens = 4000; // < 25000 AND < 30000
     expect(validateBenchConfig(cfg)).toEqual({ ok: true });
+  });
+});
+
+describe("validateBenchConfig — multi-judge ensemble (UD11)", () => {
+  it("accepts judgesNumber=1 (default single judge)", () => {
+    const cfg = validConfig();
+    cfg.judgesNumber = 1;
+    expect(validateBenchConfig(cfg)).toEqual({ ok: true });
+  });
+
+  it("accepts judgesNumber=3", () => {
+    const cfg = validConfig();
+    cfg.judgesNumber = 3;
+    cfg.judge2Model = "provider/judge2";
+    cfg.judge3Model = "provider/judge3";
+    expect(validateBenchConfig(cfg)).toEqual({ ok: true });
+  });
+
+  it("rejects judgesNumber=2 (only 1 or 3 are valid ensemble sizes)", () => {
+    const cfg = validConfig();
+    cfg.judgesNumber = 2;
+    const r = validateBenchConfig(cfg);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/judgesNumber.*1 or 3/i);
+  });
+
+  it("rejects judgesNumber=0 / negative / >3", () => {
+    for (const n of [0, -1, 4, 5]) {
+      const cfg = validConfig();
+      cfg.judgesNumber = n;
+      expect(validateBenchConfig(cfg).ok).toBe(false);
+    }
   });
 });

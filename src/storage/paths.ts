@@ -77,7 +77,7 @@ export function assertNotInRepo(target: string, repo: string): void {
   if (isInsideRepo(target, repo)) {
     throw new Error(
       `contamination: ${target} is inside the agent-visible repo working dir ${repo} ` +
-        "(bench artifacts must live outside the repo — §3.14)",
+        "(bench artifacts must live outside the repo)",
     );
   }
 }

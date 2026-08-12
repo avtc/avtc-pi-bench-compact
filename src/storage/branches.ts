@@ -12,7 +12,7 @@
 
 import { createHash } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ArmId, BackupMode } from "../config/types.js";
+import { type ArmId, type BackupMode, type JudgeEnsembleConfig, judgeEnsembleFields } from "../config/types.js";
 
 /** A resolved memory-tool version for one arm. */
 export interface ToolVersion {
@@ -25,11 +25,9 @@ export interface ToolVersion {
 }
 
 /** The complete run-condition fingerprint inputs (snapshot at run start). */
-export interface RunConfig {
+export interface RunConfig extends JudgeEnsembleConfig {
   evaluatedModel: string | null;
   evaluatedThinkingLevel: ThinkingLevel;
-  judgeModel: string | null;
-  judgeThinkingLevel: ThinkingLevel;
   N: number;
   compactionBoundary: number;
   armsEnabled: ArmId[];
@@ -98,10 +96,9 @@ export function buildProbeBranch(b: BranchBase & { probeId: string }): string {
 export function buildCfgId(rc: RunConfig): string {
   // Canonical form: sorted arms, tool-version entries sorted by arm id (key-order independent).
   const canonical = {
+    ...judgeEnsembleFields(rc),
     evaluatedModel: rc.evaluatedModel,
     evaluatedThinkingLevel: rc.evaluatedThinkingLevel,
-    judgeModel: rc.judgeModel,
-    judgeThinkingLevel: rc.judgeThinkingLevel,
     N: rc.N,
     compactionBoundary: rc.compactionBoundary,
     omFullReflectionThresholdTokens: rc.omFullReflectionThresholdTokens,

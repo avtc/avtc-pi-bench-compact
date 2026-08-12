@@ -27,6 +27,7 @@ import { getMemoryProxies } from "../arms/proxies.js";
 import { ArmIsolationError, configureArm } from "../arms/switch.js";
 import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } from "../arms/version.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
+import { judgeEnsembleFields } from "../config/types.js";
 import { log } from "../log.js";
 import { CompactionCancelledError, triggerCompact } from "../session/compact.js";
 import { inject } from "../session/inject.js";
@@ -135,10 +136,9 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
     if (tv) toolVersions[arm] = tv;
   }
   return {
+    ...judgeEnsembleFields(config),
     evaluatedModel: config.evaluatedModel,
     evaluatedThinkingLevel: config.evaluatedThinkingLevel,
-    judgeModel: config.judgeModel,
-    judgeThinkingLevel: config.judgeThinkingLevel,
     N: config.N,
     compactionBoundary: config.compactionBoundary,
     armsEnabled: [...config.armsEnabled],

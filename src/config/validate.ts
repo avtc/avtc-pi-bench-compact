@@ -15,6 +15,9 @@ const MIN_COMPACTION_BOUNDARY = 20000;
  *  arm differentiation with no error. */
 const OM_DEFAULT_REFLECTION_THRESHOLD_TOKENS = 30000;
 
+/** Valid multi-judge ensemble sizes (1 = single judge; 3 = majority/Borda). */
+const VALID_JUDGES_NUMBER = new Set([1, 3]);
+
 /**
  * Validate a resolved bench config. Models may be null (= fall through to
  * the session default — NOT an error). Rejects:
@@ -36,6 +39,12 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
   }
   if (cfg.N < 1) {
     return { ok: false, reason: `N (continuation runs per arm) must be >= 1 (got ${cfg.N}).` };
+  }
+  if (!VALID_JUDGES_NUMBER.has(cfg.judgesNumber)) {
+    return {
+      ok: false,
+      reason: `judgesNumber must be 1 or 3 (got ${cfg.judgesNumber}) — only single-judge (1) or the 3-judge ensemble (3) are supported.`,
+    };
   }
   if (cfg.armOmFullEnabled) {
     if (cfg.omFullReflectionThresholdTokens < 1) {

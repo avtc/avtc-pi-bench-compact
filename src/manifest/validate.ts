@@ -138,7 +138,7 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
       ...manifest.abstentions.filter((c) => !c.entryIds.some((id) => allTargets.has(id))),
     ];
     for (const c of untargetedConditions) {
-      reasons.push(`${c.id} is not targeted by any probe — §4.18 requires a probe per condition`);
+      reasons.push(`${c.id} is not targeted by any probe — a probe is required per condition`);
     }
   }
 
