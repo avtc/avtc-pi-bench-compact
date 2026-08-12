@@ -20,26 +20,22 @@ import { makeRunScenarioHandler } from "../../src/commands/run-scenario.js";
 import { executeRun, type RunHandlerContext } from "../../src/commands/run-shared.js";
 import { _setHandleForTest } from "../../src/config/accessor.js";
 import type { ArmId } from "../../src/config/types.js";
-import type { ScenarioManifest } from "../../src/manifest/schema.js";
-import type { ArmBase, Phase1Deps, Phase1Result } from "../../src/orchestrate/phase1.js";
-import type { Phase2Deps, Phase2Result } from "../../src/orchestrate/phase2.js";
+import type { ArmBase, Phase1Result } from "../../src/orchestrate/phase1.js";
+import type { Phase2Result } from "../../src/orchestrate/phase2.js";
 import type { ProbeTrace } from "../../src/orchestrate/probes.js";
 import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState } from "../../src/orchestrate/run-state.js";
-import { scoreRun } from "../../src/orchestrate/score.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
 import type { BenchResultJson } from "../../src/report/result-json.js";
 import { initScenarioRepo } from "../../src/storage/repo.js";
 import { fakeCommandCtx } from "../commands/helpers.js";
 import {
+  buildArmTraces,
   buildProbeAnswers,
-  buildRealisticTrace,
   FINAL_CTX,
   fakeBases,
-  makeBenchConfig,
-  makeScoreDeps,
+  makeSmokeDeps,
   makeSmokeManifest,
-  makeVersionResolver,
 } from "./helpers.js";
 
 /** Read + parse the run's results.json into the typed result-v1 shape. */
@@ -69,14 +65,16 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
 
   it("produces a full result-v1 results.json + report.md for a 2-arm (A1 + A3) run", async () => {
     const arms: readonly ArmId[] = ["A1", "A3"];
-    const traceA1 = buildRealisticTrace("A1", "arm-A1-1", null); // native single-stage compaction
-    const traceA3 = buildRealisticTrace("A3", "arm-A3-1", ["observer", "builder", "selector"]); // memory arm stages
+    const traces = buildArmTraces(arms); // native A1 single-stage + memory A3 multi-stage
     const bases = fakeBases(arms);
 
-    const phase1 = vi.fn(async (_deps: Phase1Deps): Promise<Phase1Result> => ({ bases, finalCtx: FINAL_CTX }));
+    // Spy phase functions (to assert call counts) wrapping the SAME return data
+    // makeSmokeDeps would produce — spread makeSmokeDeps for the shared deps fields
+    // (config/manifest/score/scoreDeps/versionResolver) so the two stay DRY.
+    const phase1 = vi.fn(async (): Promise<Phase1Result> => ({ bases, finalCtx: FINAL_CTX }));
     const continuations = vi.fn(
-      async (_deps: Phase2Deps): Promise<Phase2Result> => ({
-        traces: [traceA1, traceA3],
+      async (): Promise<Phase2Result> => ({
+        traces,
         finalCtx: FINAL_CTX,
       }),
     );
@@ -86,28 +84,15 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
         finalCtx: FINAL_CTX,
       }),
     );
-    const testSpec = vi.fn(
-      (_deps: { repo: string; branch: string; manifest: ScenarioManifest }): TestSpecResult => ({
-        kind: "skipped" as const,
-      }),
-    );
+    const testSpec = vi.fn((): TestSpecResult => ({ kind: "skipped" as const }));
 
-    const deps = {
-      cmdCtx: {} as unknown as ExtensionCommandContext,
-      config: makeBenchConfig(arms),
-      scenarioRepo: join(root, "scenario-repo"),
-      manifest: makeSmokeManifest(),
-      root,
-      now: () => new Date("2026-08-11T10:00:00Z"),
-      widget: null,
+    const deps: StartRunDeps = {
+      ...makeSmokeDeps(root, arms),
       phase1,
       continuations,
       probes,
       testSpec,
-      score: scoreRun, // REAL scoring orchestrator
-      buildScoreDeps: makeScoreDeps, // REAL ScoreRunDeps with canned judge/pricing deps
-      versionResolver: makeVersionResolver(),
-    } as unknown as StartRunDeps;
+    };
 
     const result = await startRun(deps);
 

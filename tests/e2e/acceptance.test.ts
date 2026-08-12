@@ -113,7 +113,9 @@ describe("acceptance — statistics carry sane confidence intervals", () => {
           expect(m.ci).toHaveLength(2);
         } else if (def.channel === "comparative") {
           const m = metric as { rank: number };
+          const armCount = Object.keys(json.arms).length;
           expect(m.rank).toBeGreaterThanOrEqual(1);
+          expect(m.rank).toBeLessThanOrEqual(armCount);
         }
       }
     }
@@ -151,6 +153,13 @@ describe("acceptance — A1 attribution + net-negative detection", () => {
     const deltas = a1Delta({ E5: 0.9 }, { E5: 0.5 }, POLARITIES);
     expect(deltas.E5).toBeCloseTo(0.4, 5); // armValue - a1Value
     expect(isNetNegative(deltas.E5 ?? null)).toBe(false);
+  });
+
+  it("treats a lower comparative rank as better (rankLowerBetter)", () => {
+    // E1 is rankLowerBetter: A1 rank = 1, A3 rank = 2 → A3 worse → net-negative.
+    const deltas = a1Delta({ E1: 2 }, { E1: 1 }, POLARITIES);
+    expect(deltas.E1).toBe(-1); // a1Value - armValue = 1 - 2
+    expect(isNetNegative(deltas.E1 ?? null)).toBe(true);
   });
 
   it("returns null delta when either arm is absent (disabling yields all-null attribution)", () => {
@@ -217,9 +226,39 @@ describe("acceptance — run-config id is reproducible + sensitive", () => {
     expect(buildCfgId(a)).not.toBe(buildCfgId(b));
   });
 
-  it("differing judgesNumber ⇒ different id", () => {
+  it("differing judgesNumber alone ⇒ different id (judge2/3 stay null)", () => {
     const a = baselineConfig();
-    const b = { ...a, judgesNumber: 3, judge2Model: "model/j2", judge3Model: "model/j3" };
+    const b: RunConfig = { ...a, judgesNumber: 3 };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing compactionBoundary ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, compactionBoundary: 100000 };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing backupMode ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, backupMode: "extract" };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing evaluatedThinkingLevel ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, evaluatedThinkingLevel: "medium" };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing judgeModel ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, judgeModel: "model/j2" };
+    expect(buildCfgId(a)).not.toBe(buildCfgId(b));
+  });
+
+  it("differing omFullReflectionThresholdTokens ⇒ different id", () => {
+    const a = baselineConfig();
+    const b: RunConfig = { ...a, omFullReflectionThresholdTokens: 8000 };
     expect(buildCfgId(a)).not.toBe(buildCfgId(b));
   });
 });
@@ -248,16 +287,12 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
   } {
     const triggeredPis: ExtensionAPI[] = [];
     const injectedTexts: string[] = [];
-    const ops = {
-      trigger: async (pi: ExtensionAPI) => {
+    const ops: Phase1Ops = {
+      trigger: async (pi) => {
         triggeredPis.push(pi);
         return { compactionEntry: makeBoundaryCompaction(), wallMs: 4200 };
       },
-      loadSession: async (
-        _ctx: ExtensionCommandContext,
-        _path: string,
-        cb: (ctx: ExtensionCommandContext) => Promise<unknown>,
-      ) => {
+      loadSession: async (_ctx, _path, cb) => {
         // Re-activation: activate(freshPi) stashes the fresh pi + proxies BEFORE withSession runs.
         const pi = {
           sendUserMessage: (text: string) => {
@@ -272,7 +307,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
       fork: async () => {},
       checkout: async () => {},
       commit: async () => {},
-    } as unknown as Phase1Ops;
+    };
     return { ops, triggeredPis, injectedTexts };
   }
 

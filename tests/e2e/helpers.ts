@@ -344,7 +344,7 @@ export function buildProbeAnswers(arm: ArmId): ProbeTrace[] {
 }
 
 /** Build the realistic continuation traces for the enabled arms (native arm single-stage; memory arms multi-stage). */
-function buildArmTraces(arms: readonly ArmId[]): RunTrace[] {
+export function buildArmTraces(arms: readonly ArmId[]): RunTrace[] {
   return arms.map((arm) =>
     arm === "A1"
       ? buildRealisticTrace("A1", "arm-A1-1", null)
