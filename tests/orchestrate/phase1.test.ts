@@ -183,6 +183,11 @@ afterEach(() => {
   clearRunState();
   clearBenchPi();
   clearMemoryProxies();
+  // Phase-1 no longer clears the per-arm env (startRun's finally does, at run end) —
+  // clean it here so it never leaks between phase1 unit tests.
+  delete process.env.PI_OBSERVATIONAL_MEMORY_ENABLED;
+  delete process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE;
+  delete process.env.PI_SETTINGS_MEMKEEPER;
 });
 
 // --- runPhase1 (inline for-loop over arms — fresh pi/ctx per arm via re-activation) ---
@@ -325,13 +330,15 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     expect(ops.fork).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the per-arm env on completion (clearArmConfig in finally — no leak past the run)", async () => {
-    // writeArmConfig sets process.env keys; clearArmConfig (runPhase1's finally) clears them.
+  it("leaves the per-arm env set on completion (persists for Phase-2/probes; startRun clears at run end)", async () => {
+    // writeArmConfig sets process.env keys; Phase-1 deliberately does NOT clear them (they
+    // persist so Phase-2/probes keep each arm's isolation). startRun's finally clears them.
     process.env.PI_OBSERVATIONAL_MEMORY_ENABLED = "stale-from-run";
     await runPhase1(
       makeDeps({ ops: makeFakeOps(), scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1"] }),
     );
-    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
+    // A1 (OM disabled) sets the env to "0"; Phase-1 did not clear it.
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("0");
   });
 });
 
@@ -388,14 +395,15 @@ describe("runPhase1 — stop-and-surface", () => {
     });
   });
 
-  it("clears the per-arm env EVEN on a stop (finally runs)", async () => {
+  it("leaves the per-arm env set EVEN on a stop (startRun's finally clears it at run end)", async () => {
     process.env.PI_OBSERVATIONAL_MEMORY_ENABLED = "stale-from-run";
     const ops = makeFakeOps();
     ops.trigger.mockRejectedValue(new CompactionCancelledError(new Error("cancel")));
     await expect(
       runPhase1(makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A3"] })),
     ).rejects.toBeDefined();
-    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined(); // finally cleared it
+    // configureArm(A3) set the env before the cancel; Phase-1's (now-removed) finally did not clear it.
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("0");
   });
 });
 

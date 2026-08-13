@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearMemoryProxies, type MemoryProxies, setMemoryProxies } from "../../src/arms/proxies.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
@@ -79,7 +80,7 @@ function makeFreshPi(): FreshPi {
     const arr = handlers.get(channel);
     if (arr) for (const h of [...arr]) h(data);
   };
-  const pi = { sendUserMessage, events: { on, emit } } as unknown as ExtensionAPI;
+  const pi = { sendUserMessage, setActiveTools: vi.fn(), events: { on, emit } } as unknown as ExtensionAPI;
   return { pi, sendUserMessage, emit };
 }
 
@@ -128,6 +129,10 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
       freshPis.push(fresh);
       freshCtxs.push(freshCtx);
       setBenchPi(fresh.pi); // re-activation stashes the fresh pi BEFORE withSession runs
+      setMemoryProxies({
+        om: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+        mk: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+      } as unknown as MemoryProxies);
       return cb(freshCtx);
     }),
     fork: vi.fn(),
@@ -223,6 +228,7 @@ const MANIFEST: ScenarioManifest = {
 afterEach(() => {
   clearRunState();
   clearBenchPi();
+  clearMemoryProxies();
 });
 
 // --- runContinuations (per arm × N attempts: fork → load → drive → capture → commit) ---
@@ -374,6 +380,11 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     // the makeSimulator factory received the FRESH pi for each attempt
     expect(ops.simulatorArgs[0]?.pi).toBe(ops.freshPis[0]?.pi);
     expect(ops.simulatorArgs[1]?.pi).toBe(ops.freshPis[1]?.pi);
+    // arm re-isolation: configureArm fires per attempt (setActiveTools on each fresh pi),
+    // so the measurement phase keeps each arm's tool allowlist (A1 stays bare, memory arms keep recall).
+    for (const fresh of ops.freshPis) {
+      expect((fresh.pi as unknown as { setActiveTools: ReturnType<typeof vi.fn> }).setActiveTools).toHaveBeenCalled();
+    }
   });
 
   it("paces toward the model's contextWindow, NOT the Phase-0/1 compactionBoundary (§3.8)", async () => {

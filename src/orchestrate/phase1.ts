@@ -22,7 +22,6 @@
 
 import { copyFileSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { clearArmConfig } from "../arms/config.js";
 import { ARM_DEFS } from "../arms/definitions.js";
 import { getMemoryProxies } from "../arms/proxies.js";
 import { ArmIsolationError, configureArm } from "../arms/switch.js";
@@ -192,99 +191,94 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
   // on, so the next arm must use the FRESH ctx threaded from this arm's withSession.
   let currentCtx: ExtensionCommandContext = cmdCtx;
   const bases: ArmBase[] = [];
-  try {
-    for (const arm of armsEnabled) {
-      const def = ARM_DEFS[arm];
-      deps.widget?.setArm(armsEnabled.indexOf(arm) + 1, armsEnabled.length, def.tool);
-      deps.widget?.setDetail(NO_DETAIL);
-      const tv = toolVersions[arm] ?? null;
-      const ver = tv?.commit;
-      const branch = buildArmBaseBranch({ date, id, cfgId, tool: def.tool, ver });
+  for (const arm of armsEnabled) {
+    const def = ARM_DEFS[arm];
+    deps.widget?.setArm(armsEnabled.indexOf(arm) + 1, armsEnabled.length, def.tool);
+    deps.widget?.setDetail(NO_DETAIL);
+    const tv = toolVersions[arm] ?? null;
+    const ver = tv?.commit;
+    const branch = buildArmBaseBranch({ date, id, cfgId, tool: def.tool, ver });
 
-      // Fork main → arm-base (idempotent: re-running an arm reuses an existing base).
-      if (!branchExists(scenarioRepo, branch)) {
-        ops.fork(scenarioRepo, "main", branch);
-      }
-      ops.checkout(scenarioRepo, branch);
-      // Seed this arm's session file from `main`'s (parallel to forking the git branch):
-      // the transcript lives in the sessions store (outside the repo), so each arm gets
-      // its OWN file, compacted in place by loadSession below.
-      const sessionPath = branchSessionFile(sessionsDir, branch);
-      ops.copySeed(branchSessionFile(sessionsDir, "main"), sessionPath);
-      if (getRunState() !== null) updateRunState({ currentArm: arm });
+    // Fork main → arm-base (idempotent: re-running an arm reuses an existing base).
+    if (!branchExists(scenarioRepo, branch)) {
+      ops.fork(scenarioRepo, "main", branch);
+    }
+    ops.checkout(scenarioRepo, branch);
+    // Seed this arm's session file from `main`'s (parallel to forking the git branch):
+    // the transcript lives in the sessions store (outside the repo), so each arm gets
+    // its OWN file, compacted in place by loadSession below.
+    const sessionPath = branchSessionFile(sessionsDir, branch);
+    ops.copySeed(branchSessionFile(sessionsDir, "main"), sessionPath);
+    if (getRunState() !== null) updateRunState({ currentArm: arm });
 
-      // Load the frozen backup in-place + compact it. switchSession RE-ACTIVATES the
-      // extension (fresh pi + proxies stashed in globalThis by activate) AND invalidates
-      // the prior ctx — so ALL per-arm work runs INSIDE withSession using the fresh
-      // pi/proxies (read from globalThis) + the fresh ctx (the withSession arg). The
-      // fresh ctx is threaded into currentCtx for the next arm's switchSession.
-      // ANTI_PEEK is injected first as a followUp preamble so the maintenance LLM sees
-      // it before compacting. An arm-cancel / config-failure surfaces as a stop — no
-      // fallback, no retry.
-      let compactionEntry: CompactionEntry;
-      let wallMs: number;
-      try {
-        ({ compactionEntry, wallMs } = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
-          currentCtx = sessionCtx;
-          const pi = getBenchPi();
-          const proxies = getMemoryProxies();
-          if (proxies === null) {
-            throw new Phase1StoppedError(
-              arm,
-              "config-failed",
-              `arm ${arm}: bench-compact activate has not cached the memory proxies — ensure the extension is active.`,
-            );
-          }
-          // Isolate the arm IN-PLACE: write OM+memkeeper config → reloadConfig ×2 (fresh
-          // proxies) → setActiveTools (fresh pi). NO ctx.reload().
-          configureArm(pi, proxies.om, proxies.mk, arm, scenarioRepo, { omFullReflectionThresholdTokens });
-          inject(pi, ANTI_PEEK_PROMPT, "followUp");
-          return ops.trigger(pi, sessionCtx, {});
-        }));
-      } catch (err) {
-        if (err instanceof Phase1StoppedError) throw err;
-        if (err instanceof CompactionCancelledError) {
-          throw new Phase1StoppedError(
-            arm,
-            "cancelled",
-            `arm ${arm} compaction was cancelled (${err.message}) — the arm produced no memory. Inspect branch ${branch} and resume or re-prepare.`,
-          );
-        }
-        if (err instanceof ArmIsolationError) {
+    // Load the frozen backup in-place + compact it. switchSession RE-ACTIVATES the
+    // extension (fresh pi + proxies stashed in globalThis by activate) AND invalidates
+    // the prior ctx — so ALL per-arm work runs INSIDE withSession using the fresh
+    // pi/proxies (read from globalThis) + the fresh ctx (the withSession arg). The
+    // fresh ctx is threaded into currentCtx for the next arm's switchSession.
+    // ANTI_PEEK is injected first as a followUp preamble so the maintenance LLM sees
+    // it before compacting. An arm-cancel / config-failure surfaces as a stop — no
+    // fallback, no retry.
+    let compactionEntry: CompactionEntry;
+    let wallMs: number;
+    try {
+      ({ compactionEntry, wallMs } = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
+        currentCtx = sessionCtx;
+        const pi = getBenchPi();
+        const proxies = getMemoryProxies();
+        if (proxies === null) {
           throw new Phase1StoppedError(
             arm,
             "config-failed",
-            `arm ${arm} ${err.provider} is enabled but its extension proxy is not live (not loaded, or older than the reloadConfig bridge). Stop and ensure ${
-              err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper"
-            } is in the loaded packages.`,
+            `arm ${arm}: bench-compact activate has not cached the memory proxies — ensure the extension is active.`,
           );
         }
-        throw err;
-      }
-
-      // Stop-and-surface: degenerate empty summary = the arm produced no usable memory.
-      if (compactionEntry.summary.trim().length === 0) {
+        // Isolate the arm IN-PLACE: write OM+memkeeper config → reloadConfig ×2 (fresh
+        // proxies) → setActiveTools (fresh pi). NO ctx.reload().
+        configureArm(pi, proxies.om, proxies.mk, arm, scenarioRepo, { omFullReflectionThresholdTokens });
+        inject(pi, ANTI_PEEK_PROMPT, "followUp");
+        return ops.trigger(pi, sessionCtx, {});
+      }));
+    } catch (err) {
+      if (err instanceof Phase1StoppedError) throw err;
+      if (err instanceof CompactionCancelledError) {
         throw new Phase1StoppedError(
           arm,
-          "empty-summary",
-          `arm ${arm} compaction produced an empty/degenerate summary — no usable memory. Inspect branch ${branch} and resume or re-prepare.`,
+          "cancelled",
+          `arm ${arm} compaction was cancelled (${err.message}) — the arm produced no memory. Inspect branch ${branch} and resume or re-prepare.`,
         );
       }
-
-      // Commit the arm base. Compaction modifies the arm's session file (in the sessions
-      // store, outside the repo), so the repo working tree is unchanged — this is an empty
-      // `--allow-empty` boundary commit recording the arm-base fork point.
-      ops.commit(scenarioRepo, `phase-1: compacted base for arm ${arm} (${def.tool})`);
-
-      bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs, usage: compactionEntry.usage });
-      log.info(`phase-1: arm ${arm} compacted (${wallMs}ms) → ${branch}`);
+      if (err instanceof ArmIsolationError) {
+        throw new Phase1StoppedError(
+          arm,
+          "config-failed",
+          `arm ${arm} ${err.provider} is enabled but its extension proxy is not live (not loaded, or older than the reloadConfig bridge). Stop and ensure ${
+            err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper"
+          } is in the loaded packages.`,
+        );
+      }
+      throw err;
     }
 
-    return { bases, finalCtx: currentCtx };
-  } finally {
-    // Tear down the per-arm env (no leak into the post-bench session / next run).
-    clearArmConfig(scenarioRepo);
+    // Stop-and-surface: degenerate empty summary = the arm produced no usable memory.
+    if (compactionEntry.summary.trim().length === 0) {
+      throw new Phase1StoppedError(
+        arm,
+        "empty-summary",
+        `arm ${arm} compaction produced an empty/degenerate summary — no usable memory. Inspect branch ${branch} and resume or re-prepare.`,
+      );
+    }
+
+    // Commit the arm base. Compaction modifies the arm's session file (in the sessions
+    // store, outside the repo), so the repo working tree is unchanged — this is an empty
+    // `--allow-empty` boundary commit recording the arm-base fork point.
+    ops.commit(scenarioRepo, `phase-1: compacted base for arm ${arm} (${def.tool})`);
+
+    bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs, usage: compactionEntry.usage });
+    log.info(`phase-1: arm ${arm} compacted (${wallMs}ms) → ${branch}`);
   }
+
+  return { bases, finalCtx: currentCtx };
 }
 
 /** {@link runPhase1} result: the arm bases + the FINAL fresh command ctx (threaded through

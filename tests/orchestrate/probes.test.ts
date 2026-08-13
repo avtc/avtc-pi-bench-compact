@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearMemoryProxies, type MemoryProxies, setMemoryProxies } from "../../src/arms/proxies.js";
 import type { Probe, ScenarioManifest } from "../../src/manifest/schema.js";
 import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
 import type { ArmBase } from "../../src/orchestrate/phase1.js";
@@ -64,7 +65,7 @@ interface FreshPi {
 function makeFreshPi(): FreshPi {
   const on = (): (() => void) => () => {};
   const sendUserMessage = vi.fn();
-  const pi = { sendUserMessage, events: { on, emit: () => {} } } as unknown as ExtensionAPI;
+  const pi = { sendUserMessage, setActiveTools: vi.fn(), events: { on, emit: () => {} } } as unknown as ExtensionAPI;
   return { pi, sendUserMessage };
 }
 
@@ -101,6 +102,10 @@ function makeFakeProbeOps(opts: { qaOnly?: boolean; answer?: string; reject?: Er
         freshPis.push(fresh);
         freshCtxs.push(freshCtx);
         setBenchPi(fresh.pi); // re-activation stashes the fresh pi BEFORE withSession runs
+        setMemoryProxies({
+          om: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+          mk: { reloadConfig: vi.fn(), getConfig: vi.fn(() => ({ enabled: true })) },
+        } as unknown as MemoryProxies);
         return cb(freshCtx);
       },
     ),
@@ -130,6 +135,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
     clearBenchPi();
+    clearMemoryProxies();
   });
 
   it("forks arm-base → probe branches (one per probe), commits each, returns a trace per probe", async () => {
@@ -142,6 +148,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -178,6 +185,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -210,6 +218,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest([PROBES[0]]),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -234,6 +243,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -251,6 +261,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -258,6 +269,11 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     expect(ops.freshPis[0]?.pi).not.toBe(ops.freshPis[1]?.pi);
     expect(ops.freshPis[0]?.sendUserMessage).toHaveBeenCalledTimes(1);
     expect(ops.freshPis[1]?.sendUserMessage).toHaveBeenCalledTimes(1);
+    // arm re-isolation: configureArm fires per probe fork (setActiveTools on each fresh pi),
+    // so the probe phase keeps each arm's tool allowlist.
+    for (const fresh of ops.freshPis) {
+      expect((fresh.pi as unknown as { setActiveTools: ReturnType<typeof vi.fn> }).setActiveTools).toHaveBeenCalled();
+    }
   });
 
   it("a Q&A-only probe branch (isQaOnly=true) is DELETED + reported kept=false", async () => {
@@ -270,6 +286,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -287,6 +304,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -304,6 +322,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -321,6 +340,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       manifest: makeManifest([]),
       repo,
       sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
       ops: ops as unknown as ProbeOps,
     });
 
@@ -341,6 +361,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
     clearBenchPi();
+    clearMemoryProxies();
   });
 
   it("an awaitAgentSettled abort → rejects ProbeStoppedError(probe-hung) + does NOT commit", async () => {
@@ -353,6 +374,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
         manifest: makeManifest([PROBES[0]]),
         repo,
         sessionsDir: join(repo, "sessions"),
+        omFullReflectionThresholdTokens: 4000,
         ops: ops as unknown as ProbeOps,
       }),
     ).rejects.toMatchObject({ arm: "A1", probeId: "1", reason: "probe-hung" });
@@ -369,6 +391,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
         manifest: makeManifest([PROBES[0]]),
         repo,
         sessionsDir: join(repo, "sessions"),
+        omFullReflectionThresholdTokens: 4000,
         ops: ops as unknown as ProbeOps,
       }),
     ).rejects.toMatchObject({ arm: "A2", probeId: "1", reason: "probe-failed" });

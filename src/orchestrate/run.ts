@@ -17,6 +17,7 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearArmConfig } from "../arms/config.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
@@ -236,6 +237,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
         sessionsDir,
+        omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
         widget,
         signal,
         ops: deps.probeOps,
@@ -290,6 +292,10 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   } catch (err) {
     return handleRunStop(err, deps, widget, runId);
   } finally {
+    // Tear down the per-arm memory config (env + .pi/settings.json) once the WHOLE run is
+    // done (Phase-1 through Phase-3) — it persists across phases so Phase-2/probes keep each
+    // arm's isolation, + is cleared here so it never leaks into the post-bench session / next run.
+    clearArmConfig(deps.scenarioRepo);
     // Clear the active abort controller so a stale controller never lingers past the run
     // (also covers the abort-fired case — the controller was already fired + cleared by
     // abortActiveRun, this is a defensive no-op then).

@@ -257,6 +257,23 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
     expect(phase2Arg?.N).toBe(3);
   });
 
+  it("clears the per-arm env in startRun's finally (run-end teardown — no leak past the run)", async () => {
+    // Phase-1/2/probes leave the env set (per-arm isolation persists across phases);
+    // startRun's finally clears it once the WHOLE run is done so it never leaks.
+    process.env.PI_OBSERVATIONAL_MEMORY_ENABLED = "1";
+    process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE = "1";
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
+      continuations: continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX })),
+    });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
+  });
+
   it("writes the run-config snapshot (cfgId + toolVersions) once + reserves the run dir", async () => {
     const deps = makeDeps({
       arms: ["A1"],

@@ -25,6 +25,8 @@
 
 import { copyFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { getMemoryProxies } from "../arms/proxies.js";
+import { ArmIsolationError, configureArm } from "../arms/switch.js";
 import type { ArmId } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
@@ -54,7 +56,7 @@ const FIRST_INDEX = 0;
 const ONE_BASED_OFFSET = 1;
 
 /** Why a direct probe halted (stop-and-surface). */
-export type ProbeStopReason = "probe-failed" | "probe-hung";
+export type ProbeStopReason = "probe-failed" | "probe-hung" | "config-failed";
 
 /** Thrown/recorded when a direct probe must stop-and-surface. The run driver catches
  *  it, records the reason, notifies the operator, and yields — never auto-retries. A
@@ -132,6 +134,8 @@ export interface ProbeDeps {
   readonly manifest: ScenarioManifest;
   /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
   readonly repo: string;
+  /** The om-full arm's reflection-threshold override (threaded to per-arm isolation). */
+  readonly omFullReflectionThresholdTokens: number;
   /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Each
    *  probe's session file is seeded from its arm base's + appended to by the probe turn. */
   readonly sessionsDir: string;
@@ -264,6 +268,36 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
         currentCtx = sessionCtx;
         const pi: ExtensionAPI = getBenchPi();
+        // Re-isolate the arm IN-PLACE (same as Phase-1/2): switchSession resets the active
+        // tool set + the prior arm's memory config may still be live, so re-write THIS arm's
+        // config + reload + setActiveTools before the probe turn. Keeps the probe arm-isolated.
+        const proxies = getMemoryProxies();
+        try {
+          if (proxies === null) {
+            throw new ProbeStoppedError(
+              arm,
+              probeId,
+              "config-failed",
+              `arm ${arm} probe ${probeId}: memory proxies not cached — ensure the extension is active.`,
+            );
+          }
+          configureArm(pi, proxies.om, proxies.mk, arm, deps.repo, {
+            omFullReflectionThresholdTokens: deps.omFullReflectionThresholdTokens,
+          });
+        } catch (err) {
+          if (err instanceof ProbeStoppedError) throw err;
+          if (err instanceof ArmIsolationError) {
+            throw new ProbeStoppedError(
+              arm,
+              probeId,
+              "config-failed",
+              `arm ${arm} probe ${probeId} ${err.provider} is enabled but its extension proxy is not live. Stop and ensure ${
+                err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper"
+              } is in the loaded packages.`,
+            );
+          }
+          throw err;
+        }
         try {
           const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${probe.question}`;
           inject(pi, body, DELIVER_AS_FOLLOW_UP);
