@@ -37,7 +37,7 @@ export class CompactionCancelledError extends Error {
 }
 
 /** A run-signal abort during a compaction. */
-export class CompactAbortedError extends Error {
+class CompactAbortedError extends Error {
   constructor(cause: unknown) {
     super("compaction aborted (run signal)", { cause });
     this.name = "CompactAbortedError";

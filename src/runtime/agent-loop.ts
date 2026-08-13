@@ -40,11 +40,11 @@ export const NO_STAGE_END_HOOK = null;
 export const NO_LOOP_OVERRIDE = null;
 
 /** Sequential tool execution (bench stages run tools one-by-one). */
-export const SEQUENTIAL = "sequential" as const;
+const SEQUENTIAL = "sequential" as const;
 
 /** Per-run usage accumulated by a stage. `cacheWrite` is the bench extension over
  *  memkeeper (the compaction-cost breakdown attributes cache-write tokens + $ per arm). */
-export interface StageUsage {
+interface StageUsage {
   input: number;
   output: number;
   cacheRead: number;
@@ -112,18 +112,6 @@ export class StageRunError extends Error {
     const msg = cause instanceof Error ? cause.message : String(cause);
     super(`bench stage run failed: ${msg}`, { cause });
     this.name = "StageRunError";
-  }
-}
-
-/** A per-turn timeout — a stage-stopping error. Propagates to the caller so
- *  a slow turn (an oversized LLM call OR a slow tool batch) surfaces instead of
- *  silently producing partial output. (Currently surfaced as the `timedOut` flag;
- *  kept as the typed error for callers that prefer to throw.) */
-export class StageTimeoutError extends Error {
-  constructor(stage: string, limitMs: number | null) {
-    const limit = limitMs === null ? "the time limit" : `${Math.round(limitMs / 1000)}s time limit`;
-    super(`${stage} stopped: a turn (LLM call + tools) exceeded the ${limit}`);
-    this.name = "StageTimeoutError";
   }
 }
 

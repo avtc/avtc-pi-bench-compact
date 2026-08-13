@@ -19,7 +19,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 /** A session switch was cancelled (the `withSession` callback never ran). */
-export class SessionSwitchCancelledError extends Error {
+class SessionSwitchCancelledError extends Error {
   constructor(path: string) {
     super(`session switch to "${path}" was cancelled (withSession did not run)`);
     this.name = "SessionSwitchCancelledError";
