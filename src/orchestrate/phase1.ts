@@ -270,6 +270,3 @@ export interface Phase1Result {
   readonly bases: ArmBase[];
   readonly finalCtx: ExtensionCommandContext;
 }
-
-// Re-export so callers importing from phase1 catch the cancel error by type.
-export { CompactionCancelledError };

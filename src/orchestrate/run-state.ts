@@ -11,7 +11,7 @@
 import type { ArmId } from "../config/types.js";
 
 /** The bench pipeline phases. */
-export type BenchPhase = "phase-1" | "phase-2" | "phase-3";
+type BenchPhase = "phase-1" | "phase-2" | "phase-3";
 
 /** The harness run-state. One active run per process (TUI-primary). */
 export interface BenchRunState {

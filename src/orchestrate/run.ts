@@ -55,12 +55,7 @@ import type { RunTrace } from "./trace.js";
 type RunSignal = AbortSignal;
 
 /** Why a run halted (stop-and-surface), across phases. */
-export type RunStopReason =
-  | Phase1StopReason
-  | Phase2StopReason
-  | ProbeStopReason
-  | TestSpecStopReason
-  | JudgeErrorCategory;
+type RunStopReason = Phase1StopReason | Phase2StopReason | ProbeStopReason | TestSpecStopReason | JudgeErrorCategory;
 
 /** Discriminated result of a run. The done branch is Phase-3 (results written);
  *  the stopped branch carries the phase + the arm/attempt (null for a score stop). */
@@ -340,7 +335,7 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
  * attempts; attaching them to one attempt grades them exactly once per arm, not N×),
  * and the embedded-testSpec result on each attempt's branch. Pure (no I/O).
  */
-export function buildScoreRunInput(
+function buildScoreRunInput(
   bases: readonly ArmBase[],
   continuationTraces: readonly RunTrace[],
   probeTraces: readonly import("./probes.js").ProbeTrace[],

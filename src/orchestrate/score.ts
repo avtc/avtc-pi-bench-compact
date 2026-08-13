@@ -618,7 +618,7 @@ function toArmRanking(ranking: Ranking): ArmRanking {
  * branch so each judge can build its own trajectory summary. Returns the per-axis
  * per-attempt rankings (AllArmsGrades.comparative shape). Pure aside from the seams.
  */
-export async function gradeComparativeRouting(
+async function gradeComparativeRouting(
   input: ScoreRunInput,
   deps: ComparativeRoutingDeps,
 ): Promise<Partial<Record<MetricId, readonly ArmRanking[]>>> {

@@ -49,7 +49,7 @@ export interface TestSpecExecResult {
  * avoid real subprocesses. The default runs the command via the bench's shell
  * (mirrors the storage git wrapper's execFileSync pattern).
  */
-export type TestSpecExec = (command: string, cwd: string, timeoutMs: number) => TestSpecExecResult;
+type TestSpecExec = (command: string, cwd: string, timeoutMs: number) => TestSpecExecResult;
 
 /** Injectable operations — the I/O seams. Defaults are the real implementations. */
 export interface TestSpecOps {
@@ -115,7 +115,7 @@ function decode(stream: Buffer | string | undefined): string {
  * test). On a spawn error / timeout (no numeric `.status`) → exitCode null + any
  * captured output (a harness fault). Mirrors the storage git wrapper's try/catch.
  */
-export function execTestSpec(command: string, cwd: string, timeoutMs: number): TestSpecExecResult {
+function execTestSpec(command: string, cwd: string, timeoutMs: number): TestSpecExecResult {
   try {
     const output = execSync(command, {
       cwd,

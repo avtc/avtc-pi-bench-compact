@@ -155,7 +155,7 @@ export interface Phase2Deps {
  * turn — zero extra turns); subsequent injects pass the text through unchanged. Every
  * inject lands on the FRESH pi (captured in the closure) as a follow-up user message.
  */
-export function makeContinuationInject(pi: ExtensionAPI): (text: string) => void {
+function makeContinuationInject(pi: ExtensionAPI): (text: string) => void {
   return makeAntiPeekInject(pi, ANTI_PEEK_PROMPT);
 }
 
@@ -165,7 +165,7 @@ export function makeContinuationInject(pi: ExtensionAPI): (text: string) => void
  * (NOT the coarse turn_end → agent_settled span, which over-counts non-compaction work)
  * + keyed by the persisted CompactionEntry id. Returns the wall-time map + a disposer.
  */
-export function makeCompactionTimer(pi: ExtensionAPI): { wallMsMap: Map<string, number>; dispose: () => void } {
+function makeCompactionTimer(pi: ExtensionAPI): { wallMsMap: Map<string, number>; dispose: () => void } {
   const wallMsMap = new Map<string, number>();
   let pendingStart: number | null = null;
   const disposeBefore = pi.events.on("session_before_compact", () => {
