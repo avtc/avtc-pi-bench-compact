@@ -32,7 +32,7 @@ const UNNAMED_STAGE = "unnamed-stage";
 
 /** One Phase-2 (continuation) compaction's cost — lossless per-compaction (run.ts
  * aggregates). `[]` when the run never re-compacted. */
-export interface Phase2CompactionEntry {
+interface Phase2CompactionEntry {
   readonly tokensIn: number;
   readonly tokensOut: number;
   readonly cacheRead: number;

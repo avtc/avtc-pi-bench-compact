@@ -45,7 +45,7 @@ export interface OmArmConfig {
 /** The memkeeper config knobs the bench pins per memkeeper arm. `observations-root`
  *  gates the Selector OFF (the builder's full view); `selected-root` runs the
  *  Selector (task-relative curated tree). All stages run on-compaction. */
-export interface MemkeeperArmConfig {
+interface MemkeeperArmConfig {
   enabled: boolean;
   /** `observations-root` (Selector OFF) or `selected-root` (Selector runs). */
   renderMode?: "observations-root" | "selected-root";

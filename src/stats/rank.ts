@@ -30,7 +30,7 @@ export interface RankMatrix {
 }
 
 /** One arm's comparative aggregate: rank (1=best) + its bootstrap CI. */
-export interface ComparativeMetric {
+interface ComparativeMetric {
   readonly rank: number;
   readonly rankCi: readonly [number, number];
 }

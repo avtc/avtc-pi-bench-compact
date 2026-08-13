@@ -16,7 +16,7 @@ import type { ArmId } from "../config/types.js";
 import { ARM_LABELS } from "../config/types.js";
 import type { MetricDef, MetricId } from "../metrics/defs.js";
 import { METRIC_DEFS } from "../metrics/defs.js";
-import type { AggregateResult, ArmMetrics, C2Metric, C4Metric } from "../stats/aggregate.js";
+import type { AggregateResult, ArmMetrics } from "../stats/aggregate.js";
 import type { ComparativeAxisResult } from "../stats/rank.js";
 import type { RunConfig, ToolVersion } from "../storage/branches.js";
 import { runDir } from "../storage/paths.js";
@@ -147,11 +147,11 @@ function mapArmMetrics(arm: ArmMetrics): Partial<Record<MetricId, MetricJson>> {
   if (arm.exact.C1 !== undefined) metrics.C1 = { mean: arm.exact.C1.mean, ci: arm.exact.C1.ci };
   if (arm.exact.C3 !== undefined) metrics.C3 = { mean: arm.exact.C3.mean, ci: arm.exact.C3.ci };
   if (arm.exact.C2 !== undefined) {
-    const c2 = arm.exact.C2 as C2Metric;
+    const c2 = arm.exact.C2;
     metrics.C2 = { mean: c2.mean, ci: c2.ci, notRecoveredRate: c2.notRecoveredRate };
   }
   if (arm.exact.C4 !== undefined) {
-    const c4 = arm.exact.C4 as C4Metric;
+    const c4 = arm.exact.C4;
     metrics.C4 = {
       tokensIn: c4.tokensIn,
       tokensOut: c4.tokensOut,

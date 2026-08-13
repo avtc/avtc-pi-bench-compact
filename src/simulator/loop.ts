@@ -90,7 +90,7 @@ export function extractAssistantText(messages: readonly AgentMessage[]): string 
 
 // --- SimulatorDriver --------------------------------------------------------
 
-export type StopReason = "boundary" | "error";
+type StopReason = "boundary" | "error";
 
 export interface SimulatorHooks {
   /** Fired after a successful inject (the simulator voiced + the harness forwarded it). */

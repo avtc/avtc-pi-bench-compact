@@ -13,7 +13,7 @@
 // footprint number is comparable across arms and across runs.
 
 /** The scoring channel a metric flows through. */
-export type MetricChannel = "exact" | "binary" | "comparative";
+type MetricChannel = "exact" | "binary" | "comparative";
 
 /** Polarity: which direction is better (drives the baseline-delta sign + net-negative). */
 export type MetricPolarity = "lowerBetter" | "higherBetter" | "rankLowerBetter";

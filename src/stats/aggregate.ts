@@ -21,7 +21,7 @@ import { type ArmRanking, aggregateRanks, type ComparativeAxisResult } from "./r
 import { mean } from "./util.js";
 
 /** Per-run exact values for one arm (footprint/run-cost numbers, recall-cost results, compaction-cost results). */
-export interface ArmExactValues {
+interface ArmExactValues {
   readonly C1?: readonly number[];
   readonly C2?: readonly C2Result[];
   readonly C3?: readonly number[];
@@ -35,14 +35,14 @@ export interface ArmRunGrades {
 }
 
 /** Recall-cost aggregate: mean over RECOVERED runs only (+ null when none recovered). */
-export interface C2Metric {
+interface C2Metric {
   readonly mean: number | null;
   readonly ci: readonly [number, number] | null;
   readonly notRecoveredRate: number;
 }
 
 /** Compaction-cost aggregate: mean of numeric fields + mode stages + mean phase-2-compaction count. */
-export interface C4Metric {
+interface C4Metric {
   readonly tokensIn: number;
   readonly tokensOut: number;
   readonly cacheRead: number;

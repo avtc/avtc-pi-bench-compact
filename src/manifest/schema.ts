@@ -25,7 +25,7 @@ export type Lane = "embedded" | "direct-probe";
 
 /** The condition domain — fixed to "technical" (compaction-memory content, not
  *  user-decisions/portrait — confound mitigation). */
-export type Domain = "technical";
+type Domain = "technical";
 
 // --- agent-emitted shapes (write_manifest input — no id/lanes/domain) -------
 
@@ -62,7 +62,7 @@ export interface AuthorProbe {
  *  The harness derives the manifest's `taskObjective.lane` (embedded-test when testSpec
  *  is non-empty; omitted when no tests). Discovering this post-hoc makes the bench flexible for any idea +
  *  extracted sessions (the testSpec depends on what was actually built). */
-export interface AuthorTaskObjective {
+interface AuthorTaskObjective {
   readonly description: string;
   readonly testSpec: string;
 }
@@ -180,7 +180,7 @@ export interface TaskObjective {
    *  ranking only). Consistent with deriveLanes' embedded-lane rule. */
   readonly lane?: "embedded-test";
 }
-export interface CompactionBoundary {
+interface CompactionBoundary {
   readonly phaseATokenBudget: number;
   readonly plan: string;
 }

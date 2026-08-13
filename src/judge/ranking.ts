@@ -27,13 +27,13 @@ export interface Ranking {
 }
 
 /** How to rank: one combined call, all pairs, or pick by slice size. */
-export type RankStrategy = "combined" | "pairwise" | "auto";
+type RankStrategy = "combined" | "pairwise" | "auto";
 
 /** A shuffle of a list (used to anonymize presentation order). */
 export type Shuffle<T> = (items: readonly T[]) => T[];
 
 /** Options for {@link rankAxis}. */
-export interface RankAxisOptions {
+interface RankAxisOptions {
   readonly strategy?: RankStrategy;
   readonly maxRetries?: number;
   /** `auto` uses pairwise when the combined slice exceeds this many chars (default 50000). */
