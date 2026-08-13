@@ -16,6 +16,7 @@
 import type { ArmId } from "../config/types.js";
 import { type WriteArmConfigOpts, writeArmConfig } from "./config.js";
 import { ARM_DEFS } from "./definitions.js";
+import { getMemoryProxies } from "./proxies.js";
 
 /**
  * The narrow tool-setting seam `configureArm` needs. The real `ExtensionAPI`
@@ -138,4 +139,44 @@ export function configureArm(
   // 4. Tool allowlist: builtins + suite + this arm's memory recall tool(s). A disabled
   //    arm's recall tool is excluded so the evaluated agent never sees it.
   toolCtx.setActiveTools([...BUILTIN_TOOLS, ...SUITE_TOOLS, ...def.memoryTools]);
+}
+
+/**
+ * The shared "read cached proxies → null-check → configureArm → map ArmIsolationError"
+ * sequence every phase runs (Phase-1 compaction, Phase-2 continuation, probe). Each
+ * phase supplies its own `stop` factory so the thrown error carries that phase's
+ * identity (arm / arm+attempt / arm+probeId) while the message wording stays uniform
+ * across phases — collapsing what was three ~30-line near-identical blocks (the
+ * block had already started to drift in wording).
+ *
+ * @param toolCtx — the tool-setting seam (the real `pi` satisfies this; tests pass a fake).
+ * @param context — the run-identity prefix for messages (e.g. "arm <id> attempt 2").
+ * @param stop — builds the phase-specific stop error from a message (the reason is
+ *   always `config-failed`, so the factory hardcodes it).
+ */
+export function isolateArmOrStop(
+  toolCtx: ToolSetSeam,
+  arm: ArmId,
+  repoCwd: string,
+  opts: WriteArmConfigOpts,
+  context: string,
+  stop: (message: string) => Error,
+): void {
+  const proxies = getMemoryProxies();
+  if (proxies === null) {
+    throw stop(
+      `${context}: bench-compact activate has not cached the memory proxies — ensure the extension is active.`,
+    );
+  }
+  try {
+    configureArm(toolCtx, proxies.om, proxies.mk, arm, repoCwd, opts);
+  } catch (err) {
+    if (err instanceof ArmIsolationError) {
+      const pkg = err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper";
+      throw stop(
+        `${context} ${err.provider} is enabled but its extension proxy is not live (extension not loaded, or older than the reloadConfig bridge). Stop and ensure ${pkg} is in the loaded packages.`,
+      );
+    }
+    throw err;
+  }
 }

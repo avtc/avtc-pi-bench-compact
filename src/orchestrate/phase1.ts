@@ -23,8 +23,7 @@
 import { copyFileSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { ARM_DEFS } from "../arms/definitions.js";
-import { getMemoryProxies } from "../arms/proxies.js";
-import { ArmIsolationError, configureArm } from "../arms/switch.js";
+import { isolateArmOrStop } from "../arms/switch.js";
 import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } from "../arms/version.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { judgeEnsembleFields } from "../config/types.js";
@@ -225,17 +224,16 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
       ({ compactionEntry, wallMs } = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
         currentCtx = sessionCtx;
         const pi = getBenchPi();
-        const proxies = getMemoryProxies();
-        if (proxies === null) {
-          throw new Phase1StoppedError(
-            arm,
-            "config-failed",
-            `arm ${arm}: bench-compact activate has not cached the memory proxies — ensure the extension is active.`,
-          );
-        }
         // Isolate the arm IN-PLACE: write OM+memkeeper config → reloadConfig ×2 (fresh
         // proxies) → setActiveTools (fresh pi). NO ctx.reload().
-        configureArm(pi, proxies.om, proxies.mk, arm, scenarioRepo, { omFullReflectionThresholdTokens });
+        isolateArmOrStop(
+          pi,
+          arm,
+          scenarioRepo,
+          { omFullReflectionThresholdTokens },
+          `arm ${arm}`,
+          (msg) => new Phase1StoppedError(arm, "config-failed", msg),
+        );
         inject(pi, ANTI_PEEK_PROMPT, "followUp");
         return ops.trigger(pi, sessionCtx, {});
       }));
@@ -246,15 +244,6 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
           arm,
           "cancelled",
           `arm ${arm} compaction was cancelled (${err.message}) — the arm produced no memory. Inspect branch ${branch} and resume or re-prepare.`,
-        );
-      }
-      if (err instanceof ArmIsolationError) {
-        throw new Phase1StoppedError(
-          arm,
-          "config-failed",
-          `arm ${arm} ${err.provider} is enabled but its extension proxy is not live (not loaded, or older than the reloadConfig bridge). Stop and ensure ${
-            err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper"
-          } is in the loaded packages.`,
         );
       }
       throw err;

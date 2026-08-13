@@ -24,8 +24,7 @@
 
 import { copyFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
-import { getMemoryProxies } from "../arms/proxies.js";
-import { ArmIsolationError, configureArm } from "../arms/switch.js";
+import { isolateArmOrStop } from "../arms/switch.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
@@ -294,33 +293,14 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
         // tool set + the prior arm's memory config may still be live, so re-write THIS arm's
         // config + reload + setActiveTools before driving the continuation. Keeps the
         // measurement phase arm-isolated (the control arm stays bare; memory arms keep their recall tools).
-        const proxies = getMemoryProxies();
-        try {
-          if (proxies === null) {
-            throw new Phase2StoppedError(
-              base.arm,
-              attempt,
-              "config-failed",
-              `arm ${base.arm} attempt ${attempt}: memory proxies not cached — ensure the extension is active.`,
-            );
-          }
-          configureArm(pi, proxies.om, proxies.mk, base.arm, deps.repo, {
-            omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
-          });
-        } catch (err) {
-          if (err instanceof Phase2StoppedError) throw err;
-          if (err instanceof ArmIsolationError) {
-            throw new Phase2StoppedError(
-              base.arm,
-              attempt,
-              "config-failed",
-              `arm ${base.arm} attempt ${attempt} ${err.provider} is enabled but its extension proxy is not live. Stop and ensure ${
-                err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper"
-              } is in the loaded packages.`,
-            );
-          }
-          throw err;
-        }
+        isolateArmOrStop(
+          pi,
+          base.arm,
+          deps.repo,
+          { omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens },
+          `arm ${base.arm} attempt ${attempt}`,
+          (msg) => new Phase2StoppedError(base.arm, attempt, "config-failed", msg),
+        );
         // Phase-2 per-run budget = the model's resolved window, read live from the
         // switched session's context usage (NOT the Phase-0/1 compactionBoundary, which is
         // strictly below it). Pacing is OWNED by the context monitor (below) — it fires
