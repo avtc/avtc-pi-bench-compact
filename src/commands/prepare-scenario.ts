@@ -50,7 +50,7 @@ export interface PrepareScenarioHandlerOptions {
 }
 
 /** Construct the prepare-scenario live-progress widget (TUI-only; inert when non-TUI). */
-export function makePrepareWidget(ctx: unknown): WidgetPort {
+function makePrepareWidget(ctx: unknown): WidgetPort {
   const c = ctx as {
     mode?: string;
     hasUI?: boolean;

@@ -109,7 +109,7 @@ export interface ExecuteRunOptions {
  *  arg is a uniform `PrepareArgs`.
  *
  *  Failures surface via notify (prepare fault → error; manifest load fault → error). */
-export interface PrepareThenRunOptions {
+interface PrepareThenRunOptions {
   readonly ctx: RunHandlerContext;
   readonly config: BenchConfig;
   /** The parsed args (build idea set, or fromSession set — drives buildDeps + the id). */
@@ -122,7 +122,7 @@ export interface PrepareThenRunOptions {
 }
 
 /** Prepare (build/extract) then run. See {@link PrepareThenRunOptions}. */
-export async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
+async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
   // Clear any stale active widget so the prepare seams (which read getActiveWidget)
   // don't re-animate a prior command's terminal widget. executeRun sets the run widget
   // after prepare; the shorthand's prepare phase is intentionally widget-less.
@@ -161,8 +161,6 @@ export async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void>
     manifest,
   });
 }
-
-export { defaultBuildPrepareDeps };
 
 /** Shared injectable options for the `run` + `run-session-file` one-shot shorthands
  *  (both chain prepare → executeRun; they differ only in how they parse + preflight

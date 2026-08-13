@@ -65,7 +65,7 @@ export function parsePrepareArgs(args: string): PrepareArgs {
 }
 
 /** A single results run reference: a runId + optional arm subset (`:<armids>` — comma-separated). */
-export interface RunRef {
+interface RunRef {
   runId: string;
   /** Arm subset (comma-separated arm ids); undefined = all arms of that run. */
   arms?: ArmId[];
