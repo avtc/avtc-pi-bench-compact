@@ -30,7 +30,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /** Usage shape (from @earendil-works/pi-ai) — typed via CompactionEntry.usage to avoid a fragile cross-package import. */
 type Usage = NonNullable<CompactionEntry["usage"]>;
 
-import { clearArmEnv } from "../../src/arms/config.js";
 import { ARM_DEFS } from "../../src/arms/definitions.js";
 import { clearMemoryProxies, type MemoryProxies, setMemoryProxies } from "../../src/arms/proxies.js";
 import { BUILTIN_TOOLS, SUITE_TOOLS } from "../../src/arms/switch.js";
@@ -184,9 +183,6 @@ afterEach(() => {
   clearRunState();
   clearBenchPi();
   clearMemoryProxies();
-  // Phase-1 no longer clears the per-arm env (startRun's finally does, at run end) —
-  // clean it here so it never leaks between phase1 unit tests.
-  clearArmEnv();
 });
 
 // --- runPhase1 (inline for-loop over arms — fresh pi/ctx per arm via re-activation) ---
