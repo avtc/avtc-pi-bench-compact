@@ -3,7 +3,7 @@
 
 // Tool composition for the bench's out-of-session agent stages.
 //
-//  - `benchReadOnlyTools(cwd)` / `benchCodingTools(cwd)` thin-wrap pi's core tool
+//  - `benchReadOnlyTools(cwd)` / `benchAuthoringTools(cwd)` thin-wrap pi's core tool
 //    factories so the manifest-authoring agent and the judge agentLoop
 //    operate on a real session JSONL / repo with the SAME tools a live
 //    coding agent uses (read/grep/find/ls [+ bash/edit/write]).
@@ -33,7 +33,6 @@ export function benchAuthoringTools(cwd: string): AgentTool[] {
   return [...createReadOnlyTools(cwd), createBashTool(cwd)];
 }
 
-/** Full coding tool set (read/grep/find/ls + bash/edit/write) bound to a cwd. */
 /** An `AgentTool` that also exposes the JSON objects it has validated + captured
  *  across `execute` calls. Callers (manifest authoring, judge) read `._captured`
  *  as the stage's structured terminal output. */

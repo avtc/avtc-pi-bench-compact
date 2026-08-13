@@ -43,4 +43,14 @@ describe("buildAuthoringSystemPrompt", () => {
     expect(p).not.toMatch(/use as anchors/i);
     expect(p).not.toMatch(/the session was designed to contain these/i);
   });
+
+  it("instructs TWO probes per reversal — latest-value accept + stale-value correctRefusal (E6 stale face)", () => {
+    // The E6 abstention rubric grades BOTH faces (never-decided + supersession stale-item).
+    // The authoring prompt must generate a stale-value probe per reversal (correctRefusal) so
+    // the stale face is exercisable — otherwise E6 only tests never-decided.
+    const p = AUTHORING_SYSTEM_PROMPT;
+    expect(p).toMatch(/write TWO probes/i);
+    expect(p).toMatch(/stale-value/i);
+    expect(p).toMatch(/flag\s+the old value as outdated/i);
+  });
 });

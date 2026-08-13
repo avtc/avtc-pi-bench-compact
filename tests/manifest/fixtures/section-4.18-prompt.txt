@@ -36,18 +36,23 @@ it actually occurs.
 
 PROBES
 
-For each decision/recall-fact, each reversal, and each open-question, write a PROBE: a short
+For each decision/recall-fact, each open-question, AND each reversal, write a PROBE: a short
 question we will ask the compacted agent to test its memory.
-- For a decision/recall-fact or reversal: a question whose correct answer IS that fact/value.
+- For a decision/recall-fact: a question whose correct answer IS that fact/value.
+- For a reversal: write TWO probes — (1) a question whose correct answer IS the LATEST value
+  (the current decision), AND (2) a "stale-value" probe that asserts the OLD value as if it
+  were still current. On the stale-value probe, the correct behavior is for the agent to FLAG
+  the old value as outdated rather than confirm it — set `correctRefusal: true` (no accept
+  list) and point its `targets` at the reversal's entryIds.
 - For an open-question: a question whose correct answer is "that was never decided" — the
   agent must NOT fabricate one.
 Rules for probes:
 - Neutral wording — do not hint the answer. (Bad: "we picked JSON, right?" Good: "how are
   the high scores stored?")
 - One fact per probe.
-- For recall/reversal probes, give `accept`: a list of phrasings that all count as correct
+- For recall/reversal-latest probes, give `accept`: a list of phrasings that all count as correct
   (e.g. ["~/.scores.json", "a scores.json file", "a JSON file under the home dir"]).
-- For open-question probes, set `correctRefusal: true` instead of an accept list.
+- For stale-value and open-question probes, set `correctRefusal: true` instead of an accept list.
 
 KNOWN CONDITIONS (if provided)
 
@@ -84,8 +89,8 @@ When done, call write_manifest with a JSON object of this shape:
   ],
   "probes": [
     { "question": "<the probe question>",
-      "accept": ["...", "..."],          // for recall/supersession
-      "correctRefusal": true,            // for abstention (omit accept)
+      "accept": ["...", "..."],          // for recall / supersession-latest
+      "correctRefusal": true,            // for abstention + supersession stale-value (omit accept)
       "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }
   ],
   "taskObjective": {

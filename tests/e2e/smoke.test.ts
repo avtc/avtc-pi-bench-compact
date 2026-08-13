@@ -117,6 +117,9 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
     expect(json.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(json.scenario.id).toBe("smoke-scen");
     expect(json.scenario.manifestRef).toContain("manifest.json");
+    // the manifest lives as a SIBLING of the repo (never committed), not inside it:
+    // <root>/scenarios/<id>/manifest.json, distinct from <root>/scenarios/<id>/repo/.
+    expect(json.scenario.manifestRef).toBe(join(root, "scenarios", "smoke-scen", "manifest.json"));
 
     // config block (everything except toolVersions, which is split out)
     expect(json.config.armsEnabled).toEqual(["A1", "A3"]);

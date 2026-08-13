@@ -28,7 +28,7 @@ import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
-import { assertNotInRepo, benchRoot, configPath, runDir } from "../storage/paths.js";
+import { assertNotInRepo, benchRoot, configPath, runDir, scenarioManifest } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
@@ -401,7 +401,7 @@ function buildScoreMeta(
     runId,
     cfgId,
     timestamp: now().toISOString(),
-    scenario: { id: deps.manifest.id, manifestRef: join(deps.scenarioRepo, "manifest.json") },
+    scenario: { id: deps.manifest.id, manifestRef: scenarioManifest(root, deps.manifest.id) },
     runConfig,
     armRunCounts,
     failures: [],
