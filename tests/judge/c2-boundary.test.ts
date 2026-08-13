@@ -57,6 +57,7 @@ describe("findFirstCorrectUse", () => {
     const boundaries = await findFirstCorrectUse({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       manifest,
       maxTokens: 4096,
       signal: new AbortController().signal,
@@ -78,6 +79,7 @@ describe("findFirstCorrectUse", () => {
     await findFirstCorrectUse({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       manifest,
       maxTokens: 4096,
       signal: new AbortController().signal,
@@ -96,6 +98,7 @@ describe("findFirstCorrectUse", () => {
       findFirstCorrectUse({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         manifest,
         maxTokens: 4096,
         signal: new AbortController().signal,
@@ -112,7 +115,14 @@ describe("findFirstCorrectUse", () => {
       },
     };
     await expect(
-      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+      findFirstCorrectUse({
+        seams,
+        cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
     ).rejects.toThrow(/timed out/i);
   });
 
@@ -125,7 +135,14 @@ describe("findFirstCorrectUse", () => {
       },
     };
     await expect(
-      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+      findFirstCorrectUse({
+        seams,
+        cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
     ).rejects.toThrow(/abort/i);
   });
 
@@ -135,7 +152,14 @@ describe("findFirstCorrectUse", () => {
       runStage: async () => cleanResult(),
     };
     await expect(
-      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+      findFirstCorrectUse({
+        seams,
+        cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
     ).rejects.toThrow(/judge model|not available/i);
   });
 
@@ -165,6 +189,7 @@ describe("findFirstCorrectUse", () => {
     const boundaries = await findFirstCorrectUse({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       manifest,
       maxTokens: 4096,
       signal: new AbortController().signal,
@@ -183,6 +208,7 @@ describe("findFirstCorrectUse", () => {
     const boundaries = await findFirstCorrectUse({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       manifest: emptyManifest,
       maxTokens: 4096,
       signal: new AbortController().signal,
@@ -197,7 +223,14 @@ describe("findFirstCorrectUse", () => {
       boundaries: [{ factId: "rf1", entryId: "x", evidence: "" }], // rf2 omitted
     });
     await expect(
-      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+      findFirstCorrectUse({
+        seams,
+        cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
     ).rejects.toThrow(/missing.*rf2|rf2.*missing|incomplete.*boundary/i);
   });
 
@@ -210,7 +243,14 @@ describe("findFirstCorrectUse", () => {
       ],
     });
     await expect(
-      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+      findFirstCorrectUse({
+        seams,
+        cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
     ).rejects.toThrow(/unknown.*rfX|rfX.*unknown|unexpected.*factId/i);
   });
 
@@ -223,7 +263,14 @@ describe("findFirstCorrectUse", () => {
       ],
     });
     await expect(
-      findFirstCorrectUse({ seams, cwd: "/repo", manifest, maxTokens: 4096, signal: new AbortController().signal }),
+      findFirstCorrectUse({
+        seams,
+        cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
+        manifest,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
     ).rejects.toThrow(/duplicate.*rf1|rf1.*duplicate/i);
   });
 });

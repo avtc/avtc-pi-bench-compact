@@ -54,7 +54,8 @@ function rewriteHeaderCwd(backupJson: string, repoPath: string): string {
 
 /**
  * Freeze the scenario: rewrite the backup header cwd → repoPath, write `session.jsonl`
- * into the repo, write the manifest outside the repo, then commit to `main`.
+ * to the per-branch sessions store (outside the repo), write the manifest outside the
+ * repo, then commit `main` (project files only).
  *
  * @throws when `main` already exists + `force` is not set (immutability), or when
  *   `manifestPath` is inside the repo (contamination).

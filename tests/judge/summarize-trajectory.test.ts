@@ -46,6 +46,7 @@ describe("summarizeTrajectory", () => {
     const summary = await summarizeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axis: "E3",
       manifest,
       maxTokens: 4096,
@@ -61,6 +62,7 @@ describe("summarizeTrajectory", () => {
     await summarizeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axis: "E3",
       manifest,
       maxTokens: 4096,
@@ -86,6 +88,7 @@ describe("summarizeTrajectory", () => {
       summarizeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axis: "E3",
         manifest,
         maxTokens: 4096,
@@ -99,6 +102,7 @@ describe("summarizeTrajectory", () => {
     await summarizeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axis: "E3",
       manifest,
       maxTokens: 4096,
@@ -115,6 +119,7 @@ describe("summarizeTrajectory", () => {
     await summarizeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axis: "E10",
       manifest,
       maxTokens: 4096,
@@ -133,6 +138,7 @@ describe("summarizeTrajectory", () => {
     await summarizeTrajectory({
       seams,
       cwd: "/attempt-repo",
+      tracePath: "/sessions/store.jsonl",
       axis: "E10",
       manifest,
       maxTokens: 4096,
@@ -140,6 +146,7 @@ describe("summarizeTrajectory", () => {
     });
     const prompt = inputs[0]?.systemPrompt ?? "";
     expect(prompt).toContain("/attempt-repo");
+    expect(prompt).toContain("/sessions/store.jsonl");
     expect(prompt).toMatch(/read|grep|find|ls/);
   });
 
@@ -161,6 +168,7 @@ describe("summarizeTrajectory", () => {
     const summary = await summarizeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axis: "E10",
       manifest,
       maxTokens: 4096,
@@ -179,6 +187,7 @@ describe("summarizeTrajectory", () => {
       summarizeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axis: "E3",
         manifest,
         maxTokens: 4096,
@@ -196,6 +205,7 @@ describe("summarizeTrajectory", () => {
       summarizeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axis: "E3",
         manifest,
         maxTokens: 4096,

@@ -309,6 +309,7 @@ export async function gradeC2ForRun(run: ArmAttemptRun, deps: C2RoutingDeps): Pr
     findFirstCorrectUse({
       seams,
       cwd: run.repo,
+      tracePath: run.continuation.tracePath,
       manifest: deps.manifest,
       maxTokens: deps.maxTokens,
       signal: deps.signal,
@@ -413,6 +414,7 @@ export async function gradeTraceBinaryForRun(
       gradeTrajectory({
         seams,
         cwd: run.repo,
+        tracePath: run.continuation.tracePath,
         axes: trajectoryAxes,
         manifest: deps.manifest,
         maxTokens: deps.maxTokens,
@@ -553,6 +555,7 @@ async function rankSummaryAxisPerAttempt(
           summarizeTrajectory({
             seams,
             cwd: run.repo,
+            tracePath: run.continuation.tracePath,
             axis,
             manifest: deps.manifest,
             maxTokens: deps.maxTokens,

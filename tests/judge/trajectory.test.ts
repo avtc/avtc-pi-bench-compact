@@ -52,6 +52,7 @@ describe("gradeTrajectory", () => {
     const grades = await gradeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axes: ["E4", "E2"] as readonly MetricId[],
       manifest,
       maxTokens: 4096,
@@ -69,6 +70,7 @@ describe("gradeTrajectory", () => {
     await gradeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axes: ["E4"] as readonly MetricId[],
       manifest,
       maxTokens: 4096,
@@ -86,6 +88,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,
@@ -106,6 +109,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,
@@ -126,6 +130,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,
@@ -143,6 +148,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,
@@ -172,6 +178,7 @@ describe("gradeTrajectory", () => {
     const grades = await gradeTrajectory({
       seams,
       cwd: "/repo",
+      tracePath: "/sessions/store.jsonl",
       axes: ["E4"] as readonly MetricId[],
       manifest,
       maxTokens: 4096,
@@ -195,6 +202,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,
@@ -211,6 +219,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4", "E2"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,
@@ -230,6 +239,7 @@ describe("gradeTrajectory", () => {
       gradeTrajectory({
         seams,
         cwd: "/repo",
+        tracePath: "/sessions/store.jsonl",
         axes: ["E4"] as readonly MetricId[],
         manifest,
         maxTokens: 4096,

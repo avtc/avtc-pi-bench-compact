@@ -39,6 +39,8 @@ export interface TrajectorySummaryDeps {
   readonly seams: TrajectorySummarySeams;
   /** The repo working dir, checked out to the attempt branch (read/grep operate here). */
   readonly cwd: string;
+  /** Absolute path to the post-compaction session-transcript file (lives outside the repo). */
+  readonly tracePath: string;
   /** The comparative trajectory axis to summarize (redo-plan or goal). */
   readonly axis: MetricId;
   /** The scenario manifest (doneOps for redo-plan context; taskObjective for goal context). */
@@ -65,12 +67,13 @@ const WRITE_SUMMARY_DESCRIPTION = [
  *  context the judge summarizes against. doneOps is the redo-plan axis's signal;
  *  the scripted goal is the goal-adherence axis's signal. To keep each axis's
  *  prompt focused, doneOps is included only for the redo-plan axis. */
-function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: string): string {
+function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: string, tracePath: string): string {
   const rubric = JUDGE_RUBRICS[axis] ?? `(no rubric for ${axis})`;
   const goal = manifest.taskObjective.description;
   const lines = [
     "You are a strict benchmark judge summarizing ONE arm's post-compaction TRAJECTORY for comparative ranking.",
-    `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect session.jsonl + the project files.`,
+    `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect`,
+    `the project files + the session transcript at ${tracePath} (an absolute path outside the repo — read it directly).`,
     "",
     "AXIS YOU ARE SUMMARIZING:",
     rubric,
@@ -88,7 +91,7 @@ function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: stri
     "scripted goal (taskObjective — wandering from this is the goal-axis signal):",
     `  ${goal}`,
     "",
-    `Inspect the WHOLE post-compaction trajectory in ${cwd}, then call write_summary ONCE with a <= ${MAX_SUMMARY_CHARS}-char summary focused on THIS axis. Capture concrete actions/entries (e.g. "re-proposed the market-pricing loop (do1) at entry a22", "wandered into building a settings menu unrelated to the goal"). Be specific + comparative-grade (enough to rank against other arms).`,
+    `Inspect the WHOLE post-compaction trajectory at ${tracePath}, then call write_summary ONCE with a <= ${MAX_SUMMARY_CHARS}-char summary focused on THIS axis. Capture concrete actions/entries (e.g. "re-proposed the market-pricing loop (do1) at entry a22", "wandered into building a settings menu unrelated to the goal"). Be specific + comparative-grade (enough to rank against other arms).`,
   );
   return lines.join("\n");
 }
@@ -96,9 +99,10 @@ function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: stri
 /**
  * Summarize one arm's post-compaction trajectory on a comparative trajectory
  * axis (redo-plan / goal) via an agentLoop + read-only tools on the attempt
- * branch. The judge inspects session.jsonl + project files, then emits ONE
- * bounded summary (<= 2000 chars) via a terminal write_summary call. The summary
- * is the per-axis slice the scoring orchestrator feeds to rankAxis.
+ * branch. The judge inspects the session transcript (absolute path passed in
+ * the prompt) + the project files, then emits ONE bounded summary (<= 2000
+ * chars) via a terminal write_summary call. The summary is the per-axis slice
+ * the scoring orchestrator feeds to rankAxis.
  *
  * Rate-limit-resilient + STOP-and-surfaces on failure (model-unavailable /
  * timeout / abort / no-capture — delegated to runJsonToolStage). Pure aside from
@@ -122,7 +126,7 @@ export async function summarizeTrajectory(deps: TrajectorySummaryDeps): Promise<
   );
   const stageDeps = buildStageDeps(deps, {
     tools: benchReadOnlyTools(deps.cwd),
-    systemPrompt: buildSystemPrompt(deps.axis, deps.manifest, deps.cwd),
+    systemPrompt: buildSystemPrompt(deps.axis, deps.manifest, deps.cwd, deps.tracePath),
     terminalTool,
     label: "trajectory summary",
     userMessageContent: `Inspect the trajectory in ${deps.cwd} and write a bounded summary for the ${deps.axis} axis. Call write_summary once.`,

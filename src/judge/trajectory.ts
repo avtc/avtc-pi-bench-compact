@@ -34,6 +34,8 @@ export interface GradeTrajectoryDeps {
   readonly seams: TrajectorySeams;
   /** The repo working dir, checked out to the attempt branch (read/grep operate here). */
   readonly cwd: string;
+  /** Absolute path to the post-compaction session-transcript file (lives outside the repo). */
+  readonly tracePath: string;
   /** The axes to grade (proactive-recall; redo/redo-plan/goal when the run is too long for a single-call slice). */
   readonly axes: readonly MetricId[];
   /** The scenario manifest (provides the recallFacts/doneOps context the rubrics reference). */
@@ -56,7 +58,12 @@ const RECORD_GRADES_DESCRIPTION = [
 ].join(" ");
 
 /** Build the trajectory-grading system prompt: the rubric per axis + the manifest context. */
-function buildSystemPrompt(axes: readonly MetricId[], manifest: ScenarioManifest, cwd: string): string {
+function buildSystemPrompt(
+  axes: readonly MetricId[],
+  manifest: ScenarioManifest,
+  cwd: string,
+  tracePath: string,
+): string {
   const rubricLines = axes.map((axis) => {
     const rubric = JUDGE_RUBRICS[axis];
     return rubric === undefined ? `- ${axis}: (no rubric)` : `- ${axis}:\n${rubric}`;
@@ -66,7 +73,8 @@ function buildSystemPrompt(axes: readonly MetricId[], manifest: ScenarioManifest
     .join("\n");
   return [
     "You are a strict benchmark judge grading a post-compaction TRAJECTORY.",
-    `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect session.jsonl + the project files.`,
+    `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect`,
+    `the project files + the session transcript at ${tracePath} (an absolute path outside the repo — read it directly).`,
     "",
     "GRADE THESE AXES (one grade each):",
     ...rubricLines,
@@ -83,8 +91,8 @@ function buildSystemPrompt(axes: readonly MetricId[], manifest: ScenarioManifest
 
 /**
  * Grade a trajectory on the given axes via an agentLoop + read-only tools on the
- * attempt branch. The judge inspects session.jsonl + project files, then emits
- * one grade per axis via a single terminal `record_grades` call. Rate-limit-
+ * attempt branch. The judge inspects the session transcript (absolute path passed
+ * in the prompt) + the project files, then emits one grade per axis via a single terminal `record_grades` call. Rate-limit-
  * resilient + STOP-and-surfaces on failure (delegated to runJsonToolStage).
  * Pure aside from the seams.
  */
@@ -96,10 +104,10 @@ export async function gradeTrajectory(deps: GradeTrajectoryDeps): Promise<Trajec
   );
   const stageDeps = buildStageDeps(deps, {
     tools: benchReadOnlyTools(deps.cwd), // terminal tool auto-appended by runJsonToolStage
-    systemPrompt: buildSystemPrompt(deps.axes, deps.manifest, deps.cwd),
+    systemPrompt: buildSystemPrompt(deps.axes, deps.manifest, deps.cwd, deps.tracePath),
     terminalTool,
     label: "trajectory grading",
-    userMessageContent: `Inspect the trajectory in ${deps.cwd} and grade the axes. Call record_grades once with all your grades.`,
+    userMessageContent: `Inspect the trajectory at ${deps.tracePath} and grade the axes. Call record_grades once with all your grades.`,
   });
   const payload = (await runJsonToolStage(stageDeps)) as { grades?: unknown };
   const raw = Array.isArray(payload.grades) ? (payload.grades as TrajectoryGrade[]) : [];

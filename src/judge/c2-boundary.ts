@@ -31,6 +31,8 @@ export type C2BoundarySeams = JsonToolStageSeams;
 export interface FindFirstCorrectUseDeps {
   readonly seams: C2BoundarySeams;
   readonly cwd: string;
+  /** Absolute path to the post-compaction session-transcript file (lives outside the repo). */
+  readonly tracePath: string;
   readonly manifest: ScenarioManifest;
   readonly maxTokens: number;
   readonly signal: AbortSignal;
@@ -57,14 +59,15 @@ const REPORT_BOUNDARY_DESCRIPTION = [
 ].join(" ");
 
 /** Build the boundary-finding system prompt: each recallFact + the inspection instructions. */
-function buildSystemPrompt(manifest: ScenarioManifest, cwd: string): string {
+function buildSystemPrompt(manifest: ScenarioManifest, cwd: string, tracePath: string): string {
   const facts = manifest.recallFacts
     .map((rf) => `  - ${rf.id}: ${rf.fact} (a correct use matches: ${rf.accept.join(" | ")})`)
     .join("\n");
   return [
     "You are a strict benchmark judge locating the FIRST correct use of each recallFact.",
-    `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect session.jsonl`,
-    "(the post-compaction trajectory — entries AFTER the compaction boundary).",
+    `The repo is checked out to the attempt branch at ${cwd}; use read/grep/find/ls to inspect`,
+    `the session transcript at ${tracePath} (absolute path outside the repo; the post-compaction`,
+    "trajectory — entries AFTER the compaction boundary).",
     "",
     "FOR EACH recallFact, find the EARLIEST entry-id where the agent correctly uses or applies",
     "that fact (matches an accept criterion). If the agent never recovers it, use null.",
@@ -95,10 +98,10 @@ export async function findFirstCorrectUse(deps: FindFirstCorrectUseDeps): Promis
   const stageDeps: RunJsonToolStageDeps = {
     seams: deps.seams,
     tools: [...benchReadOnlyTools(deps.cwd), terminalTool],
-    systemPrompt: buildSystemPrompt(deps.manifest, deps.cwd),
+    systemPrompt: buildSystemPrompt(deps.manifest, deps.cwd, deps.tracePath),
     terminalTool,
     label: "recall-cost boundary",
-    userMessageContent: `Inspect the trajectory in ${deps.cwd} and find the first correct use of each recallFact. Call report_boundary once.`,
+    userMessageContent: `Inspect the trajectory at ${deps.tracePath} and find the first correct use of each recallFact. Call report_boundary once.`,
     maxTokens: deps.maxTokens,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,

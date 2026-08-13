@@ -32,8 +32,11 @@ export function axisForProbe(probe: Probe, manifest: ScenarioManifest): MetricId
   if (probe.correctRefusal === true) return "E6";
   const accept = probe.accept;
   if (accept !== undefined && accept.length > 0) {
-    const supersessionIds = new Set(manifest.supersessions.map((s) => s.id));
-    const targetsSupersession = probe.targets.some((target) => supersessionIds.has(target));
+    // probe.targets are ENTRY ids (schema: "targets = the target's entryIds"); supersessions
+    // are matched by their entry ids, not their condition id (s.id) — matching
+    // deriveLanes/validateManifest (entry-id <-> entry-id).
+    const supersessionEntryIds = new Set(manifest.supersessions.flatMap((s) => s.entryIds));
+    const targetsSupersession = probe.targets.some((target) => supersessionEntryIds.has(target));
     return targetsSupersession ? "E8" : "E5";
   }
   return null;
