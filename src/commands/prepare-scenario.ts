@@ -93,9 +93,10 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
     // Construct + show the live-progress widget (TUI-only; inert when non-TUI).
     const widget = (opts.makeWidget ?? makePrepareWidget)(ctx);
     setActiveWidget(widget);
-    widget.show();
-    // Extract mode skips the build drive (session provided) → start at 'extract' so build renders ■.
+    // Extract mode skips the build drive (session provided) → start at 'extract' BEFORE show
+    // so the first paint is ■◧□□□□ extract (build already ■), not a brief build flash.
     if (parsed.fromSession !== undefined) widget.startPhase("extract", NO_DETAIL);
+    widget.show();
 
     const scenarioId = computeScenarioId(parsed);
     try {

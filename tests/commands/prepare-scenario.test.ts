@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { computeScenarioId, makePrepareScenarioHandler } from "../../src/commands/prepare-scenario.js";
 import type { PrepareDeps } from "../../src/production/prepare.js";
@@ -67,7 +70,9 @@ describe("makePrepareScenarioHandler", () => {
     const capturingWidget = (): import("../../src/widget/active-widget.js").WidgetPort =>
       ({
         show: () => widgetCalls.push("show"),
-        startPhase: () => {},
+        startPhase: (phase: string) => {
+          widgetCalls.push(`startPhase:${phase}`);
+        },
         setStatus: (status: string, hint: string) => widgetCalls.push(`setStatus:${status}:${hint}`),
         setArm: () => {},
         setDetail: () => {},
@@ -96,5 +101,22 @@ describe("makePrepareScenarioHandler", () => {
     });
     await failHandler("my idea", ctx);
     expect(widgetCalls.some((c) => c.startsWith("setStatus:stopped:/bench-compact:prepare-scenario"))).toBe(true);
+
+    // extract mode (--from-session) → startPhase('extract') BEFORE show (build■ from first render)
+    widgetCalls.length = 0;
+    const sessionDir = mkdtempSync(join(tmpdir(), "bench-prep-ext-"));
+    const sessionFile = join(sessionDir, "real-session.jsonl");
+    writeFileSync(sessionFile, `{"type":"session","id":"h","cwd":"${sessionDir}"}\n`);
+    const extractHandler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn().mockResolvedValue({ repoPath: "/repo/x", manifestPath: "/m.json" }),
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: capturingWidget,
+    });
+    await extractHandler(`--from-session ${sessionFile}`, ctx);
+    const extractIdx = widgetCalls.indexOf("startPhase:extract");
+    const showIdx = widgetCalls.indexOf("show");
+    expect(extractIdx).toBeGreaterThanOrEqual(0);
+    expect(showIdx).toBeGreaterThanOrEqual(0);
+    expect(extractIdx).toBeLessThan(showIdx); // startPhase('extract') before show
   });
 });
