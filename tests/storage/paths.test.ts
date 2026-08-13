@@ -6,12 +6,14 @@ import { describe, expect, it } from "vitest";
 import {
   assertNotInRepo,
   benchRoot,
+  branchSessionFile,
   configPath,
   isInsideRepo,
   runDir,
   scenarioDir,
   scenarioManifest,
   scenarioRepo,
+  scenarioSessionsDir,
 } from "../../src/storage/paths.js";
 
 describe("benchRoot", () => {
@@ -36,6 +38,35 @@ describe("path builders", () => {
   });
   it("config paths nest under configs/<cfgId>.json", () => {
     expect(configPath(root, "cfg-a3f2c1")).toBe(path.join(root, "configs", "cfg-a3f2c1.json"));
+  });
+});
+
+describe("sessions store (scenarioSessionsDir + branchSessionFile)", () => {
+  const root = "/tmp/bench";
+  it("scenarioSessionsDir is a sibling of repo/ under scenarios/<id>", () => {
+    expect(scenarioSessionsDir(root, "s1")).toBe(path.join(root, "scenarios", "s1", "sessions"));
+    // sibling of repo/ + manifest.json (NOT inside repo/) → agent-invisible
+    expect(path.dirname(scenarioSessionsDir(root, "s1"))).toBe(path.dirname(scenarioRepo(root, "s1")));
+  });
+  it("branchSessionFile sanitizes branch slashes (git branch names can't be filenames)", () => {
+    const dir = scenarioSessionsDir(root, "s1");
+    expect(branchSessionFile(dir, "bench-compact/run-x/cfg-y/arm-bare-pi")).toBe(
+      path.join(dir, "bench-compact-run-x-cfg-y-arm-bare-pi.jsonl"),
+    );
+  });
+  it("branchSessionFile is deterministic (same branch → same file)", () => {
+    const dir = scenarioSessionsDir(root, "s1");
+    const branch = "bench-compact/run-2026-08-11-1/cfg-ab12/arm-om-default-g4a2f8e";
+    expect(branchSessionFile(dir, branch)).toBe(branchSessionFile(dir, branch));
+  });
+  it("branchSessionFile preserves safe chars [a-zA-Z0-9._-] and replaces everything else", () => {
+    const dir = scenarioSessionsDir(root, "s1");
+    expect(branchSessionFile(dir, "main")).toBe(path.join(dir, "main.jsonl"));
+    // a space + a slash both become '-'
+    expect(branchSessionFile(dir, "arm with space/v1")).toBe(path.join(dir, "arm-with-space-v1.jsonl"));
+  });
+  it("scenarioSessionsDir rejects a scenarioId that escapes scenarios/ (traversal guard)", () => {
+    expect(() => scenarioSessionsDir(root, "../configs/cfg-x")).toThrow(/unsafe scenario/i);
   });
 });
 

@@ -4,13 +4,18 @@
 // The bench-compact storage layout. All paths derive from a single root:
 //   root = outputDir ?? ~/.pi/bench-compact/
 // Under root:
-//   scenarios/<id>/repo/        — the scenario git repo (session.jsonl + project files) [AGENT-VISIBLE]
-//   scenarios/<id>/manifest.json — the scenario manifest                          [agent-hidden]
-//   runs/<runId>/               — judge/, results.json, report.md                 [agent-hidden]
-//   configs/<cfgId>.json        — full run config (source of truth)               [agent-hidden]
+//   scenarios/<id>/repo/                — the scenario git repo (ONLY project files)        [AGENT-VISIBLE]
+//   scenarios/<id>/sessions/<branch>.jsonl — the per-branch session transcript             [agent-hidden]
+//   scenarios/<id>/manifest.json         — the scenario manifest                          [agent-hidden]
+//   runs/<runId>/                        — judge/, results.json, report.md                 [agent-hidden]
+//   configs/<cfgId>.json                 — full run config (source of truth)               [agent-hidden]
 //
-// The contamination rule: bench artifacts (manifest/results/judge/configs) are NEVER
-// written into a scenario repo's working dir (the agent's cwd) — enforced by `assertNotInRepo`.
+// The session transcript lives OUTSIDE the repo (in sessions/): pi appends to it
+// mid-run, so keeping it in the repo would dirty the git tree + it must stay
+// agent-invisible (anti-peek). The repo tracks ONLY project files the agent works on.
+//
+// The contamination rule: bench artifacts (sessions/manifest/results/judge/configs) are
+// NEVER written into a scenario repo's working dir (the agent's cwd) — enforced by `assertNotInRepo`.
 
 import { homedir } from "node:os";
 import path from "node:path";
@@ -40,9 +45,21 @@ function assertChildPath(parent: string, child: string, kind: string): string {
 export function scenarioDir(root: string, scenarioId: string): string {
   return assertChildPath(path.join(root, "scenarios"), scenarioId, "scenario");
 }
-/** The scenario git repo working dir (the agent's cwd; tracks session.jsonl + project files). */
+/** The scenario git repo working dir (the agent's cwd; tracks ONLY project files — the session transcript lives in {@link scenarioSessionsDir}). */
 export function scenarioRepo(root: string, scenarioId: string): string {
   return path.join(scenarioDir(root, scenarioId), "repo");
+}
+/** The per-branch session-transcript store (SIBLING of `repo/` under scenarios/<id>/;
+ *  agent-invisible). Each branch's `session.jsonl` lives at {@link branchSessionFile}. */
+export function scenarioSessionsDir(root: string, scenarioId: string): string {
+  return assertChildPath(scenarioDir(root, scenarioId), "sessions", "scenario sessions");
+}
+/** The deterministic session-transcript file for `branch` under `sessionsDir`.
+ *  Git branch names contain `/` (illegal in a filename), so non-`[a-zA-Z0-9._-]` chars
+ *  are replaced with `-` — same branch always maps to the same file. */
+export function branchSessionFile(sessionsDir: string, branch: string): string {
+  const sanitized = branch.replace(/[^a-zA-Z0-9._-]/g, "-");
+  return path.join(sessionsDir, `${sanitized}.jsonl`);
 }
 /** The scenario manifest (scenario-level, reusable; NEVER committed to the repo). */
 export function scenarioManifest(root: string, scenarioId: string): string {
