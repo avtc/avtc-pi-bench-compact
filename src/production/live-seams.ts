@@ -45,6 +45,8 @@ import {
   type SimulatorHooks,
 } from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
+import type { WidgetPort } from "../widget/active-widget.js";
+import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
 import type { BuildSeams } from "./build.js";
 import type { TrialCut } from "./trial-compaction.js";
 
@@ -124,6 +126,8 @@ export interface AuthorSeamDeps {
   readonly runStage?: RunStage;
   /** Injectable (default = runAuthoringAgent). */
   readonly runAuthor?: RunAuthor;
+  /** The live-progress widget (the author seam advances to the 'extract' cell + wires the authoring agent's ctx/tok). */
+  readonly widget?: WidgetPort | null;
 }
 
 /** Per-call output-token cap for the authoring agent's stage calls. */
@@ -136,9 +140,13 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
   const runStage = deps.runStage ?? runBenchStage;
   const runAuthor = deps.runAuthor ?? runAuthoringAgent;
   return async (preSlicedJsonlPath: string): Promise<ScenarioManifest> => {
+    deps.widget?.startPhase("extract", NO_DETAIL);
+    const hooks = widgetStageHooks(deps.widget);
     const seams: AuthoringSeams = {
       resolveModel: () => resolve(deps.ctxGetter(), deps.evaluatedModel),
       runStage,
+      onEvent: hooks?.onEvent,
+      onModelResolved: hooks?.onModelResolved,
     };
     return runAuthor({
       seams,
@@ -237,6 +245,8 @@ export interface MakeBuildSimulatorArgs {
   readonly targetContext: number;
   readonly signal: AbortSignal;
   readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
+  /** The live-progress widget (the factory wires its onEvent + ctx-window for build ctx/tok). */
+  readonly widget?: WidgetPort | null;
 }
 
 /** Tokens added to the pacing target per continue attempt (so a tail-condition
@@ -264,6 +274,8 @@ export interface DriveAndCaptureSeamDeps {
   readonly awaitSettled?: typeof awaitAgentSettled;
   readonly makeSimulator?: (args: MakeBuildSimulatorArgs) => BuildDriver;
   readonly getPi?: () => ExtensionAPI;
+  /** The live-progress widget (advances to the 'build' cell + wires the user-simulator's ctx/tok). */
+  readonly widget?: WidgetPort | null;
   readonly getProxies?: () => MemoryProxies | null;
   readonly configureArm?: ConfigureArmOp;
   readonly read?: ReadText;
@@ -300,6 +312,7 @@ export function createDefaultBuildSimulatorFactory(deps: {
       signal: args.signal,
       inject: makeAntiPeekInject(args.pi, deps.antiPeekPrompt),
       onStop: args.onStop,
+      ...widgetStageHooks(args.widget),
     });
 }
 
@@ -334,12 +347,20 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
     await load(deps.holder.current, deps.buildSessionPath, async (sessionCtx) => {
       deps.holder.current = sessionCtx;
       const pi = getPi();
+      deps.widget?.startPhase("build", NO_DETAIL);
       // Disable the memory arms' hooks BEFORE driving so the build session stays raw
       // (no om.*/memkeeper.* entries) — the backup is the pre-compaction input every arm
       // compacts. Done once per load (idempotent); skipped when no memory proxies are live.
       disableMemoryHooks(pi, getProxies(), deps.repoPath, deps.omFullReflectionThresholdTokens, configure);
       const { stop, onStop } = makeDriveStop();
-      const driver = makeSimulator({ pi, ctx: sessionCtx, targetContext, signal: deps.signal, onStop });
+      const driver = makeSimulator({
+        pi,
+        ctx: sessionCtx,
+        targetContext,
+        signal: deps.signal,
+        onStop,
+        widget: deps.widget,
+      });
       // Seed the driver with the session's current context (so a continue attempt paces
       // correctly against the already-grown session, not a fresh zero).
       const usage = sessionCtx.getContextUsage();
@@ -404,6 +425,8 @@ export interface BuildLiveSeamsArgs {
   readonly scenarioDescription: string;
   /** The manifest's compaction-boundary plan tag ("build" | "extract"). */
   readonly compactionPlan: string;
+  /** The live-progress widget (build/extract ctx/tok + phase cells). Null/absent → no widget. */
+  readonly widget?: WidgetPort | null;
   readonly signal: AbortSignal;
 }
 
@@ -422,6 +445,7 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): BuildSeams {
     ctxGetter: () => holder.current,
     evaluatedModel: args.config.evaluatedModel,
     scenarioCtx,
+    widget: args.widget,
     signal: args.signal,
     maxTokens: AUTHOR_MAX_TOKENS,
   });
@@ -445,6 +469,7 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): BuildSeams {
     maxTokens: SIMULATOR_MAX_TOKENS,
     getPi: getBenchPi,
     getProxies: getMemoryProxies,
+    widget: args.widget,
   });
   return { driveAndCapture, trialCompact, author };
 }

@@ -61,4 +61,40 @@ describe("makePrepareScenarioHandler", () => {
     await handler("my idea", ctx);
     expect(notified.some((n) => n.level === "error" && n.msg.includes("Task 19"))).toBe(true);
   });
+
+  it("sets the widget to 'prepared' on success + 'stopped' on failure", async () => {
+    const widgetCalls: string[] = [];
+    const capturingWidget = (): import("../../src/widget/active-widget.js").WidgetPort =>
+      ({
+        show: () => widgetCalls.push("show"),
+        startPhase: () => {},
+        setStatus: (status: string, hint: string) => widgetCalls.push(`setStatus:${status}:${hint}`),
+        setArm: () => {},
+        setDetail: () => {},
+        setCtxWindow: () => {},
+        onEvent: () => {},
+        hide: () => {},
+      }) as unknown as import("../../src/widget/active-widget.js").WidgetPort;
+    const ctx = { ui: { notify: () => {} } };
+
+    // success → prepared
+    const okHandler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn().mockResolvedValue({ repoPath: "/repo/x", manifestPath: "/m.json" }),
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: capturingWidget,
+    });
+    await okHandler("my idea", ctx);
+    expect(widgetCalls).toContain("show");
+    expect(widgetCalls.some((c) => c.startsWith("setStatus:prepared:/bench-compact:run-scenario "))).toBe(true);
+
+    // failure → stopped
+    widgetCalls.length = 0;
+    const failHandler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn().mockRejectedValue(new Error("boom")),
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: capturingWidget,
+    });
+    await failHandler("my idea", ctx);
+    expect(widgetCalls.some((c) => c.startsWith("setStatus:stopped:/bench-compact:resume"))).toBe(true);
+  });
 });

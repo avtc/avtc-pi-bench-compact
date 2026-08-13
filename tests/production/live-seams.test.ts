@@ -9,6 +9,26 @@ import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { describe, expect, it } from "vitest";
 import type { MemoryProxies } from "../../src/arms/proxies.js";
 import { defaultBuildPrepareDeps } from "../../src/commands/prepare-scenario.js";
+import type { WidgetPort } from "../../src/widget/active-widget.js";
+
+/** A capturing WidgetPort: records startPhase calls. */
+function capturingWidget(): WidgetPort & { phases: string[] } {
+  const phases: string[] = [];
+  return {
+    phases,
+    show: () => {},
+    startPhase: (phase) => {
+      phases.push(phase);
+    },
+    setStatus: () => {},
+    setArm: () => {},
+    setDetail: () => {},
+    setCtxWindow: () => {},
+    onEvent: () => {},
+    hide: () => {},
+  };
+}
+
 import { _setHandleForTest } from "../../src/config/accessor.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
@@ -103,6 +123,21 @@ describe("buildAuthorSeam", () => {
     expect(captured.preSlicedJsonlPath).toBe("/tmp/slice/sliced-0.jsonl");
     expect(captured.resolveCtx).toBe(fakeCtx);
     expect(captured.modelSetting).toBe("provider/model-a");
+  });
+
+  it("advances the widget to the 'extract' cell before running the authoring agent", async () => {
+    const widget = capturingWidget();
+    const author = buildAuthorSeam({
+      ctxGetter: () => fakeCtx,
+      evaluatedModel: null,
+      scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
+      signal: new AbortController().signal,
+      maxTokens: 4096,
+      runAuthor: async () => ({ id: "sc1" }) as unknown as ScenarioManifest,
+      widget,
+    });
+    await author("/tmp/sliced-0.jsonl");
+    expect(widget.phases).toContain("extract");
   });
 });
 
@@ -238,6 +273,35 @@ describe("buildDriveAndCaptureSeam", () => {
     expect(result.backupPath).toBe("/tmp/build.jsonl");
     expect(result.backupEntries).toEqual([{ id: "m1" }]);
     expect(holder.current).toBe(freshCtx);
+  });
+
+  it("advances the widget to the 'build' cell before driving", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const widget = capturingWidget();
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => false,
+      writeHeader: () => {},
+      loadSession: fakeLoadSession,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => ({
+        trackContext: () => {},
+        onAgentSettled: async () => args.onStop({ contextTokens: 0, reason: "boundary" }),
+      }),
+      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      widget,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
+    });
+    await driveAndCapture(0);
+    expect(widget.phases).toContain("build");
   });
 
   it("does NOT rewrite the header when the build session already exists", async () => {

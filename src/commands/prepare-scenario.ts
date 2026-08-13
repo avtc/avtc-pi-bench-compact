@@ -18,6 +18,8 @@ import { getBenchConfig } from "../config/accessor.js";
 import { buildLiveSeams } from "../production/live-seams.js";
 import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { benchRoot, scenarioDir, scenarioManifest, scenarioRepo } from "../storage/paths.js";
+import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
+import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
 import { preflight } from "./validate.js";
 
@@ -39,17 +41,42 @@ export interface PrepareScenarioHandlerOptions {
   /** The prepare orchestrator (default: the real `prepareScenario`). */
   readonly prepareScenario?: typeof prepareScenarioImpl;
   /** Build the PrepareDeps from the parsed args + ctx (computes paths + seams).
-   *  The default (`defaultBuildPrepareDeps`) assembles the live seams via `buildLiveSeams`; tests inject a fake. */
+   *  The default (`defaultBuildPrepareDeps`) assembles the live seams via `buildLiveSeams`;
+   *  tests inject a fake. (The widget reaches the seams via the active-widget global,
+   *  set by the handler before buildDeps runs.) */
   readonly buildDeps: (ctx: unknown, parsed: PrepareArgs, scenarioId: string) => PrepareDeps;
+  /** Construct the live-progress widget (default: {@link makePrepareWidget}). Tests inject a capturing widget. */
+  readonly makeWidget?: (ctx: unknown) => WidgetPort;
+}
+
+/** Construct the prepare-scenario live-progress widget (TUI-only; inert when non-TUI). */
+export function makePrepareWidget(ctx: unknown): WidgetPort {
+  const c = ctx as {
+    mode?: string;
+    hasUI?: boolean;
+    ui?: { setWidget: (key: string, content: unknown, opts: { placement: string }) => void };
+  };
+  return new WidgetController(
+    makeTuiWidgetDeps({
+      mode: c?.mode ?? "",
+      hasUI: c?.hasUI ?? false,
+      ui: c?.ui as unknown as { setWidget: (key: string, content: unknown, opts: { placement: string }) => void },
+    }),
+    {},
+  );
 }
 
 /** Build the handler for `/bench-compact:prepare-scenario`. */
 export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) {
   const prepare = opts.prepareScenario ?? prepareScenarioImpl;
   return async (args: string, ctx: unknown): Promise<void> => {
-    const ctxNotify = (ctx as { ui?: { notify: (m: string, l: string) => void } }).ui;
+    const ctxTyped = ctx as {
+      mode?: string;
+      hasUI?: boolean;
+      ui?: { notify: (m: string, l: string) => void };
+    };
     const notify = (msg: string, level: "info" | "warning" | "error"): void => {
-      ctxNotify?.notify(msg, level);
+      ctxTyped?.ui?.notify(msg, level);
     };
 
     const parsed = parsePrepareArgs(args);
@@ -63,12 +90,19 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       return;
     }
 
+    // Construct + show the live-progress widget (TUI-only; inert when non-TUI).
+    const widget = (opts.makeWidget ?? makePrepareWidget)(ctx);
+    setActiveWidget(widget);
+    widget.show();
+
     const scenarioId = computeScenarioId(parsed);
     try {
       const deps = opts.buildDeps(ctx, parsed, scenarioId);
       const result = await prepare(deps);
+      widget.setStatus("prepared", `/bench-compact:run-scenario ${result.repoPath}`);
       notify(`prepared scenario ${scenarioId}: ${result.repoPath}`, "info");
     } catch (err) {
+      widget.setStatus("stopped", "/bench-compact:resume");
       const msg = err instanceof Error ? err.message : String(err);
       notify(`prepare failed: ${msg}`, "error");
     }
@@ -91,6 +125,8 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
   const cmdCtx = ctx as ExtensionCommandContext;
   const compactionPlan = parsed.fromSession !== undefined ? EXTRACT_PLAN : BUILD_PLAN;
   const scenarioDescription = parsed.idea ?? scenarioId;
+  // The handler sets the active widget before buildDeps; the seams read it for build/extract ctx/tok.
+  const widget = getActiveWidget();
   const seams = buildLiveSeams({
     cmdCtx,
     config,
@@ -99,6 +135,7 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
     scenarioId,
     scenarioDescription,
     compactionPlan,
+    widget,
     signal: PREPARE_SIGNAL,
   });
 
