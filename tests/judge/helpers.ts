@@ -12,7 +12,7 @@ import type { StageRunInput, StageRunResult } from "../../src/runtime/agent-loop
 import type { ResolvedBenchModel } from "../../src/runtime/model.js";
 import type { JsonOutputTool } from "../../src/runtime/tools.js";
 
-export const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
+const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
 export const OK_MODEL: ResolvedBenchModel = { ok: true, model: FAKE_MODEL, apiKey: "key" };
 
 /** A successful, empty StageRunResult (no messages, zero usage, not aborted/timed-out). */

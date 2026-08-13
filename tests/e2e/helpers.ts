@@ -117,9 +117,9 @@ const POST_COMPACTION_OUTPUT = 50;
 /** The bench-captured wall-clock of the boundary compaction (drives the compaction-cost wall field). */
 const BOUNDARY_WALL_MS = 4200;
 /** The post-compaction assistant entry id (the recall-cost judge recovers the fact here). */
-export const POST_COMPACTION_ENTRY_ID = "post-1";
+const POST_COMPACTION_ENTRY_ID = "post-1";
 /** The recallFact id planted in the smoke manifest (referenced by the recall-cost judge). */
-export const SMOKE_RECALL_FACT_ID = "rf1";
+const SMOKE_RECALL_FACT_ID = "rf1";
 
 /**
  * Build a realistic continuation RunTrace for one arm: a user turn, ONE boundary
@@ -128,7 +128,7 @@ export const SMOKE_RECALL_FACT_ID = "rf1";
  * metrics). `stages` selects the compaction's per-stage names (null = the native
  * single-stage arm; a list = a memory arm with named stages).
  */
-export function buildRealisticTrace(arm: ArmId, branch: string, stages: readonly string[] | null): RunTrace {
+function buildRealisticTrace(arm: ArmId, branch: string, stages: readonly string[] | null): RunTrace {
   const compactionEntry = makeCompactionEntry(SMOKE_SUMMARY, stages);
   const entries: SessionEntry[] = [
     userEntry("u0", null),
@@ -207,7 +207,7 @@ export function makeSmokeManifest(): ScenarioManifest {
  * safe: buildRunConfig reads only the ensemble + run fields, not the per-arm
  * boolean toggles — those are only read by getBenchConfig via the settings handle).
  */
-export function makeBenchConfig(arms: readonly ArmId[]): BenchConfig {
+function makeBenchConfig(arms: readonly ArmId[]): BenchConfig {
   return {
     evaluatedModel: "test/model",
     evaluatedThinkingLevel: "high",
@@ -272,7 +272,7 @@ function makeStageSeams(handlers: Readonly<Record<string, () => unknown>>): Json
  * identity shuffle, a small non-zero pricing, + a no-op checkout. The run-meta is
  * threaded straight through from the run driver.
  */
-export function makeScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
+function makeScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
   return {
     manifest: args.manifest,
     callJudges: [makeCallJudge({ E2: false, E4: true, E5: true, E6: true })],
@@ -296,7 +296,7 @@ export function makeScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
 }
 
 /** A fake tool-version resolver (A3 resolves to a git commit; A1 carries no version). */
-export function makeVersionResolver(): VersionResolver {
+function makeVersionResolver(): VersionResolver {
   return {
     resolveRoot: () => "/fake/memkeeper",
     gitHead: () => "abcdef1234567890",
