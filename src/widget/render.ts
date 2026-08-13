@@ -17,12 +17,14 @@
 
 import { fitLine, joinSegments, type Segment } from "./fitline.js";
 
-/** The 5 progression phases, in cell order (cell 0 = build, … cell 4 = score). */
-export const PHASE_ORDER = ["build", "compact", "resume", "probe", "score"] as const;
+/** The 6 progression phases, in cell order (build → extract → compact → eval → probe → score). */
+export const PHASE_ORDER = ["build", "extract", "compact", "eval", "probe", "score"] as const;
 export type WidgetPhase = (typeof PHASE_ORDER)[number];
 
-/** Terminal states. `running` is mid-phase; `done`/`stopped` stay visible. */
-export type WidgetStatus = "running" | "done" | "stopped";
+/** Terminal states. `running` is mid-phase; `done`/`stopped`/`prepared` stay visible.
+ *  `prepared` is the prepare-scenario completion (build+extract done, run not started) —
+ *  cells 0-1 ■, rest □, label "prepared" (distinct from the all-■ run-`done`). */
+export type WidgetStatus = "running" | "done" | "stopped" | "prepared";
 
 /** Pure render-time snapshot of the bench-run tracker. `null` fields are
  *  omitted from the line (arm counter absent during build/done; ctx/tok absent
@@ -59,18 +61,25 @@ export const GLYPH_PREFIX = "🅑 ";
 const CELL_DONE = "■";
 const CELL_ACTIVE = "◧";
 const CELL_PENDING = "□";
+/** In the `prepared` terminal, build + extract (cells 0-1) are done; the rest pending. */
+const PREPARED_LAST_DONE_CELL = 1;
 
-/** True when ctx/tok should display (phase isn't compact + a background agent is
- *  generating + not a terminal status). compact always excludes ctx/tok because
- *  the memory tool renders its own widget. */
+/** True when ctx/tok should display (a background agent is generating + not a
+ *  terminal status + phase isn't compact). compact always excludes ctx/tok because
+ *  the memory tool renders its own widget; terminals (done/stopped/prepared) omit it. */
 function showCtxTok(state: WidgetState): boolean {
   return state.status === "running" && state.phase !== "compact" && state.ctxUsage !== null && state.tok !== null;
 }
 
-/** The 5-cell phase-bar. `done` → all ■; else cells before the phase = ■, the
- *  active cell = ◧, cells after = □. */
+/** The 6-cell phase-bar.
+ *  - `done` → all ■.
+ *  - `prepared` → build+extract (cells 0-1) ■, rest □ (prepare complete, run pending).
+ *  - else cells before the active phase = ■, active = ◧, after = □. */
 function phaseBar(state: WidgetState): string {
   if (state.status === "done") return CELL_DONE.repeat(PHASE_ORDER.length);
+  if (state.status === "prepared") {
+    return PHASE_ORDER.map((_, i) => (i <= PREPARED_LAST_DONE_CELL ? CELL_DONE : CELL_PENDING)).join("");
+  }
   const activeIdx = PHASE_ORDER.indexOf(state.phase);
   return PHASE_ORDER.map((_, i) => (i < activeIdx ? CELL_DONE : i === activeIdx ? CELL_ACTIVE : CELL_PENDING)).join("");
 }
@@ -85,9 +94,10 @@ function formatTokTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-/** The phase label: `done` when terminal-done, else `<phase>[ <detail>]`. */
+/** The phase label: terminal name when done/prepared, else `<phase>[ <detail>]`. */
 function phaseLabel(state: WidgetState): string {
   if (state.status === "done") return "done";
+  if (state.status === "prepared") return "prepared";
   return state.detail === null ? state.phase : `${state.phase} ${state.detail}`;
 }
 
@@ -100,8 +110,14 @@ function phaseLabel(state: WidgetState): string {
 export function buildContentSegments(state: WidgetState): Segment[] {
   const segs: Segment[] = [];
 
-  // Arm counter (omitted during build + done — no per-arm tool / terminal).
-  if (state.status !== "done" && state.armIndex !== null && state.armTotal !== null && state.tool !== null) {
+  // Arm counter (omitted during build/extract + the done/prepared terminals — no per-arm tool there).
+  if (
+    state.status !== "done" &&
+    state.status !== "prepared" &&
+    state.armIndex !== null &&
+    state.armTotal !== null &&
+    state.tool !== null
+  ) {
     segs.push({ prefix: `${state.armIndex}/${state.armTotal} `, tail: state.tool });
   }
 

@@ -527,7 +527,7 @@ describe("startRun — live-progress widget wiring", () => {
     expect(widget.calls).toEqual([
       "show",
       "startPhase:compact:-",
-      "startPhase:resume:-",
+      "startPhase:eval:-",
       "startPhase:probe:-",
       "setArm:1/1:tool-A1",
       "startPhase:score:-",

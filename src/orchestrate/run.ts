@@ -210,7 +210,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
     // --- Phase 2a: fork each base into N continuation attempts ---
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
-    widget?.startPhase("resume", NO_DETAIL);
+    widget?.startPhase("eval", NO_DETAIL);
     const contResult: Phase2Result = await continuations({
       cmdCtx: ctxAfterPhase1,
       armBases: bases,
