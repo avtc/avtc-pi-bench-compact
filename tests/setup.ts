@@ -16,6 +16,7 @@
  */
 
 import { afterAll, beforeEach } from "vitest";
+import { clearArmEnv } from "../src/arms/config.js";
 import { _setHandleForTest } from "../src/config/accessor.js";
 import { _setRegisterSettingsCommand } from "../src/config/schema.js";
 import { _setBaseLoggerForTest } from "../src/log.js";
@@ -42,6 +43,11 @@ const MEMORY_PROXIES_KEY = "__benchCompactMemoryProxies";
 beforeEach(() => {
   delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
   delete (globalThis as Record<string, unknown>)[MEMORY_PROXIES_KEY];
+  // configureArm (writeArmConfig) sets three managed env keys; under isolate:false
+  // they persist across test files (the same cross-file hazard the globalThis
+  // resets above address). Clear them centrally so no test inherits another's arm
+  // config — e.g. arms/config.test.ts (asserts these undefined) is now order-safe.
+  clearArmEnv();
 });
 
 // Reset the config/settings singletons at the FILE boundary — the isolate:false

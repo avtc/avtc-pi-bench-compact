@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearArmConfig, writeArmConfig } from "../../src/arms/config.js";
+import { clearArmConfig, clearArmEnv, writeArmConfig } from "../../src/arms/config.js";
 
 const OPTS = { omFullReflectionThresholdTokens: 4000 };
 
@@ -235,5 +235,40 @@ describe("arms/config — clearArmConfig teardown", () => {
     writeArmConfig("A2", repo, OPTS); // creates .pi/settings.json with only observational-memory
     clearArmConfig(repo);
     expect(existsSync(join(repo, ".pi", "settings.json"))).toBe(false);
+  });
+});
+
+describe("arms/config — clearArmEnv (env-only teardown, no repo)", () => {
+  let repo: string;
+  let env: EnvSnapshot;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-envclear-"));
+    env = snapshotEnv();
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+    restoreEnv(env);
+  });
+
+  it("deletes all three managed env keys without touching the settings file", () => {
+    writeArmConfig("A2", repo, OPTS);
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("1");
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBe("1");
+    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeDefined();
+    expect(readSettings(repo)["observational-memory"]).toBeDefined();
+
+    clearArmEnv();
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
+    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+    // env-only: the settings.json section is NOT cleared (that's clearArmConfig's job)
+    expect(readSettings(repo)["observational-memory"]).toBeDefined();
+  });
+
+  it("is a no-op when the env keys are already absent", () => {
+    clearArmEnv();
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
+    expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
+    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
   });
 });

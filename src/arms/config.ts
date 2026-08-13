@@ -103,6 +103,16 @@ export function clearArmConfig(repoCwd: string): void {
     else rmSync(join(repoCwd, ".pi", SETTINGS_FILE), { force: true });
   }
 
+  clearArmEnv();
+}
+
+/**
+ * Env-only teardown: delete the three managed arm-config env keys (no settings
+ * file, no repo needed). `clearArmConfig` writes the settings file too (needs a
+ * repo); this is the half tests use to reset the shared `process.env` between
+ * cases, and the half any caller without a repo can reach.
+ */
+export function clearArmEnv(): void {
   delete process.env[OM_ENABLED_ENV];
   delete process.env[OM_PASSIVE_ENV];
   delete process.env[MEMKEEPER_ENV];
