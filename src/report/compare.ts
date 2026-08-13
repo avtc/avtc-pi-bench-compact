@@ -10,7 +10,7 @@
 // Baseline resolution per cell (the first run is the reference run):
 //   1. the SAME arm in run0 (Δ run0·arm → run_i·arm — e.g. one tool version vs
 //      another); else
-//   2. run0's baseline arm when present + this cell's arm differs (CR-5: a prior
+//   2. run0's baseline arm when present + this cell's arm differs (a prior
 //      run's baseline serves as the floor so a dev re-running only the memory
 //      arms can reuse it); else
 //   3. no baseline → no Δ for that cell.
@@ -92,7 +92,7 @@ function resolveBaseline(cell: ComparisonCell, run0Cells: readonly ComparisonCel
   const sameArm = run0Cells.find((c) => c.arm === cell.arm);
   if (sameArm !== undefined) return sameArm; // Δ run0·arm → run_i·arm
   if (cell.arm !== "A1") {
-    const baseline = run0Cells.find((c) => c.arm === "A1"); // CR-5: prior baseline as floor
+    const baseline = run0Cells.find((c) => c.arm === "A1"); // prior baseline as floor
     if (baseline !== undefined) return baseline;
   }
   return undefined;
@@ -145,7 +145,7 @@ export function renderComparison(results: readonly BenchResultJson[], selections
 
   // --- Per-arm metric table ---
   lines.push(
-    "## Metric comparison   (Δ suffix per cell vs its baseline: run0 same-arm (tool-version diff), else run0 baseline arm (CR-5); + = better; net-negative flagged)",
+    "## Metric comparison   (Δ suffix per cell vs its baseline: run0 same-arm (tool-version diff), else run0 baseline arm; + = better; net-negative flagged)",
   );
   // Column headers: runId·arm + tool@version (arms labeled with their tool version).
   const header = `| Metric | ${cells.map((c) => `${c.runId}·${c.arm} ${c.tool}${c.version ? `@${c.version}` : ""}`).join(" | ")} |`;

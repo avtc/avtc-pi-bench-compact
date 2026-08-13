@@ -15,7 +15,7 @@
 //    value is the stage's structured output.
 
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { createBashTool, createCodingTools, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
+import { createBashTool, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -34,10 +34,6 @@ export function benchAuthoringTools(cwd: string): AgentTool[] {
 }
 
 /** Full coding tool set (read/grep/find/ls + bash/edit/write) bound to a cwd. */
-export function benchCodingTools(cwd: string): AgentTool[] {
-  return createCodingTools(cwd);
-}
-
 /** An `AgentTool` that also exposes the JSON objects it has validated + captured
  *  across `execute` calls. Callers (manifest authoring, judge) read `._captured`
  *  as the stage's structured terminal output. */

@@ -44,7 +44,7 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
 }
 
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
-import { buildAttemptBranch } from "../../src/storage/branches.js";
+import { appendAttempt, buildArmBaseBranch } from "../../src/storage/branches.js";
 import { branchSessionFile } from "../../src/storage/paths.js";
 
 const RESUME_MESSAGE = "Resume the Phase-C work — finish the remaining systems and run the tests.";
@@ -255,16 +255,18 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     expect(ops.checkout).toHaveBeenCalledTimes(3);
     expect(ops.loadSession).toHaveBeenCalledTimes(3);
     expect(ops.commit).toHaveBeenCalledTimes(3);
-    // attempt branches are buildAttemptBranch(base, attemptN)
+    // attempt branches are appendAttempt(buildArmBaseBranch(...), attemptN)
     for (let k = 1; k <= 3; k++) {
-      const attemptBranch = buildAttemptBranch({
-        date: "2026-08-11",
-        id: 1,
-        cfgId: "cfg-test1",
-        tool: "bare-pi",
-        ver: undefined,
-        attemptN: k,
-      });
+      const attemptBranch = appendAttempt(
+        buildArmBaseBranch({
+          date: "2026-08-11",
+          id: 1,
+          cfgId: "cfg-test1",
+          tool: "bare-pi",
+          ver: undefined,
+        }),
+        k,
+      );
       expect(ops.fork.mock.calls[k - 1]).toEqual([repo, base.branch, attemptBranch]);
       expect(ops.checkout.mock.calls[k - 1]).toEqual([repo, attemptBranch]);
       // each attempt's session file is seeded from its arm base's + loadSession/captureTrace receive it
@@ -546,14 +548,16 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     expect(traces[1]?.arm).toBe("A1");
     expect(traces[1]?.attempt).toBe(2);
     expect(traces[0]?.branch).toBe(
-      buildAttemptBranch({
-        date: "2026-08-11",
-        id: 1,
-        cfgId: "cfg-test1",
-        tool: "bare-pi",
-        ver: undefined,
-        attemptN: 1,
-      }),
+      appendAttempt(
+        buildArmBaseBranch({
+          date: "2026-08-11",
+          id: 1,
+          cfgId: "cfg-test1",
+          tool: "bare-pi",
+          ver: undefined,
+        }),
+        1,
+      ),
     );
   });
 });

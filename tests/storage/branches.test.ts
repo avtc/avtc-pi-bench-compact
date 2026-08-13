@@ -7,9 +7,7 @@ import {
   appendProbe,
   appendProbeAttempt,
   buildArmBaseBranch,
-  buildAttemptBranch,
   buildCfgId,
-  buildProbeBranch,
   type RunConfig,
   shortGitVersion,
   shortNpmVersion,
@@ -39,16 +37,6 @@ describe("branch naming (§3.14)", () => {
       "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-bare-pi",
     );
   });
-  it("buildAttemptBranch: arm-{tool}-{ver}-{attemptN}", () => {
-    expect(buildAttemptBranch({ ...common, tool: "om-default", ver: "g1a2b3c", attemptN: 5 })).toBe(
-      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c-5",
-    );
-  });
-  it("buildAttemptBranch for A1: arm-bare-pi-{attemptN} (no double dash)", () => {
-    expect(buildAttemptBranch({ ...common, tool: "bare-pi", ver: undefined, attemptN: 3 })).toBe(
-      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-bare-pi-3",
-    );
-  });
   it("appendAttempt: appends the -{attemptN} suffix to any base branch (single source)", () => {
     expect(appendAttempt("bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c", 7)).toBe(
       "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c-7",
@@ -62,16 +50,6 @@ describe("branch naming (§3.14)", () => {
   it("appendProbeAttempt: appends the -probe-{probeId}-{attemptN} suffix (probes fork N× per arm)", () => {
     expect(appendProbeAttempt("bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c", "p2", 3)).toBe(
       "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c-probe-p2-3",
-    );
-  });
-  it("buildProbeBranch: arm-{tool}-{ver}-probe-{probeId}", () => {
-    expect(buildProbeBranch({ ...common, tool: "memkeeper-selector", ver: "npm1.2.3", probeId: "p2" })).toBe(
-      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-memkeeper-selector-npm1.2.3-probe-p2",
-    );
-  });
-  it("buildProbeBranch for A1: arm-bare-pi-probe-{probeId}", () => {
-    expect(buildProbeBranch({ ...common, tool: "bare-pi", ver: undefined, probeId: "p1" })).toBe(
-      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-bare-pi-probe-p1",
     );
   });
 });

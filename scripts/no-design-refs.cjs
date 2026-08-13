@@ -13,8 +13,9 @@
  *     which is a convention doc that legitimately quotes the forbidden patterns)
  *
  * Refs flagged: design-doc sections (§N, §2B.2), decisions (D27, D27 line 849),
- * requirements (R2-8, R2.1), acceptance criteria (AC6b), tasks (Task 2, Task 2.1), phases
- * (P2-1), WN2, "Section N", "Design ref…", and commit-hash refs (commit deadbeef).
+ * requirements (R2-8, R2.1), acceptance criteria (AC6b), tasks (Task 2, Task 2.1, Task 16a),
+ * change-request refs (CR-3, CR-N), phases (P2-1), WN2, "Section N", "Design ref…",
+ * and commit-hash refs (commit deadbeef).
  *
  * NOT flagged (the legitimate home for these refs): design docs and `.featyard/`
  * artifact docs (plans, research, reviews) — excluded by path. Skill/agent
@@ -54,11 +55,13 @@ const TOKEN_RES = [
   // architectural-decision refs (AD1-AD16+): the `\bD\d` pattern above misses
   // these because A→D has no word boundary.
   /\bAD\d{1,2}\b/g,
+  // change-request refs (CR-3, CR-N) from the design phase.
+  /\bCR-\d+\b/g,
   /\bR\d{1,2}-\d{1,3}\b/g,
   // review/gate finding refs in DOT form (R2.1) — the hyphen pattern above misses these.
   /\bR\d{1,2}\.\d{1,3}\b/g,
   /\bAC\d+\w?\b/g,
-  /\bTask \d+(?:\.\d+)?\b/g,
+  /\bTask \d+(?:\.\d+)?[a-z]?\b/g,
   /\bWN\d+\b/g,
   /\bP\d-\d\b/g,
   /\bSection \d+\b/g,

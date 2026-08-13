@@ -3,7 +3,7 @@
 
 // The prepare-scenario orchestrator: build OR extract a pre-compaction
 // backup, author + validate the manifest, then freeze. Reusable by the
-// `/bench-compact:prepare-scenario` command (Task 10h) AND the `run <idea>`
+// `/bench-compact:prepare-scenario` command AND the `run <idea>`
 // Phase-0 entry point.
 //
 // - build mode (`scenario` given): `buildBackup` drives the simulator + returns the
@@ -86,7 +86,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: st
       cwd: deps.extractCwd,
     });
     backupPath = extracted.backupPath;
-    // CR-4: copy the coherent codebase (sourceCwd) into the repo so its files are
+    // Copy the coherent codebase (sourceCwd) into the repo so its files are
     // committed to main (the agent resumes work on them in the repo cwd).
     const copyFn = deps.copyProjectFiles ?? copyProjectTree;
     copyFn(extracted.sourceCwd, deps.repoPath);

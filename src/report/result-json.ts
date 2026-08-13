@@ -116,7 +116,7 @@ export interface BenchResultJson {
   readonly artifacts: ResultArtifacts;
 }
 
-/** Inputs to {@link serializeResultJson} / {@link writeResultJson}. */
+/** Inputs to {@link serializeResultJson}. */
 export interface WriteResultJsonDeps {
   readonly runId: string;
   readonly cfgId: string;
@@ -246,17 +246,4 @@ export function extractJsonScalars(
     else if ("mean" in m) scalars[metricId] = m.mean; // footprint / run-cost
   }
   return scalars;
-}
-
-/**
- * Serialize + write the result-JSON to `<root>/runs/<runId>/results.json`. Creates
- * the run dir if absent. Returns the written path.
- */
-export function writeResultJson(deps: WriteResultJsonDeps): string {
-  const json = serializeResultJson(deps);
-  const dir = runDir(deps.root, deps.runId);
-  mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, "results.json");
-  writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`, "utf8");
-  return file;
 }

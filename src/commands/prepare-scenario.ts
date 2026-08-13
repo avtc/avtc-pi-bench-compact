@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // The `/bench-compact:prepare-scenario` command. Thin wrapper: parse args,
-// preflight, compute the scenario id + paths, then call `prepareScenario` (Task 10g).
+// preflight, compute the scenario id + paths, then call `prepareScenario`.
 // All orchestration lives in prepare.ts for reuse by the `run <idea>` Phase-0 entry point.
 //
 // The live seam construction (driveAndCapture via SimulatorDriver, trialCompact via

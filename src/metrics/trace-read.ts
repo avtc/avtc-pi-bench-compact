@@ -1,46 +1,15 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Metrics-layer re-read of a scenario repo's session transcript.
-//
-// The live orchestration path consumes the already-captured RunTrace
-// (orchestrate/trace.ts); this module is the re-computation / reporting reader
-// that turns the raw `session.jsonl` back into entries + isolated compaction
-// entries. It reuses the SINGLE parse path (`readSessionEntries`) so the
-// metrics layer never duplicates the parse predicate or header filter.
-//
-// `sumAssistantOutput` + `phaseOneCompactionIndex` are the shared post-
-// compaction primitives for the run-cost and recall-cost metrics: per-entry
-// generated tokens live on each assistant message's `usage.output` (user
-// messages carry none; tool-result usage is explicitly not part of main context
-// accounting), and the post-compaction range is the entries AFTER the first
-// (boundary) compaction — the continuation-generated work.
+// Shared post-compaction primitives for the run-cost + recall-cost metrics. The live
+// orchestration path consumes the already-captured RunTrace (orchestrate/trace.ts);
+// the helpers here operate on its entry list: per-entry generated tokens live on each
+// assistant message's `usage.output` (user messages carry none; tool-result usage is
+// explicitly not part of main context accounting), and the post-compaction range is
+// the entries AFTER the first (boundary) compaction — the continuation-generated work.
 
-import { join } from "node:path";
-import type { CompactionEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { readSessionEntries } from "../orchestrate/trace.js";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { messageEndUsage } from "../runtime/streaming-tokens.js";
-
-/** The session-transcript filename read by the legacy reporting helper below. */
-const SESSION_FILE = "session.jsonl";
-
-/** Result of re-reading a repo's transcript: all entries + the compactions isolated. */
-export interface TraceRead {
-  readonly entries: SessionEntry[];
-  readonly compactionEntries: CompactionEntry[];
-}
-
-/**
- * Re-read a scenario repo's `session.jsonl` into real session entries + the
- * compaction entries isolated. Thin wrapper over `readSessionEntries` (the shared
- * parse path) — a reporting helper for the legacy repo layout (the live path now
- * reads per-branch session files from the sessions store via `captureTrace`).
- */
-export function readTraceFromRepo(repo: string): TraceRead {
-  const entries = readSessionEntries(join(repo, SESSION_FILE));
-  const compactionEntries = entries.filter((entry): entry is CompactionEntry => entry.type === "compaction");
-  return { entries, compactionEntries };
-}
 
 /**
  * Index of the first (boundary) compaction entry in file order — the initial

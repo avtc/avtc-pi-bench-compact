@@ -12,7 +12,6 @@ import {
   branchExists,
   checkout,
   commitAll,
-  diffFile,
   diffNameOnly,
   forkBranch,
   initScenarioRepo,
@@ -94,18 +93,6 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     commitAll(repo, "attempt 1");
 
     expect(diffNameOnly(repo, "main", "bench-compact/run-d-1/cfg-x/arm-memkeeper-builder-g1-1")).toEqual(["game.ts"]);
-  });
-
-  it("diffFile returns the diff text for a single file", () => {
-    initScenarioRepo(repo);
-    const branch = "bench-compact/run-d-1/cfg-x/arm-bare-pi-2";
-    forkBranch(repo, "main", branch);
-    checkout(repo, branch);
-    writeFileSync(path.join(repo, "session.jsonl"), '{"type":"session","cwd":"/x"}\n{"type":"message"}\n');
-    commitAll(repo, "attempt 2");
-
-    const diff = diffFile(repo, "main", branch, "session.jsonl");
-    expect(diff).toContain('+{"type":"message"}');
   });
 
   it("diffNameOnly is empty when branches are identical", () => {

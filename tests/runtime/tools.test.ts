@@ -3,12 +3,7 @@
 
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import {
-  benchAuthoringTools,
-  benchCodingTools,
-  benchReadOnlyTools,
-  makeJsonOutputTool,
-} from "../../src/runtime/tools.js";
+import { benchAuthoringTools, benchReadOnlyTools, makeJsonOutputTool } from "../../src/runtime/tools.js";
 
 const TMP = import.meta.dirname ?? ".";
 
@@ -30,15 +25,6 @@ describe("benchAuthoringTools", () => {
     // the authoring agent must NOT get edit/write (it only reads + writes the manifest)
     expect(names).not.toContain("edit");
     expect(names).not.toContain("write");
-  });
-});
-
-describe("benchCodingTools", () => {
-  it("returns pi's coding tool set (bash/edit/read/write) for the given cwd", () => {
-    // pi partitions tools: createCodingTools = {bash,edit,read,write}; createReadOnlyTools
-    // = {find,grep,ls,read}. A stage needing both sets combines them at its call site.
-    const names = benchCodingTools(TMP).map((t) => t.name);
-    expect(names).toEqual(expect.arrayContaining(["bash", "edit", "read", "write"]));
   });
 });
 

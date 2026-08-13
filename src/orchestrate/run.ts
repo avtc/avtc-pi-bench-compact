@@ -345,10 +345,10 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
 
 /**
  * Build the Phase-3 {@link ScoreRunInput}: one {@link ArmAttemptRun} per (arm,
- * attempt) continuation, with the arm's direct-probe answers attached to the FIRST
- * attempt (probes are arm-level — forked once from the base, independent of the N
- * attempts; attaching them to one attempt grades them exactly once per arm, not N×),
- * and the embedded-testSpec result on each attempt's branch. Pure (no I/O).
+ * attempt) continuation, with that attempt's direct-probe answers attached (probes fork
+ * N× per arm — one probe-set per attempt 1..N — so each attempt's probes attach to it
+ * and the recall-accuracy/abstention/supersession probe axes rate over N), and the embedded-testSpec result on each attempt's branch.
+ * Pure (no I/O).
  */
 function buildScoreRunInput(
   bases: readonly ArmBase[],

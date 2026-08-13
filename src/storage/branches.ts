@@ -72,11 +72,6 @@ export function appendAttempt(baseBranch: string, attemptN: number): string {
   return `${baseBranch}-${attemptN}`;
 }
 
-/** Phase-2 continuation branch (attemptN = 1..N), branched from the arm base. */
-export function buildAttemptBranch(b: BranchBase & { attemptN: number }): string {
-  return appendAttempt(buildArmBaseBranch(b), b.attemptN);
-}
-
 /** Append the `-probe-{probeId}` suffix to an arm-base branch. Single source for the format. */
 export function appendProbe(baseBranch: string, probeId: string): string {
   return `${baseBranch}-probe-${probeId}`;
@@ -87,11 +82,6 @@ export function appendProbe(baseBranch: string, probeId: string): string {
  *  agent-response variance (rate over N); the attempt suffix disambiguates the N forks. */
 export function appendProbeAttempt(baseBranch: string, probeId: string, attemptN: number): string {
   return `${appendProbe(baseBranch, probeId)}-${attemptN}`;
-}
-
-/** Direct-probe branch, branched from the arm base. */
-export function buildProbeBranch(b: BranchBase & { probeId: string }): string {
-  return appendProbe(buildArmBaseBranch(b), b.probeId);
 }
 
 // --- cfgId (run-condition fingerprint) -------------------------------------

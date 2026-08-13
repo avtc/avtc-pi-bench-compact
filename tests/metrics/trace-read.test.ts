@@ -1,17 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  phaseOneCompactionIndex,
-  postCompactionEntries,
-  readTraceFromRepo,
-  sumAssistantOutput,
-} from "../../src/metrics/trace-read.js";
+import { describe, expect, it } from "vitest";
+import { phaseOneCompactionIndex, postCompactionEntries, sumAssistantOutput } from "../../src/metrics/trace-read.js";
 
 type Usage = {
   input: number;
@@ -72,47 +64,6 @@ function compactionEntry(id: string, parentId: string | null, summary: string): 
     usage: makeUsage(50),
   } as unknown as SessionEntry;
 }
-
-function writeJsonl(repo: string, entries: object[]): void {
-  const header = { type: "session", version: 3, id: "s1", timestamp: "2026-08-11T00:00:00.000Z", cwd: repo };
-  const lines = [header, ...entries].map((e) => JSON.stringify(e)).join("\n");
-  writeFileSync(join(repo, "session.jsonl"), lines, "utf8");
-}
-
-describe("readTraceFromRepo", () => {
-  let repo: string;
-  beforeEach(() => {
-    repo = mkdtempSync(join(tmpdir(), "bench-trace-read-"));
-  });
-  afterEach(() => {
-    rmSync(repo, { recursive: true, force: true });
-  });
-
-  it("parses the repo session.jsonl into real entries + isolated compaction entries", () => {
-    writeJsonl(repo, [
-      userEntry("u0", null, "start"),
-      compactionEntry("c1", "u0", "the boundary summary"),
-      assistantEntry("a1", "c1", "continued", 120),
-      userEntry("u1", "a1", "again"),
-      assistantEntry("a2", "u1", "more", 80),
-    ]);
-
-    const { entries, compactionEntries } = readTraceFromRepo(repo);
-
-    // The session header is filtered; every real session entry is returned in file order.
-    expect(entries.map((e) => e.id)).toEqual(["u0", "c1", "a1", "u1", "a2"]);
-    // Compaction entries are isolated from the full entry list.
-    expect(compactionEntries.map((e) => e.id)).toEqual(["c1"]);
-    expect(compactionEntries[0]?.summary).toBe("the boundary summary");
-  });
-
-  it("returns an empty compaction list when the branch never compacted", () => {
-    writeJsonl(repo, [userEntry("u0", null, "hi"), assistantEntry("a1", "u0", "hey", 10)]);
-    const { entries, compactionEntries } = readTraceFromRepo(repo);
-    expect(entries.map((e) => e.id)).toEqual(["u0", "a1"]);
-    expect(compactionEntries).toEqual([]);
-  });
-});
 
 describe("phaseOneCompactionIndex", () => {
   it("is the index of the first (boundary) compaction entry", () => {

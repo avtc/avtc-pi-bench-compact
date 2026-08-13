@@ -4,14 +4,14 @@
 // Extract a pre-compaction backup from a REAL session (extract mode). The
 // session must be UN-compacted (no CompactionEntry) and coherent with the current
 // working directory (header.cwd === cwd — the codebase on disk IS the project
-// files, CR-4). Memory-extension custom entries (memkeeper.* / om.*) are stripped
+// files). Memory-extension custom entries (memkeeper.* / om.*) are stripped
 // so the bench re-runs compaction fresh with its own memory arm; renderable raw
 // types (message/text/thinking/custom_message/branch_summary + non-memory customs)
 // are kept.
 //
-// The header `cwd` is NOT rewritten here — freeze (Task 10c) owns that for BOTH
-// modes (CR-3: SessionManager.open reads header.cwd; ctx.switchSession has no
-// cwdOverride). This keeps the rewrite in one place (DRY).
+// The header `cwd` is NOT rewritten here — freeze owns that for BOTH
+// modes (`SessionManager.open` reads `header.cwd`; `ctx.switchSession` has no
+// `cwdOverride`). This keeps the rewrite in one place (DRY).
 
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -58,7 +58,7 @@ export interface ExtractResult {
  * Extract a clean pre-compaction backup from a real session.
  *
  * @throws {ExtractError} when the session has a CompactionEntry (not pre-compacted)
- *   or header.cwd !== cwd (codebase not present — CR-4 cwd-coherence).
+ *   or header.cwd !== cwd (codebase not present — cwd-coherence).
  */
 export function extractBackup(opts: ExtractOptions): ExtractResult {
   const cwd = opts.cwd ?? process.cwd();
@@ -76,7 +76,7 @@ export function extractBackup(opts: ExtractOptions): ExtractResult {
     );
   }
 
-  // Guard 2: cwd-coherence (CR-4). The header is the first entry (type:"session");
+  // Guard 2: cwd-coherence. The header is the first entry (type:"session");
   // its cwd must match the working dir so the codebase on disk is the project files.
   const header = entries.find((e) => e.type === "session");
   if (!header || header.cwd !== cwd) {

@@ -4,9 +4,9 @@
 // The `/bench-compact:results <runId>[:arms] [<runId2>[:arms2] …]` command.
 // Parses the run refs (commands/parse.ts), loads each run's result-JSON, and
 // dispatches: a SINGLE run → the headline report; MULTIPLE runs → the cross-run
-// comparison (with the CR-5 prior-baseline path). An optional `:arms` suffix
+// comparison (with the prior-baseline path). An optional `:arms` suffix
 // filters a single run's report to the selected arms (deselecting the baseline
-// arm → its delta omitted, per CR-5). The orchestrator is PURE + injectable
+// arm → its delta omitted). The orchestrator is PURE + injectable
 // (loadResultJson seam); the command registration wires the real file-reading
 // loader + writes the rendered report under the run dir, then notifies the path.
 
@@ -77,7 +77,7 @@ export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOut
 /**
  * Filter a single run's result-JSON to an arm subset (undefined = all). Filters
  * `arms` + `ranks.order` so the headline report shows only the selected arms;
- * deselecting the baseline arm makes its delta absent (CR-5 — the report derives
+ * deselecting the baseline arm makes its delta absent (the report derives
  * it from presence).
  */
 function filterResultArms(result: BenchResultJson, arms: readonly ArmId[] | undefined): BenchResultJson {

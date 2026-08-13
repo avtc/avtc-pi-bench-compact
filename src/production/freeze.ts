@@ -5,7 +5,7 @@
 // backup `session.jsonl` to the per-branch sessions store (OUTSIDE the repo), + write the manifest
 // OUTSIDE the repo (contamination rule — the agent must never see the manifest or the session).
 // The frozen backup's header `cwd` is rewritten to the repo path for BOTH modes (build + extract)
-// so every arm's `loadSession` lands the agent in the repo cwd (CR-3: `SessionManager.open` reads
+// so every arm's `loadSession` lands the agent in the repo cwd (`SessionManager.open` reads
 // `header.cwd`; `ctx.switchSession` has no `cwdOverride`).
 //
 // `main` is immutable: re-prepare is refused without `--force` (which resets main + re-commits the
@@ -39,7 +39,7 @@ export interface FreezeOptions {
   readonly force?: boolean;
 }
 
-/** Rewrite the backup's session header `cwd` to `repoPath` (CR-3). */
+/** Rewrite the backup's session header `cwd` to `repoPath`. */
 function rewriteHeaderCwd(backupJson: string, repoPath: string): string {
   const lines = backupJson.split("\n").filter((l) => l.trim().length > 0);
   const rewritten = lines.map((line) => {
@@ -63,7 +63,7 @@ function rewriteHeaderCwd(backupJson: string, repoPath: string): string {
 export function freezeScenario(opts: FreezeOptions): { repoPath: string; manifestPath: string } {
   // Contamination guard FIRST — never let bench ground truth land in the repo.
   assertNotInRepo(opts.manifestPath, opts.repoPath);
-  // R2-1: the backup is the FULL pre-compaction session (fullest ground truth). If it
+  // The backup is the FULL pre-compaction session (fullest ground truth). If it
   // lives inside the repo, `git add -A` commits it + the agent could `git show main:` it.
   assertNotInRepo(opts.backupPath, opts.repoPath);
   // The sessions store is a sibling of the repo (agent-invisible) — guard against a

@@ -6,7 +6,7 @@
 // metric, negative = worse (net-negative). Deltas are CONDITIONAL on the baseline
 // arm being present: if it is disabled (or didn't produce a metric, or the arm's
 // value is null/NaN), the delta is null — the report then omits the delta /
-// net-negative for that metric (CR-5 conditional attribution). All functions PURE.
+// net-negative for that metric (conditional attribution). All functions PURE.
 //
 // The comparable SCALAR per metric: binary → rate; exact footprint/run-cost → mean;
 // recall-cost → mean

@@ -71,7 +71,7 @@ export interface TestSpecDeps {
   readonly ops?: Partial<TestSpecOps>;
 }
 
-/** The discriminated testSpec result consumed by the done-snapshot (Task 16a). */
+/** The discriminated testSpec result consumed by the done-snapshot. */
 export type TestSpecResult =
   | { readonly kind: "skipped" }
   | { readonly kind: "ran"; readonly pass: boolean; readonly output: string; readonly runError: boolean };

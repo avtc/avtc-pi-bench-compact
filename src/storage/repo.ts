@@ -81,11 +81,6 @@ export function diffNameOnly(repo: string, a: string, b: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** The raw diff text for a single `file` between two branches (`git diff a b -- file`). */
-export function diffFile(repo: string, a: string, b: string, file: string): string {
-  return runGit(repo, ["diff", a, b, "--", file]);
-}
-
 /** True when `branch` exists in `repo` (has been committed at least once). Used by freeze
  *  to enforce main immutability — re-prepare is refused without `--force`. */
 export function branchExists(repo: string, branch: string): boolean {

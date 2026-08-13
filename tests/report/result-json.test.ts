@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  type BenchResultJson,
-  type BinaryMetricJson,
   RESULT_SCHEMA,
   serializeResultJson,
-  writeResultJson,
 } from "../../src/report/result-json.js";
 import type { AggregateResult } from "../../src/stats/aggregate.js";
 import type { RunConfig, ToolVersion } from "../../src/storage/branches.js";
@@ -224,21 +219,5 @@ describe("serializeResultJson", () => {
     const json = serializeResultJson({ ...baseDeps, root: "/tmp/bench-compact" });
     expect(json.artifacts.results).toBe(path.join("/tmp/bench-compact", "runs", baseDeps.runId, "results.json"));
     // the caller-provided artifacts.results (if any) is overwritten by the derived path.
-  });
-});
-
-describe("writeResultJson", () => {
-  it("writes results.json under <root>/runs/<runId>/ + round-trips read-back", () => {
-    const root = mkdtempSync(path.join(tmpdir(), "bench-result-"));
-    try {
-      const file = writeResultJson({ ...baseDeps, root });
-      expect(file).toBe(path.join(root, "runs", baseDeps.runId, "results.json"));
-      const readBack = JSON.parse(readFileSync(file, "utf8")) as BenchResultJson;
-      expect(readBack.schema).toBe(RESULT_SCHEMA);
-      expect((readBack.arms.A1?.metrics.E2 as BinaryMetricJson | undefined)?.rate).toBe(0.72);
-      expect(readBack.ranks.E1?.order).toEqual(["A3", "A1"]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
   });
 });
