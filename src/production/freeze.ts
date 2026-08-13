@@ -1,28 +1,34 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Freeze a prepared scenario: commit the backup `session.jsonl` + project files to
-// the scenario repo's `main`, + write the manifest OUTSIDE the repo (contamination
-// rule — the agent must never see the manifest). The frozen backup's header `cwd`
-// is rewritten to the repo path for BOTH modes (build + extract) so every arm's
-// `loadSession` lands the agent in the repo cwd (CR-3: `SessionManager.open` reads
+// Freeze a prepared scenario: commit the project files to the scenario repo's `main`, write the
+// backup `session.jsonl` to the per-branch sessions store (OUTSIDE the repo), + write the manifest
+// OUTSIDE the repo (contamination rule — the agent must never see the manifest or the session).
+// The frozen backup's header `cwd` is rewritten to the repo path for BOTH modes (build + extract)
+// so every arm's `loadSession` lands the agent in the repo cwd (CR-3: `SessionManager.open` reads
 // `header.cwd`; `ctx.switchSession` has no `cwdOverride`).
 //
-// `main` is immutable: re-prepare is refused without `--force` (which resets main +
-// re-commits the new working tree).
+// `main` is immutable: re-prepare is refused without `--force` (which resets main + re-commits the
+// new working tree). The session transcript lives at `branchSessionFile(sessionsDir, "main")` —
+// pi appends to it mid-run, so keeping it OUT of the repo avoids a dirty git tree + agent peeking.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ScenarioManifest } from "../manifest/schema.js";
-import { assertNotInRepo } from "../storage/paths.js";
+import { assertNotInRepo, branchSessionFile } from "../storage/paths.js";
 import { branchExists, initScenarioRepo, resetBranch } from "../storage/repo.js";
 
-const SESSION_JSONL = "session.jsonl";
+/** The branch name frozen as the shared pre-compaction backup (every arm forks from it). */
+const MAIN_BRANCH = "main";
 
 /** Input to {@link freezeScenario}. */
 export interface FreezeOptions {
-  /** The scenario repo path (its working tree holds the project files; session.jsonl is written here). */
+  /** The scenario repo path (its working tree holds ONLY project files — the session transcript
+   *  is written to {@link FreezeOptions.sessionsDir}, not the repo). */
   readonly repoPath: string;
+  /** The per-branch session-transcript store (sibling of the repo; agent-invisible). The frozen
+   *  backup is written to `branchSessionFile(sessionsDir, "main")`. */
+  readonly sessionsDir: string;
   /** The captured pre-compaction backup JSONL (header cwd rewritten → repoPath). */
   readonly backupPath: string;
   /** The authored + validated manifest (written outside the repo). */
@@ -59,15 +65,21 @@ export function freezeScenario(opts: FreezeOptions): { repoPath: string; manifes
   // R2-1: the backup is the FULL pre-compaction session (fullest ground truth). If it
   // lives inside the repo, `git add -A` commits it + the agent could `git show main:` it.
   assertNotInRepo(opts.backupPath, opts.repoPath);
+  // The sessions store is a sibling of the repo (agent-invisible) — guard against a
+  // misconfigured sessionsDir that lands inside the repo (the transcript is peekable).
+  assertNotInRepo(opts.sessionsDir, opts.repoPath);
 
-  const mainExists = branchExists(opts.repoPath, "main");
+  const mainExists = branchExists(opts.repoPath, MAIN_BRANCH);
   if (mainExists && !opts.force) {
     throw new Error(`scenario repo "${opts.repoPath}" already has a main commit — re-prepare requires --force`);
   }
 
-  // Rewrite the frozen backup's header cwd → repoPath, write session.jsonl into the repo.
+  // Rewrite the frozen backup's header cwd → repoPath, write it to main's session file in
+  // the sessions store (OUTSIDE the repo — pi appends to it mid-run, so keeping it out of the
+  // repo avoids a dirty git tree + the agent peeking at its own transcript).
   const backupJson = readFileSync(opts.backupPath, "utf8");
-  writeFileSync(`${opts.repoPath}/${SESSION_JSONL}`, rewriteHeaderCwd(backupJson, opts.repoPath));
+  mkdirSync(opts.sessionsDir, { recursive: true });
+  writeFileSync(branchSessionFile(opts.sessionsDir, MAIN_BRANCH), rewriteHeaderCwd(backupJson, opts.repoPath));
 
   // Write the manifest OUTSIDE the repo.
   mkdirSync(dirname(opts.manifestPath), { recursive: true });
@@ -75,9 +87,9 @@ export function freezeScenario(opts: FreezeOptions): { repoPath: string; manifes
 
   // --force re-prepare: reset main so initScenarioRepo re-commits the new tree fresh.
   if (mainExists && opts.force) {
-    resetBranch(opts.repoPath, "main");
+    resetBranch(opts.repoPath, MAIN_BRANCH);
   }
 
-  initScenarioRepo(opts.repoPath, { message: "prepare scenario: backup + project files" });
+  initScenarioRepo(opts.repoPath, { message: "prepare scenario: project files" });
   return { repoPath: opts.repoPath, manifestPath: opts.manifestPath };
 }

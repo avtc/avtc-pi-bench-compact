@@ -74,6 +74,37 @@ export function clearRunState(): void {
   writeGlobal(CLEARED);
 }
 
+// --- cooperative-abort holder ------------------------------------------------
+// The active run's AbortController, stashed on globalThis so `/bench-compact:abort`
+// (a separate command invocation) can fire it. The run's phases thread the controller's
+// signal into `awaitSettled({ signal })`, so firing it short-circuits the live loops.
+// Kept on a SEPARATE global key from BenchRunState (which is pure data).
+const ABORT_KEY = "__benchCompactRunAbort";
+
+function readAbort(): AbortController | null {
+  return ((globalThis as Record<string, unknown>)[ABORT_KEY] as AbortController | null) ?? null;
+}
+
+/** Register the active run's abort controller (null to clear). */
+export function setActiveRunAbort(controller: AbortController | null): void {
+  const g = globalThis as Record<string, unknown>;
+  if (controller === null) delete g[ABORT_KEY];
+  else g[ABORT_KEY] = controller;
+}
+
+/** Named null for {@link setActiveRunAbort} — clearing the active run abort holder. */
+export const NO_RUN_ABORT: null = null;
+
+/** Fire the active run's abort controller + clear the holder.
+ *  Returns true if a run was active (controller fired), false if no run to abort. */
+export function abortActiveRun(): boolean {
+  const controller = readAbort();
+  if (controller === null) return false;
+  controller.abort();
+  setActiveRunAbort(NO_RUN_ABORT);
+  return true;
+}
+
 /** A one-line status for `/bench-compact:status` + the widget. */
 export function statusString(): string {
   const s = readGlobal();

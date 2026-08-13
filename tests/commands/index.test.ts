@@ -6,6 +6,7 @@ import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerBenchCommands } from "../../src/commands/index.js";
 import { _setHandleForTest } from "../../src/config/accessor.js";
+import { setActiveRunAbort } from "../../src/orchestrate/run-state.js";
 
 interface Captured {
   description?: string;
@@ -63,7 +64,10 @@ const ALL_COMMANDS = [
 
 describe("registerBenchCommands", () => {
   beforeEach(() => _setHandleForTest(fakeHandle({})));
-  afterEach(() => _setHandleForTest(null));
+  afterEach(() => {
+    _setHandleForTest(null);
+    setActiveRunAbort(null);
+  });
 
   it("registers every §3.13 command (except settings, wired separately)", () => {
     const { pi, commands } = fakePi();
@@ -108,6 +112,25 @@ describe("registerBenchCommands", () => {
     const { ctx } = fakeCtx();
     await handlerOf(commands, "bench-compact:pause")("", ctx);
     expect(sent).toContainEqual({ text: "wait, stop", deliverAs: "steer" });
+  });
+
+  it("abort fires the active run's cooperative-abort signal (R0-1)", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    const controller = new AbortController();
+    setActiveRunAbort(controller);
+    const { ctx, notifies } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx);
+    expect(controller.signal.aborted).toBe(true);
+    expect(notifies.some((n) => /run stopping/i.test(n.msg))).toBe(true);
+  });
+
+  it("abort with no active run notifies 'no active run' without throwing (R0-1)", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    const { ctx, notifies } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx);
+    expect(notifies.some((n) => /no active run/i.test(n.msg))).toBe(true);
   });
 
   it("abort is a real minimal handler that notifies without throwing (R1-1)", async () => {

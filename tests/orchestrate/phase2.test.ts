@@ -45,6 +45,7 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
 
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { buildAttemptBranch } from "../../src/storage/branches.js";
+import { branchSessionFile } from "../../src/storage/paths.js";
 
 const RESUME_MESSAGE = "Resume the Phase-C work — finish the remaining systems and run the tests.";
 
@@ -88,6 +89,7 @@ interface FakeOps {
   checkout: ReturnType<typeof vi.fn>;
   branchExists: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
+  copySeed: ReturnType<typeof vi.fn>;
   awaitSettled: ReturnType<typeof vi.fn>;
   makeMonitor: ReturnType<typeof vi.fn>;
   makeSimulator: ReturnType<typeof vi.fn>;
@@ -132,6 +134,7 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
     checkout: vi.fn(),
     branchExists: vi.fn(() => false),
     commit: vi.fn(),
+    copySeed: vi.fn(),
     awaitSettled: vi.fn(async () => {}),
     makeMonitor: vi.fn((pi: ExtensionAPI, ctx: ExtensionCommandContext) => {
       monitorArgs.push({ pi, ctx });
@@ -161,9 +164,9 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
         },
       };
     }),
-    captureTrace: vi.fn((repo: string, branch: string, wallMs: Map<string, number>): RunTrace => {
+    captureTrace: vi.fn((sessionPath: string, branch: string, wallMs: Map<string, number>): RunTrace => {
       traceWallMsMaps.push(wallMs);
-      return { branch, entries: [], compactions: [], tracePath: join(repo, "session.jsonl") };
+      return { branch, entries: [], compactions: [], tracePath: sessionPath };
     }),
     freshPis,
     freshCtxs,
@@ -242,6 +245,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(3),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 3,
       ops: ops as unknown as Phase2Ops,
     });
@@ -263,6 +267,13 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       });
       expect(ops.fork.mock.calls[k - 1]).toEqual([repo, base.branch, attemptBranch]);
       expect(ops.checkout.mock.calls[k - 1]).toEqual([repo, attemptBranch]);
+      // each attempt's session file is seeded from its arm base's + loadSession/captureTrace receive it
+      expect(ops.copySeed.mock.calls[k - 1]).toEqual([
+        branchSessionFile(join(repo, "sessions"), base.branch),
+        branchSessionFile(join(repo, "sessions"), attemptBranch),
+      ]);
+      expect(ops.loadSession.mock.calls[k - 1]?.[1]).toBe(branchSessionFile(join(repo, "sessions"), attemptBranch));
+      expect(ops.captureTrace.mock.calls[k - 1]?.[0]).toBe(branchSessionFile(join(repo, "sessions"), attemptBranch));
       expect(ops.commit.mock.calls[k - 1]?.[0]).toBe(repo);
     }
   });
@@ -277,6 +288,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(3),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 3,
       widget,
       ops: ops as unknown as Phase2Ops,
@@ -303,6 +315,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(2),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 2,
       ops: ops as unknown as Phase2Ops,
     });
@@ -323,6 +336,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(3),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 3,
       ops: ops as unknown as Phase2Ops,
     });
@@ -343,6 +357,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(2),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 2,
       ops: ops as unknown as Phase2Ops,
     });
@@ -371,6 +386,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(1),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 1,
       ops: ops as unknown as Phase2Ops,
     });
@@ -388,6 +404,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(1),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 1,
       ops: ops as unknown as Phase2Ops,
     });
@@ -412,6 +429,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(2),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 2,
       ops: ops as unknown as Phase2Ops,
     });
@@ -436,6 +454,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(1),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 1,
       ops: ops as unknown as Phase2Ops,
     });
@@ -460,6 +479,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(1),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 1,
       ops: ops as unknown as Phase2Ops,
     });
@@ -493,6 +513,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(1),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 1,
       ops: ops as unknown as Phase2Ops,
     });
@@ -515,6 +536,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       config: makeConfig(2),
       manifest: MANIFEST,
       repo,
+      sessionsDir: join(repo, "sessions"),
       N: 2,
       ops: ops as unknown as Phase2Ops,
     });
@@ -561,6 +583,7 @@ describe("runContinuations — stop-and-surface (run failure / hang)", () => {
         config: makeConfig(1),
         manifest: MANIFEST,
         repo,
+        sessionsDir: join(repo, "sessions"),
         N: 1,
         ops: ops as unknown as Phase2Ops,
       }),
@@ -578,6 +601,7 @@ describe("runContinuations — stop-and-surface (run failure / hang)", () => {
         config: makeConfig(1),
         manifest: MANIFEST,
         repo,
+        sessionsDir: join(repo, "sessions"),
         N: 1,
         ops: ops as unknown as Phase2Ops,
       }),

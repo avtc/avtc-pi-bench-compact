@@ -3,8 +3,8 @@
 
 // Branch-name formatters + the run-config fingerprint (cfgId) for the scenario git layout.
 //
-// Branch model (every branch holds session.jsonl + project files at the same paths → git diff is
-// like-for-like):
+// Branch model (every branch holds the project files at the same paths → git diff is
+// like-for-like; the session transcript lives outside the repo, in the per-branch sessions store):
 //   bench-compact/run-{date}-{id}/{cfgId}/arm-{tool}[-{ver}][-{attemptN}|-probe-{probeId}]
 // where {ver} is OMITTED for the bare-pi arm (no memory tool → no version). {cfgId} = cfg-<6hex> is the
 // complete run-condition fingerprint (any model / thinking-level / N / arm-tool-version difference

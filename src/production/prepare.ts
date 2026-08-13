@@ -34,6 +34,9 @@ export interface PrepareDeps {
   readonly extractCwd?: string;
   readonly compactionBoundary: number;
   readonly repoPath: string;
+  /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Passed to
+   *  {@link freezeScenario}, which writes the frozen backup to `branchSessionFile(sessionsDir, "main")`. */
+  readonly sessionsDir: string;
   readonly manifestPath: string;
   readonly preSliceDir: string;
   /** build-mode simulator/trial/author seams (trialCompact + author reused for extract). */
@@ -107,6 +110,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: st
 
   return freezeScenario({
     repoPath: deps.repoPath,
+    sessionsDir: deps.sessionsDir,
     backupPath,
     manifest,
     manifestPath: deps.manifestPath,

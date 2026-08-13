@@ -23,7 +23,7 @@
 // `ProbeStoppedError`; the run driver catches + notifies. An abort (run signal)
 // is `probe-hung`; any other error is `probe-failed`.
 
-import { join } from "node:path";
+import { copyFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ArmId } from "../config/types.js";
 import { log } from "../log.js";
@@ -34,6 +34,7 @@ import { extractContentText } from "../session/message-text.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendProbe } from "../storage/branches.js";
+import { branchSessionFile } from "../storage/paths.js";
 import { isQaOnlyBranch } from "../storage/probe-lifecycle.js";
 import { branchExists, checkout, commitAll, forkBranch, resetBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
@@ -45,8 +46,6 @@ import { readSessionEntries } from "./trace.js";
 const ANTI_PEEK_SEPARATOR = "\n\n";
 /** Delivery mode for the probe inject (queued after the current run settles — the probe is a fresh turn). */
 const DELIVER_AS_FOLLOW_UP: InjectMode = "followUp";
-/** The scenario repo's session transcript filename (tracked per branch). */
-const SESSION_FILE = "session.jsonl";
 /** A signal that never aborts — the default when the caller threads no run signal. */
 const NEVER_ABORT_CONTROLLER = new AbortController();
 /** First array index (the probes loop starts here; probeId is 1-based positional). */
@@ -107,11 +106,13 @@ export interface ProbeOps {
   checkout: typeof checkout;
   branchExists: typeof branchExists;
   commit: typeof commitAll;
+  /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
+  copySeed: (src: string, dest: string) => void;
   awaitSettled: typeof awaitAgentSettled;
   isQaOnly: typeof isQaOnlyBranch;
   deleteBranch: typeof resetBranch;
-  /** Read the agent's answer (the last assistant message text) off the repo's session.jsonl. */
-  readAnswer: (repo: string) => string;
+  /** Read the agent's answer (the last assistant message text) off the probe branch's session file. */
+  readAnswer: (sessionPath: string) => string;
 }
 
 /** Inputs to {@link runProbes}. `cmdCtx` is threaded across probes (each switchSession
@@ -124,8 +125,11 @@ export interface ProbeDeps {
   readonly armBase: ArmBase;
   /** The scenario manifest (its `probes[]` are the direct probes to run). */
   readonly manifest: ScenarioManifest;
-  /** The scenario repo path (holds the branches + session.jsonl + project files). */
+  /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
   readonly repo: string;
+  /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Each
+   *  probe's session file is seeded from its arm base's + appended to by the probe turn. */
+  readonly sessionsDir: string;
   /** Run signal (default = a never-aborting signal). */
   readonly signal?: AbortSignal;
   /** The live-progress widget (TUI-only; null/absent → no-op). */
@@ -185,13 +189,13 @@ export function extractProbeAnswer(entries: readonly SessionEntry[]): string {
 }
 
 /**
- * Read the agent's probe answer off the repo's working-tree `session.jsonl`. The
+ * Read the agent's probe answer off the probe branch's session-transcript FILE. The
  * default {@link ProbeOps.readAnswer}: parses the file + extracts the last
  * assistant message text. Reads the file AFTER `agent_settled` + BEFORE the commit
- * (so the answer is captured on the live, uncommitted transcript).
+ * (so the answer is captured on the live transcript).
  */
-function readProbeAnswer(repo: string): string {
-  return extractProbeAnswer(readSessionEntries(repo));
+function readProbeAnswer(sessionPath: string): string {
+  return extractProbeAnswer(readSessionEntries(sessionPath));
 }
 
 const DEFAULT_OPS: ProbeOps = {
@@ -200,6 +204,7 @@ const DEFAULT_OPS: ProbeOps = {
   checkout,
   branchExists,
   commit: commitAll,
+  copySeed: (src, dest) => copyFileSync(src, dest),
   awaitSettled: awaitAgentSettled,
   isQaOnly: isQaOnlyBranch,
   deleteBranch: resetBranch,
@@ -220,7 +225,6 @@ const DEFAULT_OPS: ProbeOps = {
  */
 export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
   const ops: ProbeOps = { ...DEFAULT_OPS, ...deps.ops };
-  const sessionPath = join(deps.repo, SESSION_FILE);
   const signal = deps.signal ?? NEVER_ABORT_CONTROLLER.signal;
   const { arm, tool, branch: baseBranch } = deps.armBase;
 
@@ -237,6 +241,11 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       ops.fork(deps.repo, baseBranch, probeBranch);
     }
     ops.checkout(deps.repo, probeBranch);
+    // Seed this probe's session file from its arm base's (parallel to forking the git
+    // branch): the transcript lives in the sessions store (outside the repo), so each
+    // probe gets its OWN file, appended to by the probe turn below.
+    const sessionPath = branchSessionFile(deps.sessionsDir, probeBranch);
+    ops.copySeed(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
 
     // Load the arm base in-place + drive the single probe turn. switchSession
     // RE-ACTIVATES the extension (fresh pi stashed in globalThis) AND invalidates the
@@ -260,13 +269,20 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       }
     });
 
-    // Capture the answer off the live transcript, then commit the probe boundary.
-    const answer = ops.readAnswer(deps.repo);
+    // Capture the answer off the probe branch's session file, then commit the probe boundary.
+    const answer = ops.readAnswer(sessionPath);
     ops.commit(deps.repo, `phase-2b: probe ${probeId} for arm ${arm} (${tool})`);
 
     // Probe-lifecycle: a Q&A-only branch (diff is exclusively message entries) is
-    // DELETED (clean repo); a branch the agent tool-called/edited is KEPT.
-    const kept = !ops.isQaOnly(deps.repo, baseBranch, probeBranch);
+    // DELETED (clean repo); a branch the agent tool-called/edited is KEPT. The session
+    // transcript is compared by reading the base + probe session FILES directly.
+    const kept = !ops.isQaOnly(
+      deps.repo,
+      baseBranch,
+      probeBranch,
+      branchSessionFile(deps.sessionsDir, baseBranch),
+      sessionPath,
+    );
     if (!kept) {
       ops.deleteBranch(deps.repo, probeBranch);
     }

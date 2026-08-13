@@ -108,6 +108,35 @@ function decode(stream: Buffer | string | undefined): string {
   return typeof stream === "string" ? stream : stream.toString();
 }
 
+/** Name patterns that mark an env var as secret → stripped from the testSpec subprocess
+ *  env. The `testSpec` string is LLM-authored (from the evaluated model's build session,
+ *  untrusted content), so it must not inherit provider API keys or other operator secrets.
+ *  Denylist by NAME (we cannot reliably inspect values); covers the common providers + the
+ *  generic SECRET/TOKEN/PASSWORD/CREDENTIAL shapes. Residual risk: a secret whose name
+ *  matches none of these remains exposed — operator should keep the bench env minimal. */
+const SECRET_ENV_PATTERNS: readonly RegExp[] = [
+  /_?KEY$/i, // ...API_KEY, ...ACCESS_KEY
+  /^API[_-]?KEY/i,
+  /SECRET/i,
+  /TOKEN/i,
+  /PASSWORD/i,
+  /^PASS$/i,
+  /PASSPHRASE/i,
+  /CREDENTIAL/i,
+  /^(ANTHROPIC|OPENAI|ZAI|GOOGLE|GCP|AZURE|AWS|COHERE|TOGETHER|MISTRAL|GROQ|REPLICATE|DEEPSEEK|XAI|FIREWORKS|PERPLEXITY|MOONSHOT|GROK)_/i,
+];
+
+/** Return a copy of `env` with secret-looking entries removed. Pure + non-mutating. */
+export function scrubEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const scrubbed: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    if (SECRET_ENV_PATTERNS.some((re) => re.test(name))) continue;
+    scrubbed[name] = value;
+  }
+  return scrubbed;
+}
+
 /**
  * The default {@link TestSpecExec}: run `command` in `cwd` via the shell with a
  * wall-clock `timeoutMs`. On success → exit 0 + captured output. On a non-zero
@@ -121,6 +150,7 @@ function execTestSpec(command: string, cwd: string, timeoutMs: number): TestSpec
       cwd,
       timeout: timeoutMs,
       encoding: "utf8",
+      env: scrubEnv(process.env),
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: MAX_OUTPUT_BYTES,
     }).toString();

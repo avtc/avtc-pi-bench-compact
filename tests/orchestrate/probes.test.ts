@@ -13,6 +13,7 @@ import { extractProbeAnswer, type ProbeOps, ProbeStoppedError, runProbes } from 
 import { AgentSettledAbortedError } from "../../src/session/done.js";
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { appendProbe } from "../../src/storage/branches.js";
+import { branchSessionFile } from "../../src/storage/paths.js";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -73,6 +74,7 @@ interface FakeProbeOps {
   checkout: ReturnType<typeof vi.fn>;
   branchExists: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
+  copySeed: ReturnType<typeof vi.fn>;
   awaitSettled: ReturnType<typeof vi.fn>;
   isQaOnly: ReturnType<typeof vi.fn>;
   deleteBranch: ReturnType<typeof vi.fn>;
@@ -106,6 +108,7 @@ function makeFakeProbeOps(opts: { qaOnly?: boolean; answer?: string; reject?: Er
     checkout: vi.fn(),
     branchExists: vi.fn(() => false),
     commit: vi.fn(),
+    copySeed: vi.fn(),
     awaitSettled: vi.fn(async (): Promise<void> => {
       if (reject !== undefined) throw reject;
     }),
@@ -137,6 +140,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: base,
       manifest: makeManifest(PROBES),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -149,8 +153,14 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     expect(ops.checkout).toHaveBeenCalledTimes(2);
     expect(ops.checkout.mock.calls[0]).toEqual([repo, appendProbe(base.branch, "1")]);
     expect(ops.commit).toHaveBeenCalledTimes(2);
-    // the canned answer flows into the trace; readAnswer received the repo
-    expect(ops.readAnswer.mock.calls[0]?.[0]).toBe(repo);
+    // each probe's session file is seeded from its arm base's + readAnswer receives the probe file (NOT the repo)
+    expect(ops.copySeed.mock.calls[0]).toEqual([
+      branchSessionFile(join(repo, "sessions"), base.branch),
+      branchSessionFile(join(repo, "sessions"), appendProbe(base.branch, "1")),
+    ]);
+    expect(ops.readAnswer.mock.calls[0]?.[0]).toBe(
+      branchSessionFile(join(repo, "sessions"), appendProbe(base.branch, "1")),
+    );
     expect(traces[0]?.answer).toBe("canvas was chosen");
     expect(traces[0]?.probeId).toBe("1");
     expect(traces[0]?.branch).toBe(appendProbe(base.branch, "1"));
@@ -164,6 +174,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest([PROBES[0]]),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -186,6 +197,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest(PROBES),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -201,6 +213,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest(PROBES),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -218,6 +231,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: base,
       manifest: makeManifest(PROBES),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -233,6 +247,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest(PROBES),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -248,6 +263,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest(PROBES),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -263,6 +279,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       armBase: makeArmBase("A1", "bare-pi", undefined),
       manifest: makeManifest([]),
       repo,
+      sessionsDir: join(repo, "sessions"),
       ops: ops as unknown as ProbeOps,
     });
 
@@ -293,6 +310,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
         armBase: makeArmBase("A1", "bare-pi", undefined),
         manifest: makeManifest([PROBES[0]]),
         repo,
+        sessionsDir: join(repo, "sessions"),
         ops: ops as unknown as ProbeOps,
       }),
     ).rejects.toMatchObject({ arm: "A1", probeId: "1", reason: "probe-hung" });
@@ -307,6 +325,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
         armBase: makeArmBase("A2", "om-default", "g1a2b3c"),
         manifest: makeManifest([PROBES[0]]),
         repo,
+        sessionsDir: join(repo, "sessions"),
         ops: ops as unknown as ProbeOps,
       }),
     ).rejects.toMatchObject({ arm: "A2", probeId: "1", reason: "probe-failed" });

@@ -3,20 +3,25 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  abortActiveRun,
   clearRunState,
   getRunState,
+  setActiveRunAbort,
   setRunState,
   statusString,
   updateRunState,
 } from "../../src/orchestrate/run-state.js";
 
 const GLOBAL_KEY = "__benchCompactRunState";
+const ABORT_KEY = "__benchCompactRunAbort";
 
 beforeEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
+  delete (globalThis as Record<string, unknown>)[ABORT_KEY];
 });
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
+  delete (globalThis as Record<string, unknown>)[ABORT_KEY];
 });
 
 describe("run-state singleton", () => {
@@ -144,5 +149,34 @@ describe("statusString", () => {
     const s = statusString();
     expect(s).toContain("stopped");
     expect(s).toContain("compaction cancelled");
+  });
+});
+
+describe("run-abort holder (cooperative abort)", () => {
+  it("abortActiveRun returns false when no controller is active", () => {
+    expect(abortActiveRun()).toBe(false);
+  });
+
+  it("setActiveRunAbort + abortActiveRun fires the controller + returns true", () => {
+    const controller = new AbortController();
+    setActiveRunAbort(controller);
+    expect(controller.signal.aborted).toBe(false);
+    expect(abortActiveRun()).toBe(true);
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("abortActiveRun clears the holder (idempotent — second call returns false)", () => {
+    const controller = new AbortController();
+    setActiveRunAbort(controller);
+    expect(abortActiveRun()).toBe(true);
+    expect(abortActiveRun()).toBe(false);
+  });
+
+  it("setActiveRunAbort(null) clears an active controller without firing it", () => {
+    const controller = new AbortController();
+    setActiveRunAbort(controller);
+    setActiveRunAbort(null);
+    expect(controller.signal.aborted).toBe(false);
+    expect(abortActiveRun()).toBe(false);
   });
 });

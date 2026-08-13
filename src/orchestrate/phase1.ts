@@ -20,6 +20,7 @@
 // summary HALTS the run — the operator inspects + decides. No auto-retry, no silent
 // skip. Surfaced via {@link Phase1StoppedError}; the run driver catches + notifies.
 
+import { copyFileSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { clearArmConfig } from "../arms/config.js";
 import { ARM_DEFS } from "../arms/definitions.js";
@@ -34,6 +35,7 @@ import { inject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
+import { branchSessionFile } from "../storage/paths.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
@@ -82,6 +84,8 @@ export interface Phase1Ops {
   fork: typeof forkBranch;
   checkout: typeof checkout;
   commit: typeof commitAll;
+  /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
+  copySeed: (src: string, dest: string) => void;
 }
 
 const DEFAULT_OPS: Phase1Ops = {
@@ -90,6 +94,7 @@ const DEFAULT_OPS: Phase1Ops = {
   fork: forkBranch,
   checkout,
   commit: commitAll,
+  copySeed: (src, dest) => copyFileSync(src, dest),
 };
 
 /** Inputs to {@link runPhase1}. `cfgId` is pre-computed by the run driver
@@ -106,8 +111,12 @@ export interface Phase1Deps {
    *  Each arm's `switchSession` invalidates the prior ctx, so `runPhase1` threads the
    *  fresh ctx from each `withSession` callback into the next arm's `switchSession`. */
   cmdCtx: ExtensionCommandContext;
-  /** The scenario repo path (holds `main` + `session.jsonl` + project files; agent cwd = repo). */
+  /** The scenario repo path (holds `main` + per-arm branches; tracks ONLY project files — the
+   *  session transcript lives in {@link Phase1Deps.sessionsDir}. Agent cwd = repo). */
   scenarioRepo: string;
+  /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Each
+   *  arm's session file is seeded from `main`'s + compacted in place by {@link runPhase1}. */
+  sessionsDir: string;
   /** Calendar date the run started (UTC YYYY-MM-DD; fixed across arms). */
   date: string;
   /** 1-based run id for `date`. */
@@ -166,8 +175,17 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
  */
 export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
   const ops = { ...DEFAULT_OPS, ...deps.ops };
-  const { cmdCtx, scenarioRepo, date, id, cfgId, toolVersions, omFullReflectionThresholdTokens, armsEnabled } = deps;
-  const sessionPath = `${scenarioRepo}/session.jsonl`;
+  const {
+    cmdCtx,
+    scenarioRepo,
+    sessionsDir,
+    date,
+    id,
+    cfgId,
+    toolVersions,
+    omFullReflectionThresholdTokens,
+    armsEnabled,
+  } = deps;
   log.info(`phase-1: run ${date}-${id} cfg ${cfgId} arms [${armsEnabled.join(", ")}]`);
 
   // Thread the command ctx: each arm's switchSession invalidates the ctx it's called
@@ -188,6 +206,11 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
         ops.fork(scenarioRepo, "main", branch);
       }
       ops.checkout(scenarioRepo, branch);
+      // Seed this arm's session file from `main`'s (parallel to forking the git branch):
+      // the transcript lives in the sessions store (outside the repo), so each arm gets
+      // its OWN file, compacted in place by loadSession below.
+      const sessionPath = branchSessionFile(sessionsDir, branch);
+      ops.copySeed(branchSessionFile(sessionsDir, "main"), sessionPath);
       if (getRunState() !== null) updateRunState({ currentArm: arm });
 
       // Load the frozen backup in-place + compact it. switchSession RE-ACTIVATES the
@@ -248,7 +271,9 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
         );
       }
 
-      // Commit the compacted session.jsonl (+ any arm-specific .pi/ artifacts) to the arm base.
+      // Commit the arm base. Compaction modifies the arm's session file (in the sessions
+      // store, outside the repo), so the repo working tree is unchanged — this is an empty
+      // `--allow-empty` boundary commit recording the arm-base fork point.
       ops.commit(scenarioRepo, `phase-1: compacted base for arm ${arm} (${def.tool})`);
 
       bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs, usage: compactionEntry.usage });

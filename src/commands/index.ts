@@ -12,6 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
+import { abortActiveRun } from "../orchestrate/run-state.js";
 import { hideActiveWidget } from "../widget/active-widget.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { registerResultsCommand } from "./results.js";
@@ -46,13 +47,16 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // abort: stops the run cleanly + tears down the live-progress widget.
+  // abort: stops the run cleanly + tears down the live-progress widget. Fires the
+  // active run's cooperative-abort signal (threaded into the phase loops' awaitSettled),
+  // so the run stops via its existing stop-and-surface path.
   // `preflight` is not applicable (abort needs no args/config).
   pi.registerCommand("bench-compact:abort", {
-    description: "Stop the run cleanly (tears down the progress widget).",
+    description: "Stop the run cleanly (fires the run's abort signal + tears down the progress widget).",
     handler: async (_args, ctx) => {
+      const wasRunning = abortActiveRun();
       hideActiveWidget();
-      ctx.ui.notify("aborted", "info");
+      ctx.ui.notify(wasRunning ? "aborted — run stopping" : "aborted (no active run)", "info");
     },
   });
 

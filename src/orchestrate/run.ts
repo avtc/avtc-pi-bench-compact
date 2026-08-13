@@ -15,7 +15,7 @@
 // phase halt — never auto-retry.
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
@@ -28,7 +28,7 @@ import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
-import { benchRoot, runDir } from "../storage/paths.js";
+import { assertNotInRepo, benchRoot, configPath, runDir } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL, type WidgetStageHooks, widgetStageHooks } from "../widget/tracker.js";
@@ -42,7 +42,7 @@ import {
 } from "./phase1.js";
 import { type Phase2Result, Phase2StoppedError, type Phase2StopReason, runContinuations } from "./phase2.js";
 import { type ProbeOps, ProbeStoppedError, type ProbeStopReason, runProbes } from "./probes.js";
-import { setRunState, updateRunState } from "./run-state.js";
+import { NO_RUN_ABORT, setActiveRunAbort, setRunState, updateRunState } from "./run-state.js";
 import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
 import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
 import { runTestSpec, TestSpecFaultError } from "./testspec.js";
@@ -156,11 +156,15 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const runPath = runDir(root, runId);
   const runAbort = new AbortController();
   const signal: RunSignal = runAbort.signal;
+  setActiveRunAbort(runAbort);
 
   mkdirSync(runPath, { recursive: true });
 
   const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER);
   const cfgId = buildCfgId(runConfig);
+  // Contamination guard: the run config is a bench artifact — it must never land
+  // inside the agent-visible scenario repo. Defense-in-depth (the default layout is safe).
+  assertNotInRepo(configPath(root, cfgId), deps.scenarioRepo);
   writeRunConfig(cfgId, runConfig, root);
 
   setRunState({
@@ -190,9 +194,11 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
   try {
     // --- Phase 1: compact each arm once → arm bases ---
+    const sessionsDir = join(dirname(deps.scenarioRepo), "sessions");
     const { bases, finalCtx: ctxAfterPhase1 } = await phase1({
       cmdCtx: deps.cmdCtx,
       scenarioRepo: deps.scenarioRepo,
+      sessionsDir,
       date,
       id,
       cfgId,
@@ -212,6 +218,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       config: deps.config,
       manifest: deps.manifest,
       repo: deps.scenarioRepo,
+      sessionsDir,
       N: deps.config.N,
       widget,
       signal,
@@ -228,6 +235,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         armBase: base,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
+        sessionsDir,
         widget,
         signal,
         ops: deps.probeOps,
@@ -271,6 +279,9 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
     const resultsPath = join(runPath, "results.json");
     const reportPath = join(runPath, "report.md");
+    // Contamination guard: results + report are bench artifacts — never inside the repo.
+    assertNotInRepo(resultsPath, deps.scenarioRepo);
+    assertNotInRepo(reportPath, deps.scenarioRepo);
     writeFileSync(resultsPath, JSON.stringify(resultJson, null, JSON_INDENT));
     writeFileSync(reportPath, markdown);
 
@@ -279,6 +290,11 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     return { kind: "done", runId, cfgId, resultsPath, reportPath };
   } catch (err) {
     return handleRunStop(err, deps, widget, runId);
+  } finally {
+    // Clear the active abort controller so a stale controller never lingers past the run
+    // (also covers the abort-fired case — the controller was already fired + cleared by
+    // abortActiveRun, this is a defensive no-op then).
+    setActiveRunAbort(NO_RUN_ABORT);
   }
 }
 

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Thin git wrappers for the scenario repo. The repo tracks `session.jsonl` + the project
-// files; a branch per (arm × attempt | probe) lets states coexist + be diffed (the judge inspects
-// via plain `git diff`/`git log`). These run `git` via the bench's OWN exec (node:child_process),
-// NOT the agent's bash tool — the harness drives git directly at phase boundaries.
+// Thin git wrappers for the scenario repo. The repo tracks ONLY project files (the session
+// transcript lives outside the repo, in the per-branch sessions store — see paths.ts); a branch
+// per (arm × attempt | probe) lets states coexist + be diffed (the judge inspects via plain
+// `git diff`/`git log`). These run `git` via the bench's OWN exec (node:child_process), NOT the
+// agent's bash tool — the harness drives git directly at phase boundaries.
 //
 // Sequential, single worktree: the harness `checkout`s the active branch, the agent works
 // in the repo cwd, and the harness commits ONLY at agent_settled / phase boundary (the live file is
@@ -37,9 +38,9 @@ function runGit(cwd: string, args: string[]): string {
 }
 
 /**
- * Initialize a scenario repo at `repoPath` (its working tree already populated with `session.jsonl`
- * + the project files by the caller — Task 10 prepare). Creates a `main` branch + commits the tree.
- * Sets a local git identity so commits succeed in a fresh repo.
+ * Initialize a scenario repo at `repoPath` (its working tree already populated with the project
+ * files by the caller — Task 10 prepare; the session transcript lives outside the repo). Creates
+ * a `main` branch + commits the tree. Sets a local git identity so commits succeed in a fresh repo.
  */
 export function initScenarioRepo(repoPath: string, opts: { message?: string } = {}): string {
   // Ignore bench-internal `.pi/` BEFORE the first add — persists across forks/branches.

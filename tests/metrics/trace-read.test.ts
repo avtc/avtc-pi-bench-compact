@@ -6,7 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { phaseOneCompactionIndex, readTraceFromRepo, sumAssistantOutput } from "../../src/metrics/trace-read.js";
+import {
+  phaseOneCompactionIndex,
+  postCompactionEntries,
+  readTraceFromRepo,
+  sumAssistantOutput,
+} from "../../src/metrics/trace-read.js";
 
 type Usage = {
   input: number;
@@ -122,6 +127,23 @@ describe("phaseOneCompactionIndex", () => {
   it("is -1 when there is no compaction", () => {
     const entries: SessionEntry[] = [userEntry("u0", null, "x")];
     expect(phaseOneCompactionIndex(entries)).toBe(-1);
+  });
+});
+
+describe("postCompactionEntries", () => {
+  it("returns the entries strictly after the first (boundary) compaction", () => {
+    const entries: SessionEntry[] = [
+      userEntry("u0", null, "x"),
+      compactionEntry("c1", "u0", "s"),
+      assistantEntry("a1", "c1", "y", 1),
+      userEntry("u2", "a1", "z"),
+    ];
+    expect(postCompactionEntries(entries).map((e) => e.id)).toEqual(["a1", "u2"]);
+  });
+
+  it("falls back to the whole run when there is no compaction (index -1 → slice 0)", () => {
+    const entries: SessionEntry[] = [userEntry("u0", null, "x"), assistantEntry("a1", "u0", "y", 1)];
+    expect(postCompactionEntries(entries).map((e) => e.id)).toEqual(["u0", "a1"]);
   });
 });
 

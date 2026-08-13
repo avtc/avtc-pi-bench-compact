@@ -23,7 +23,7 @@ import type { CompactionEntry } from "@earendil-works/pi-coding-agent";
 import type { RunTrace } from "../orchestrate/trace.js";
 import { estimateContentTokens } from "../runtime/streaming-tokens.js";
 import { costDollars, type Pricing, type TokenCounts, usageTokens } from "./pricing.js";
-import { phaseOneCompactionIndex, sumAssistantOutput } from "./trace-read.js";
+import { postCompactionEntries, sumAssistantOutput } from "./trace-read.js";
 
 /** The stage name for a native pi compaction (no per-stage details). */
 const NATIVE_SUMMARY_STAGE = "native-summary";
@@ -122,8 +122,7 @@ export function computeC1(compactionEntry: CompactionEntry): number {
  * no compaction, the whole run's assistant output is summed (lenient fallback).
  */
 export function computeC3(trace: RunTrace): number {
-  const start = phaseOneCompactionIndex(trace.entries) + 1;
-  return sumAssistantOutput(trace.entries.slice(start));
+  return sumAssistantOutput(postCompactionEntries(trace.entries));
 }
 
 /** Zeroed continuation-compaction list (when the run never re-compacted). */

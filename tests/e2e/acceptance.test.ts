@@ -331,6 +331,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
       fork: async () => {},
       checkout: async () => {},
       commit: async () => {},
+      copySeed: () => {},
     };
     return { ops, triggeredPis, injectedTexts };
   }
@@ -341,6 +342,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
     const deps: Phase1Deps = {
       cmdCtx: {} as unknown as ExtensionCommandContext,
       scenarioRepo: repo,
+      sessionsDir: join(repo, "sessions"),
       date: "2026-08-11",
       id: 1,
       cfgId: "cfg-test1",

@@ -37,7 +37,7 @@
 //   that run execute on it); comparative ranking is grouped BY ATTEMPT (one
 //   ranking per attempt-slot, aggregated across attempts).
 
-import type { CompactionEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { CompactionEntry } from "@earendil-works/pi-coding-agent";
 import type { ArmId } from "../config/types.js";
 import { findFirstCorrectUse } from "../judge/c2-boundary.js";
 import { majorityVote, rankEnsemble, runBinaryEnsemble, unionC2Boundaries } from "../judge/ensemble.js";
@@ -62,7 +62,7 @@ import { type C2Result, computeC2 } from "../metrics/c2.js";
 import type { MetricId } from "../metrics/defs.js";
 import { type C4Result, computeC1, computeC3, computeC4 } from "../metrics/exact.js";
 import type { Pricing } from "../metrics/pricing.js";
-import { phaseOneCompactionIndex } from "../metrics/trace-read.js";
+import { postCompactionEntries } from "../metrics/trace-read.js";
 import { renderHeadline } from "../report/markdown.js";
 import {
   type ResultArtifacts,
@@ -326,12 +326,6 @@ export async function gradeC2ForRun(run: ArmAttemptRun, deps: C2RoutingDeps): Pr
  *  action list + could miss a redo buried deep in a long continuation). Tunable. */
 export const E2_LONG_RUN_THRESHOLD_ENTRIES = 40;
 
-/** The post-compaction entries (the continuation's own work), in file order. */
-function postCompactionEntries(trace: RunTrace): SessionEntry[] {
-  const start = phaseOneCompactionIndex(trace.entries) + 1;
-  return trace.entries.slice(start);
-}
-
 /** Extract one axis's pass from a judge's trajectory grades (STOP+surface if missing). */
 function trajectoryGradeForAxis(grades: readonly TrajectoryGrade[], axis: MetricId): boolean {
   const grade = grades.find((g) => g.axis === axis);
@@ -411,7 +405,7 @@ export async function gradeTraceBinaryForRun(
   deps: TraceBinaryRoutingDeps,
 ): Promise<Partial<Record<MetricId, boolean>>> {
   deps.checkout(run.repo, run.branch);
-  const postEntries = postCompactionEntries(run.continuation);
+  const postEntries = postCompactionEntries(run.continuation.entries);
   const e2Long = postEntries.length > E2_LONG_RUN_THRESHOLD_ENTRIES;
   const trajectoryAxes: MetricId[] = e2Long ? ["E2", "E4"] : ["E4"];
   const trajResults = await Promise.all(
@@ -490,7 +484,7 @@ function groupByAttempt(input: ScoreRunInput): ReadonlyArray<ReadonlyArray<reado
 function buildComparativeSlice(axis: "E1" | "E7", run: ArmAttemptRun, manifest: ScenarioManifest): string {
   if (axis === "E1") return buildStartSlice(run.continuation, manifest, DEFAULT_SLICE_OPTIONS);
   const testSpecResult: TestSpecResult = run.testSpecResult ?? { kind: "skipped" };
-  const finalEntries = postCompactionEntries(run.continuation).slice(-DONE_FINAL_ACTIONS);
+  const finalEntries = postCompactionEntries(run.continuation.entries).slice(-DONE_FINAL_ACTIONS);
   return buildDoneSnapshot(
     { branch: run.branch, taskObjective: manifest.taskObjective, testSpecResult, finalEntries },
     DEFAULT_SLICE_OPTIONS,

@@ -470,6 +470,33 @@ describe("startRun — Phase 3 scoring", () => {
     expect(readFileSync(result.reportPath, "utf8")).toBe("# headline");
   });
 
+  it("contamination guard: throws before writing the run config if the bench root is inside the scenario repo (R0-10)", async () => {
+    // Misconfigured: scenarioRepo IS the bench root → configPath (root/configs/X) lands inside it.
+    const deps = makeDeps({ arms: ["A1"], root, scenarioRepo: root });
+    await expect(startRun(deps)).rejects.toThrow(/contamination/i);
+  });
+
+  it("contamination guard: throws at the results/report write if the run dir is inside the scenario repo (R0-10)", async () => {
+    // Misconfigured: scenarioRepo = the runs dir → configPath (root/configs) is safe, but the
+    // results/report writes (root/runs/<runId>) land inside it → guard fires at the score-output write.
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const score = scoreMock(async () => ({
+      resultJson: { schema: "bench-compact.result-v1", x: 1 },
+      markdown: "# headline",
+    }));
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      scenarioRepo: join(root, "runs"),
+      phase1,
+      continuations,
+      score,
+    });
+    await expect(startRun(deps)).rejects.toThrow(/contamination/i);
+  });
+
   it("a ProbeStoppedError from runProbes → stopped (probe phase) + notify", async () => {
     const notify = vi.fn();
     const bases = fakeBases(["A2"]);

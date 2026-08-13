@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import {
   runTestSpec,
+  scrubEnv,
   TESTSPEC_TIMEOUT_MS,
   type TestSpecExecResult,
   type TestSpecOps,
@@ -35,6 +36,46 @@ function makeManifest(testSpec: string | undefined): ScenarioManifest {
 function makeOps(result: TestSpecExecResult): TestSpecOps {
   return { exec: vi.fn((): TestSpecExecResult => result), checkout: vi.fn() };
 }
+
+describe("scrubEnv — strip secret-looking vars from the subprocess env (R0-9)", () => {
+  it("drops provider API keys (ANTHROPIC/OPENAI/ZAI/etc.) + keeps PATH/HOME", () => {
+    const scrubbed = scrubEnv({
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      ANTHROPIC_API_KEY: "sk-ant-secret",
+      OPENAI_API_KEY: "sk-openai",
+      ZAI_API_KEY: "zai-key",
+      MY_GAME_CONFIG: "x",
+    });
+    expect(scrubbed.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(scrubbed.OPENAI_API_KEY).toBeUndefined();
+    expect(scrubbed.ZAI_API_KEY).toBeUndefined();
+    expect(scrubbed.PATH).toBe("/usr/bin");
+    expect(scrubbed.HOME).toBe("/home/user");
+    expect(scrubbed.MY_GAME_CONFIG).toBe("x");
+  });
+
+  it("drops SECRET/TOKEN/PASSWORD/CREDENTIAL patterns", () => {
+    const scrubbed = scrubEnv({
+      DB_PASSWORD: "pw",
+      AUTH_TOKEN: "tok",
+      MY_SECRET: "s",
+      SERVICE_CREDENTIALS: "c",
+      KEEP_ME: "y",
+    });
+    expect(scrubbed.DB_PASSWORD).toBeUndefined();
+    expect(scrubbed.AUTH_TOKEN).toBeUndefined();
+    expect(scrubbed.MY_SECRET).toBeUndefined();
+    expect(scrubbed.SERVICE_CREDENTIALS).toBeUndefined();
+    expect(scrubbed.KEEP_ME).toBe("y");
+  });
+
+  it("does not mutate the input env", () => {
+    const input = { PATH: "/bin", ANTHROPIC_API_KEY: "k" };
+    scrubEnv(input);
+    expect(input.ANTHROPIC_API_KEY).toBe("k");
+  });
+});
 
 describe("runTestSpec — exit-code → pass/runError mapping (the E7 objective signal)", () => {
   it("exit 0 → {ran, pass:true, runError:false}", () => {

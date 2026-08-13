@@ -15,7 +15,7 @@
 // entries after the first (boundary) compaction.
 
 import type { RunTrace } from "../orchestrate/trace.js";
-import { phaseOneCompactionIndex, sumAssistantOutput } from "./trace-read.js";
+import { postCompactionEntries, sumAssistantOutput } from "./trace-read.js";
 
 /** One run's recall-cost: the token sum + whether recovery ever happened. */
 export interface C2Result {
@@ -33,8 +33,7 @@ export interface C2Result {
  * happened, the exact entry just could not be located). Pure + deterministic.
  */
 export function computeC2(trace: RunTrace, firstCorrectUseEntryId: string | null): C2Result {
-  const start = phaseOneCompactionIndex(trace.entries) + 1;
-  const postCompaction = trace.entries.slice(start);
+  const postCompaction = postCompactionEntries(trace.entries);
   const fullSum = () => sumAssistantOutput(postCompaction);
 
   if (firstCorrectUseEntryId === null) {

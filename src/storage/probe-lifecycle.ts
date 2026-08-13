@@ -8,11 +8,14 @@
 // changes) it is KEPT. Deletion is conservative: only a branch whose diff is exclusively message
 // entries is removable; anything unexpected is kept.
 //
+// The session transcript lives OUTSIDE the repo (in a per-branch sessions store), so the Q&A check
+// compares the two session FILES directly (base vs probe) instead of git-diffing session.jsonl.
 // pi session JSONL: each line is `{type:"message", message:{role, content:[{type,...}]}}`. Tool
 // activity shows up as content blocks of type `toolCall` (pi uses `toolCall`, not `tool_use`) and as
-// separate `role:"toolResult"` messages. File edits show up as non-session.jsonl path changes.
+// separate `role:"toolResult"` messages. Project-file edits show up in the git diff (diffNameOnly).
 
-import { diffFile, diffNameOnly } from "./repo.js";
+import { readFileSync } from "node:fs";
+import { diffNameOnly } from "./repo.js";
 
 /** A minimal view of a session JSONL entry (only the fields the lifecycle cares about). */
 interface SessionEntry {
@@ -37,25 +40,61 @@ function isMutatingEntry(entry: SessionEntry): boolean {
 }
 
 /**
- * True iff `probeBranch` differs from `baseBranch` ONLY by Q&A message entries — safe to delete.
- * False (keep) when any project file changed OR any added session entry is tool-call/file-mutating.
- * An empty diff (probe changed nothing) is trivially Q&A-only → true.
+ * The lines `probeJsonl` adds beyond `baseJsonl` (append-only JSONL). Splits both into
+ * non-blank lines, requires the probe to START WITH the base prefix (a clean append),
+ * and returns the probe's tail past the base. Throws when the probe is not a clean
+ * superset of the base — a removal (probe shorter) or a modification (a base line
+ * changed) — so the caller can treat that as "not Q&A-only" (keep the branch).
+ *
+ * Pure transformation of the two file contents (testable in isolation).
  */
-export function isQaOnlyBranch(repo: string, baseBranch: string, probeBranch: string): boolean {
+export function addedSessionLines(baseJsonl: string, probeJsonl: string): string[] {
+  const base = baseJsonl.split("\n").filter((l) => l.trim().length > 0);
+  const probe = probeJsonl.split("\n").filter((l) => l.trim().length > 0);
+  if (probe.length < base.length) {
+    throw new Error("probe session is shorter than the base — not a clean append (a line was removed)");
+  }
+  // The probe must START WITH the base (clean append). A modification breaks the prefix.
+  for (let i = 0; i < base.length; i++) {
+    if (probe[i] !== base[i]) {
+      throw new Error("probe session does not start with the base — a line was modified (not a clean append)");
+    }
+  }
+  return probe.slice(base.length);
+}
+
+/**
+ * True iff `probeBranch` differs from `baseBranch` ONLY by Q&A message entries — safe to delete.
+ * False (keep) when any project file changed OR any added session entry is tool-call/file-mutating
+ * OR the session was modified (not a clean append). An empty diff (probe changed nothing) is
+ * trivially Q&A-only → true.
+ *
+ * The session transcript is compared by reading `baseSessionFile` + `probeSessionFile` directly
+ * (the transcript lives outside the repo, in the per-branch sessions store). The git diff
+ * (`diffNameOnly`) still guards project-file changes — session.jsonl is no longer tracked, so it
+ * never appears in the git diff (the `!== "session.jsonl"` filter is defensive).
+ */
+export function isQaOnlyBranch(
+  repo: string,
+  baseBranch: string,
+  probeBranch: string,
+  baseSessionFile: string,
+  probeSessionFile: string,
+): boolean {
   // 1. Any non-session.jsonl file changed → file-mutating → not Q&A-only.
   const files = diffNameOnly(repo, baseBranch, probeBranch);
   if (files.some((f) => f !== "session.jsonl")) return false;
 
-  // 2. Parse the ADDED session.jsonl lines; any mutating entry → not Q&A-only. ALSO: any
-  // `-` line (a removal/modification — session JSONL is append-only, so a removal is
-  // unexpected) or any unparseable `+` line → conservative keep (anything
-  // unexpected is kept).
-  const diff = diffFile(repo, baseBranch, probeBranch, "session.jsonl");
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("-") && !line.startsWith("---")) return false; // unexpected removal/modification
-    if (!line.startsWith("+") || line.startsWith("+++")) continue; // skip context/hunk headers
-    const json = line.slice(1).trim();
-    if (json.length === 0) continue;
+  // 2. Compare the two session FILES directly: the added lines are the probe's tail past the
+  // base. A non-clean-append (modification/removal) → keep. Any mutating/unparseable added
+  // entry → keep. (Conservative: anything unexpected is kept.)
+  let added: string[];
+  try {
+    added = addedSessionLines(readFileSync(baseSessionFile, "utf8"), readFileSync(probeSessionFile, "utf8"));
+  } catch {
+    return false; // not a clean append (modification/removal) → conservative keep
+  }
+  for (const json of added) {
     let entry: SessionEntry;
     try {
       entry = JSON.parse(json) as SessionEntry;

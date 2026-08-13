@@ -17,7 +17,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { getBenchConfig } from "../config/accessor.js";
 import { buildLiveSeams } from "../production/live-seams.js";
 import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
-import { benchRoot, scenarioDir, scenarioManifest, scenarioRepo } from "../storage/paths.js";
+import { benchRoot, scenarioDir, scenarioManifest, scenarioRepo, scenarioSessionsDir } from "../storage/paths.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, NO_DETAIL, WidgetController } from "../widget/tracker.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
@@ -120,9 +120,11 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
   const config = getBenchConfig();
   const root = benchRoot(config.outputDir);
   const repo = scenarioRepo(root, scenarioId);
+  const sessionsDir = scenarioSessionsDir(root, scenarioId);
   const manifestPath = scenarioManifest(root, scenarioId);
   const preSliceDir = join(scenarioDir(root, scenarioId), PRE_SLICE_DIR_NAME);
   mkdirSync(repo, { recursive: true });
+  mkdirSync(sessionsDir, { recursive: true });
   mkdirSync(preSliceDir, { recursive: true });
 
   const cmdCtx = ctx as ExtensionCommandContext;
@@ -145,6 +147,7 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
   const deps: PrepareDeps = {
     compactionBoundary: config.compactionBoundary,
     repoPath: repo,
+    sessionsDir,
     manifestPath,
     preSliceDir,
     seams,

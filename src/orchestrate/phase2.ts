@@ -22,6 +22,7 @@
 // per-run turn-cap: the run is bounded by context monitoring (steer to wrap up as
 // usage approaches the model's window) + the notification extension's idle-alert.
 
+import { copyFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
@@ -38,6 +39,7 @@ import {
 } from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
+import { branchSessionFile } from "../storage/paths.js";
 import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { widgetStageHooks } from "../widget/tracker.js";
@@ -116,6 +118,8 @@ export interface Phase2Ops {
    * so unit tests avoid real git + can exercise the exists-skip path. */
   branchExists: typeof branchExists;
   commit: typeof commitAll;
+  /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
+  copySeed: (src: string, dest: string) => void;
   awaitSettled: typeof awaitAgentSettled;
   makeMonitor: typeof makeContextMonitor;
   captureTrace: typeof captureTrace;
@@ -135,8 +139,11 @@ export interface Phase2Deps {
   readonly config: BenchConfig;
   /** The scenario manifest (its description seeds the simulator's system prompt). */
   readonly manifest: ScenarioManifest;
-  /** The scenario repo path (holds the branches + session.jsonl + project files). */
+  /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
   readonly repo: string;
+  /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Each
+   *  attempt's session file is seeded from its arm base's + appended to by the continuation. */
+  readonly sessionsDir: string;
   /** Continuation attempts per arm (the bench's N). */
   readonly N: number;
   /** Run/compaction signal (default = a never-aborting signal). */
@@ -250,12 +257,12 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
     checkout: deps.ops?.checkout ?? checkout,
     branchExists: deps.ops?.branchExists ?? branchExists,
     commit: deps.ops?.commit ?? commitAll,
+    copySeed: deps.ops?.copySeed ?? ((src, dest) => copyFileSync(src, dest)),
     awaitSettled: deps.ops?.awaitSettled ?? awaitAgentSettled,
     makeMonitor: deps.ops?.makeMonitor ?? makeContextMonitor,
     captureTrace: deps.ops?.captureTrace ?? captureTrace,
     makeSimulator,
   };
-  const sessionPath = `${deps.repo}/session.jsonl`;
   const signal = deps.signal ?? NEVER_ABORT_CONTROLLER.signal;
 
   let currentCtx: ExtensionCommandContext = deps.cmdCtx;
@@ -271,6 +278,11 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
         ops.fork(deps.repo, base.branch, attemptBranch);
       }
       ops.checkout(deps.repo, attemptBranch);
+      // Seed this attempt's session file from its arm base's (parallel to forking the
+      // git branch): the transcript lives in the sessions store (outside the repo), so
+      // each attempt gets its OWN file, appended to by the continuation below.
+      const sessionPath = branchSessionFile(deps.sessionsDir, attemptBranch);
+      ops.copySeed(branchSessionFile(deps.sessionsDir, base.branch), sessionPath);
       if (getRunState() !== null) updateRunState({ currentArm: base.arm, currentAttempt: attempt });
 
       const wallMsMap = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
@@ -333,7 +345,7 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
       });
 
       ops.commit(deps.repo, `phase-2: continuation attempt ${attempt} for arm ${base.arm} (${base.tool})`);
-      const trace = ops.captureTrace(deps.repo, attemptBranch, wallMsMap);
+      const trace = ops.captureTrace(sessionPath, attemptBranch, wallMsMap);
       traces.push({ ...trace, arm: base.arm, attempt });
       log.info(`phase-2: arm ${base.arm} attempt ${attempt} settled → ${attemptBranch}`);
     }

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import type { BuildSeams } from "../../src/production/build.js";
 import { prepareScenario } from "../../src/production/prepare.js";
+import { branchSessionFile } from "../../src/storage/paths.js";
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
 
@@ -54,19 +55,20 @@ function writeSession(path: string, cwd: string, n: number): void {
   writeFileSync(path, lines.join("\n"));
 }
 
-function setup(): { root: string; repo: string; manifestPath: string; preSliceDir: string } {
+function setup(): { root: string; repo: string; sessionsDir: string; manifestPath: string; preSliceDir: string } {
   const root = mkdtempSync(join(tmpdir(), "bench-prepare-"));
   const repo = join(root, "repo");
+  const sessionsDir = join(root, "sessions");
   mkdirSync(repo, { recursive: true });
   const manifestPath = join(root, "manifest.json");
   const preSliceDir = join(root, "sliced");
   mkdirSync(preSliceDir, { recursive: true });
-  return { root, repo, manifestPath, preSliceDir };
+  return { root, repo, sessionsDir, manifestPath, preSliceDir };
 }
 
 describe("prepareScenario — build mode", () => {
-  it("drives build → freeze: main holds session.jsonl + files, manifest outside repo", async () => {
-    const { root, repo, manifestPath, preSliceDir } = setup();
+  it("drives build → freeze: main holds ONLY project files, session in sessions store, manifest outside repo", async () => {
+    const { root, repo, sessionsDir, manifestPath, preSliceDir } = setup();
     try {
       const backupPath = join(root, "built.jsonl");
       writeSession(backupPath, repo, 5);
@@ -86,14 +88,19 @@ describe("prepareScenario — build mode", () => {
         scenario: "tycoon",
         compactionBoundary: 140000,
         repoPath: repo,
+        sessionsDir,
         manifestPath,
         preSliceDir,
         seams,
       });
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
       const files = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n");
-      expect(files).toContain("session.jsonl");
+      expect(files).not.toContain("session.jsonl"); // session lives OUTSIDE the repo
       expect(files).not.toContain("manifest.json");
+      // the frozen session is at main's session file in the sessions store
+      expect(JSON.parse(readFileSync(branchSessionFile(sessionsDir, "main"), "utf8").trim().split("\n")[0]).type).toBe(
+        "session",
+      );
       expect(JSON.parse(readFileSync(result.manifestPath, "utf8")).recallFacts[0].id).toBe("rf1");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -103,7 +110,7 @@ describe("prepareScenario — build mode", () => {
 
 describe("prepareScenario — extract mode", () => {
   it("extracts + copies codebase → trial → author → validate → freeze", async () => {
-    const { root, repo, manifestPath, preSliceDir } = setup();
+    const { root, repo, sessionsDir, manifestPath, preSliceDir } = setup();
     try {
       const codebase = join(root, "codebase");
       mkdirSync(codebase, { recursive: true });
@@ -129,6 +136,7 @@ describe("prepareScenario — extract mode", () => {
         extractCwd: codebase,
         compactionBoundary: 140000,
         repoPath: repo,
+        sessionsDir,
         manifestPath,
         preSliceDir,
         seams,
@@ -142,8 +150,11 @@ describe("prepareScenario — extract mode", () => {
       expect(copied).toBe(true); // codebase copied into repo
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
       const files = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n");
-      expect(files).toContain("session.jsonl");
+      expect(files).not.toContain("session.jsonl"); // session lives OUTSIDE the repo
       expect(files).toContain("main.ts"); // project file committed (V2/R1-2 fix)
+      expect(JSON.parse(readFileSync(branchSessionFile(sessionsDir, "main"), "utf8").trim().split("\n")[0]).cwd).toBe(
+        repo,
+      );
       expect(JSON.parse(readFileSync(result.manifestPath, "utf8")).id).toBe("t");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -175,6 +186,7 @@ describe("prepareScenario — extract mode", () => {
           extractCwd: codebase,
           compactionBoundary: 140000,
           repoPath: repo,
+          sessionsDir: join(root, "sessions"),
           manifestPath,
           preSliceDir,
           seams,
@@ -197,6 +209,7 @@ describe("prepareScenario — contamination guards (R1-3)", () => {
           scenario: "tycoon",
           compactionBoundary: 140000,
           repoPath: repo,
+          sessionsDir: join(root, "sessions"),
           manifestPath,
           preSliceDir: preSliceInsideRepo,
           seams: {} as BuildSeams,
@@ -218,6 +231,7 @@ describe("prepareScenario — contamination guards (R1-3)", () => {
           extractCwd: root,
           compactionBoundary: 140000,
           repoPath: repo,
+          sessionsDir: join(root, "sessions"),
           manifestPath,
           preSliceDir,
           seams: {} as BuildSeams,
