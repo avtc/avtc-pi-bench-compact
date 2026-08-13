@@ -4,8 +4,7 @@
 // Trial compaction: find where the native cut lands on a COPY of the backup (no
 // memory extension — bare-pi-style), so the manifest-authoring agent gets the exact
 // compacted-away span it will be tested on. The copy is NOT the real backup — the
-// real backup stays un-compacted (the bench performs the first compaction per arm
-// in Task 12).
+// real backup stays un-compacted (the bench performs the first compaction per arm).
 //
 // The live compaction (switchSession-load the copy → ctx.compact() → read the
 // CompactionEntry) is an injectable seam; the real wiring is `buildTrialCompactSeam`

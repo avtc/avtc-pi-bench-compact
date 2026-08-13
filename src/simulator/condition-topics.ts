@@ -5,8 +5,8 @@
 // user-simulator voices naturally as it designs any project (the <idea> is a runtime
 // parameter; the topics are generic behavioral axes). These are the single source of
 // truth for which conditions a scenario MUST/SHOULD contain: consumed by
-// `buildSimulatorSystemPrompt` (8c, voiced as user intent), Task 9's manifest
-// validation ("essential topics required"), and Task 10's condition-landing check.
+// `buildSimulatorSystemPrompt` (voiced as user intent), the manifest validation
+// ("essential topics required"), and the condition-landing check.
 //
 // The simulator designs + voices the SPECIFICS (which decision, which system);
 // the topics + their `tag`/`metricAxis` mappings are fixed here. The manifest's

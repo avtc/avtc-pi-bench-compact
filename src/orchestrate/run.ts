@@ -31,7 +31,7 @@ import { writeRunConfig } from "../storage/configs.js";
 import { assertNotInRepo, benchRoot, configPath, runDir } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
-import { NO_DETAIL, type WidgetStageHooks, widgetStageHooks } from "../widget/tracker.js";
+import { NO_DETAIL } from "../widget/tracker.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -50,8 +50,9 @@ import type { RunTrace } from "./trace.js";
 
 /** A run-scoped abort controller (owned by startRun; threaded into Phase 2/probes/
  *  score). Phase 1 (compaction) has NO signal seam yet — `ctx.compact()` takes none —
- *  so Phase 1 is not abortable until pi exposes one (Task 23 wires `/bench-compact:
- *  abort` to trigger this controller for the phases that DO consume it). */
+ *  so Phase 1 is not abortable. `/bench-compact:abort` fires this controller via the
+ *  run-state abort holder; the phases that consume the signal stop via their existing
+ *  stop-and-surface path. */
 type RunSignal = AbortSignal;
 
 /** Why a run halted (stop-and-surface), across phases. */
@@ -131,8 +132,6 @@ export interface BuildScoreDepsArgs {
   signal: RunSignal;
   /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
   modelsPath: string;
-  /** The live-progress widget (the judge transport wires its onEvent + ctx-window for score ctx/tok). */
-  widget?: WidgetPort | null;
 }
 
 /** Per-run output-token cap for the judge stages (single-call slices + agentLoop summaries). */
@@ -273,7 +272,6 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       meta,
       signal,
       modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
-      widget,
     });
     const { resultJson, markdown } = await score(input, scoreDeps);
 
@@ -417,29 +415,22 @@ function buildScoreMeta(
   };
 }
 
-/** The widget hooks for the score phase, or `undefined` to suppress score ctx/tok.
- *  K>1 judges fan out in parallel; their events would interleave into the widget's
- *  shared two-tier accumulator (meaningless tok/ctx), so ctx/tok is forwarded ONLY at
- *  K=1 (the dev default). Metrics are read from the trace, never the widget. Extracted
- *  as a named helper so the K-guard is directly unit-testable. */
-export function scoreWidgetHooks(
-  judgesNumber: number,
-  widget: WidgetPort | null | undefined,
-): WidgetStageHooks | undefined {
-  return judgesNumber === 1 ? widgetStageHooks(widget) : undefined;
-}
-
 /** The production ScoreRunDeps: builds the K-judge ensemble (callJudges + stageSeams
  *  from the run config's judge fields), the evaluated-model pricing, a seeded rank
- *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read. */
+ *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read.
+ *
+ *  No live-progress widget forwarding: the score phase is inherently concurrent —
+ *  gradeComparativeRouting runs slice (resume/task-quality) + summary (redo-plan/goal)
+ *  axes in parallel (plus per-arm trace-binary), so concurrent judge calls would
+ *  interleave into the widget's shared two-tier token accumulator (meaningless
+ *  tok/ctx). The score phase cell (advanced via startPhase("score") in startRun)
+ *  still signals progress; the judge's per-call tokens are not surfaced. Metrics are
+ *  read from the trace. */
 export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
-  const hooks = scoreWidgetHooks(args.runConfig.judgesNumber, args.widget);
   const transport = defaultJudgeTransport(args.ctx, {
     maxTokens: JUDGE_MAX_TOKENS,
     signal: args.signal,
     rateLimitOptions: null,
-    onEvent: hooks?.onEvent,
-    onModelResolved: hooks?.onModelResolved,
   });
   const ensemble = buildJudgeEnsemble(args.runConfig, transport);
   const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);

@@ -13,11 +13,11 @@
 // simulator must produce exactly ONE user message per agent RUN (injecting on every
 // turn_end would queue multiple followUps mid-run). The control flow is
 // authoritative: "agent works → agent_end → harness measures context." So the
-// driver's cycle fires on agent_settled; the harness (Task 10/12) wires pi events
+// driver's cycle fires on agent_settled; the harness wires pi events
 // to `onAgentSettled` / `trackContext` / `setAgentQuestion`.
 //
 // **The harness owns pacing + stop.** The driver signals stop (boundary / error);
-// it never captures the backup or compacts (Task 10/12 does).
+// it never captures the backup or compacts (the harness does).
 
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -184,7 +184,7 @@ export class SimulatorDriver {
     // 2-8. observe → resolve → run stage → inject. Wrapped so ANY throw (runStage
     //    StageRunError on LLM/network/rate-limit failure, a throwing seam) is funneled
     //    into onStop({reason:"error"}) — never an unhandled rejection that stalls a
-    //    harness wired only to onStop (R2.1). The pacing check (step 1) stays outside.
+    //    harness wired only to onStop. The pacing check (step 1) stays outside.
     try {
       // 2. observe the agent's response since the simulator's last injection.
       //    The frontier is DERIVED (lastUserMessageId = the simulator's last injection;
@@ -258,7 +258,7 @@ export class SimulatorDriver {
       this.deps.hooks?.onStep?.({ step: this._step, contextTokens: this._contextTokens, injectedText: text });
     } catch (cause) {
       // any thrown error (runStage StageRunError, a throwing seam) → stop+surface,
-      // never an unhandled rejection that stalls a harness wired only to onStop (R2.1)
+      // never an unhandled rejection that stalls a harness wired only to onStop
       const msg = cause instanceof Error ? cause.message : String(cause);
       log.warn(`simulator: stage threw — ${msg}`);
       this.deps.hooks?.onStop?.({ contextTokens: this._contextTokens, reason: "error", error: msg });

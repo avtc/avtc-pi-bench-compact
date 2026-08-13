@@ -58,11 +58,11 @@ describe("makePrepareScenarioHandler", () => {
     const notified: { msg: string; level: string }[] = [];
     const ctx = { ui: { notify: (msg: string, level: string) => void notified.push({ msg, level }) } };
     const handler = makePrepareScenarioHandler({
-      prepareScenario: vi.fn().mockRejectedValue(new Error("live wiring is Task 19")),
+      prepareScenario: vi.fn().mockRejectedValue(new Error("live wiring failed")),
       buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
     });
     await handler("my idea", ctx);
-    expect(notified.some((n) => n.level === "error" && n.msg.includes("Task 19"))).toBe(true);
+    expect(notified.some((n) => n.level === "error" && n.msg.includes("live wiring failed"))).toBe(true);
   });
 
   it("sets the widget to 'prepared' on success + 'stopped' on failure", async () => {

@@ -16,8 +16,7 @@
  * stops on failure); pi's Ink-based TUI does not surface `console.*` output, so a
  * console logger would silently drop every diagnostic.
  *
- * `debug` honors the `BENCH_COMPACT_DEBUG` env var (Task 2 may swap this for a live
- * settings gate like memkeeper's `debugLog`); `info`/`warn`/`error` always write.
+ * `debug` honors the `BENCH_COMPACT_DEBUG` env var; `info`/`warn`/`error` always write.
  */
 
 import { createLogger } from "avtc-pi-logger";

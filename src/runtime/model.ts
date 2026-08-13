@@ -10,10 +10,8 @@
 // Then the api key is resolved for the chosen model. A failed resolution (unknown
 // model, no key, no model at all) is reported so the caller can STOP+surface.
 //
-// Adapted from avtc-pi-memkeeper's `resolveStageModel`, DROPPED the notify-coupled
-// wrapper (`resolveStageModelOrNotify`) and the reasoning chain
-// (`resolveStageReasoning`) — the bench notifies via its own paths and resolves
-// reasoning directly from its `evaluatedThinkingLevel` config at the call site.
+// Resolves the model id + its reasoning level directly from the bench config
+// (`evaluatedThinkingLevel` at the call site); the bench notifies via its own paths.
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";

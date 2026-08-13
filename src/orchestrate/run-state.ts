@@ -5,7 +5,7 @@
 // (UD25: `/reload` re-reads settings + re-discovers extensions, but does NOT
 // reset globalThis, so the harness state persists across arm switches).
 //
-// Read by `/bench-compact:status` + the live-progress widget (Task 18). Written
+// Read by `/bench-compact:status` + the live-progress widget. Written
 // by the orchestrator (Tasks 12/13a/13b) as phases advance + on stop-and-surface.
 
 import type { ArmId } from "../config/types.js";

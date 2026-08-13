@@ -5,7 +5,7 @@
 // work starts; on failure the command refuses with a one-line reason (no run started).
 //
 // Two layers: (1) the bench CONFIG rules (delegated to `validateBenchConfig` from
-// Task 2 — ≥1 arm, compactionBoundary ≥20K, OM-full threshold sane) applied to every
+// the config rules — ≥1 arm, compactionBoundary ≥20K, OM-full threshold sane) applied to every
 // command; (2) per-command arg/path checks (idea-or-path presence, path existence
 // via an injectable `exists` checker so the unit is pure-testable).
 

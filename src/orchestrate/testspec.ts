@@ -180,6 +180,16 @@ const DEFAULT_OPS: TestSpecOps = {
  * stop-and-surface condition.
  *
  * Pure orchestration over the injectable `ops` (no hidden globals).
+ *
+ * **SECURITY — arbitrary execution of LLM-authored content.** The `testSpec` string
+ * is authored by the manifest-authoring agent from the evaluated model's own build
+ * session (untrusted model output) and is run via the real shell (`execSync`).
+ * `scrubEnv` strips provider API keys + other secret-looking env vars first, but the
+ * residual arbitrary-execution risk is inherent: a malicious/injected model under
+ * test can author a `testSpec` that runs ANY code in the repo cwd. There is no
+ * sandbox — mitigation is operator review of the authored `testSpec` before a run
+ * (inspect the frozen manifest), especially for the `run <idea>` shorthand which
+ * automates prepare→run with no human checkpoint. See docs/RUNNING.md.
  */
 export function runTestSpec(deps: TestSpecDeps): TestSpecResult {
   const ops: TestSpecOps = { ...DEFAULT_OPS, ...deps.ops };

@@ -5,9 +5,8 @@
 // full-width TUI line: fixed segments (🅑 marker, arm counter, phase-bar,
 // phase name, ctx/tok counters, status/hint) joined by ` · `, with at most one
 // elastic segment (the tool name) that middle-elides when the line overflows the
-// terminal. Adapted from avtc-pi-featyard's fitLine (src/ui/featyard-widget.ts),
-// simplified to a theme-less plain-string render (the bench widget carries no
-// ANSI colors — only the 🅑/■/◧/□ glyphs).
+// terminal. Theme-less plain-string render (the bench widget carries no ANSI
+// colors — only the 🅑/■/◧/□ glyphs).
 
 /** A renderable line segment. A bare string is fixed (never shortened); an
  *  `{ prefix, tail }` is elastic — `prefix` is fixed, `tail` middle-elides. */
@@ -18,7 +17,7 @@ const SEGMENT_SEP = " · ";
 
 /** Default terminal width when stdout.columns is unavailable. */
 const TERM_DEFAULT = 80;
-/** Safety margin (matches featyard — keeps the line off the right edge). */
+/** Safety margin: keeps the line off the right edge. */
 const TERM_MARGIN = 2;
 
 /** Usable terminal width (`process.stdout.columns` − margin, default 80). */

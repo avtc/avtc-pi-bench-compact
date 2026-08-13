@@ -124,7 +124,7 @@ export interface WriteResultJsonDeps {
   readonly scenario: ResultScenario;
   /** The full run config (config block + toolVersions are split out of it). */
   readonly runConfig: RunConfig;
-  /** The aggregated per-arm + cross-arm metrics (Task 15). */
+  /** The aggregated per-arm + cross-arm metrics. */
   readonly aggregate: AggregateResult;
   /** Per-arm completed/failed run counts (run tracking, not the aggregate). */
   readonly armRunCounts: Readonly<Partial<Record<ArmId, { completed: number; failed: number }>>>;

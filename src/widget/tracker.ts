@@ -25,7 +25,7 @@ const THROTTLE_MS = 200;
 /** No detail — the named null for `startPhase`'s detail arg (no-bare-literals). */
 export const NO_DETAIL: string | null = null;
 
-/** The widget key + placement (matches memkeeper's TUI slot). */
+/** The widget key + placement (above the editor). */
 export const WIDGET_KEY = "bench_compact_progress";
 export const WIDGET_PLACEMENT = "aboveEditor" as const;
 

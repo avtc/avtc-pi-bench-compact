@@ -14,7 +14,7 @@ const nodeRequire = createRequire(import.meta.url);
 /**
  * Injectable version-resolution seams (so {@link resolveToolVersion} is unit-testable
  * without a real filesystem / git). The DEFAULT uses `require.resolve` + git rev-parse
- * + package.json; Task 12 supplies a resolver that prefers the extension's resolved
+ * + package.json; the version resolver prefers the extension's resolved
  * path from the live pi runtime. Returns {@link ToolVersion} (the shape
  * `buildCfgId` consumes via `RunConfig.toolVersions`).
  */

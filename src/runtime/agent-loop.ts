@@ -11,10 +11,9 @@
  * tracking, cooperative abort, the per-turn timeout, and the `onEvent`/`onStageEnd`
  * sinks.
  *
- * Adapted from avtc-pi-memkeeper's `runtime/agent-loop.ts` (renamed
- * `runStage`→`runBenchStage`; `StageUsage` extended with `cacheWrite` for the
- * bench's compaction-cost breakdown). Owns NOTHING about the prompt, tools, or model —
- * each caller provides those. This module is pure plumbing.
+ * Pure plumbing: owns NOTHING about the prompt, tools, or model — each caller
+ * provides those. `runBenchStage` drives one LLM turn; `StageUsage` carries a
+ * `cacheWrite` field for the compaction-cost breakdown.
  */
 
 import type {

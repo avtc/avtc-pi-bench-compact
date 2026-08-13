@@ -79,13 +79,13 @@ describe("registerBenchCommands", () => {
     expect(commands.has("bench-compact:settings")).toBe(false);
   });
 
-  it("prepare-scenario surfaces the Task-19 live-wiring error for a valid idea (real command, not stub)", async () => {
+  it("prepare-scenario surfaces a prepare failure for a valid idea (real command, not stub)", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:prepare-scenario")("a tycoon idea", ctx);
-    // defaultBuildPrepareDeps throws NotImplemented (Task 19 wires the live seams)
-    expect(notifies.some((n) => /Task 19|prepare failed/i.test(n.msg))).toBe(true);
+    // the live prepare seams fail against the fake ctx (no real pi/session)
+    expect(notifies.some((n) => /prepare failed/i.test(n.msg))).toBe(true);
   });
 
   it("stub handler surfaces a preflight failure as a warning", async () => {
@@ -153,8 +153,8 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /manifest\.json/i.test(n.msg))).toBe(true);
     expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(false);
 
-    // run <idea> → reaches prepare; defaultBuildPrepareDeps throws (Task 19 wires the
-    // live seams) → 'prepare failed' (real prepare→run chain, NOT a stub).
+    // run <idea> → reaches prepare; the live prepare seams fail against the fake ctx
+    // → 'prepare failed' (real prepare→run chain, NOT a stub).
     notifies.length = 0;
     await handlerOf(commands, "bench-compact:run")("an incremental game idea", ctx);
     expect(notifies.some((n) => /prepare failed/i.test(n.msg))).toBe(true);

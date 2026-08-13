@@ -12,7 +12,7 @@ import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { type ArmBase, type Phase1Deps, type Phase1Result, Phase1StoppedError } from "../../src/orchestrate/phase1.js";
 import { type Phase2Deps, type Phase2Result, Phase2StoppedError } from "../../src/orchestrate/phase2.js";
 import { ProbeStoppedError } from "../../src/orchestrate/probes.js";
-import { type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
+import { type BuildScoreDepsArgs, type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
@@ -654,15 +654,25 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
     ).toThrow(/model-unavailable|pricing for evaluated model/);
   });
 
-  it("scoreWidgetHooks suppresses ctx/tok for K>1 (parallel judges would interleave) + forwards at K=1", async () => {
-    const { scoreWidgetHooks } = await import("../../src/orchestrate/run.js");
-    const widget = capturingWidget();
-    // K=3 → undefined (suppressed); K=1 → the hook pair (forwards).
-    expect(scoreWidgetHooks(3, widget)).toBeUndefined();
-    expect(scoreWidgetHooks(1, widget)).toBeDefined();
-    // a null/absent widget suppresses at every K (non-TUI).
-    expect(scoreWidgetHooks(1, null)).toBeUndefined();
-    expect(scoreWidgetHooks(1, undefined)).toBeUndefined();
+  it("score deps take NO widget (concurrent axes would interleave judge events)", () => {
+    // The score phase is inherently concurrent — gradeComparativeRouting runs slice
+    // (E1/E7) + summary (E3/E10) axes in parallel, plus per-arm trace-binary — so the
+    // judge transport must NOT wire widget onEvent/onModelResolved or concurrent calls
+    // interleave into the shared two-tier accumulator (meaningless tok/ctx). The score
+    // phase cell (startPhase("score") in startRun) still signals progress.
+    //
+    // Compile-time guard: BuildScoreDepsArgs is constructible WITHOUT a widget. If a
+    // future change re-adds `widget` as a REQUIRED field, this `satisfies` fails tsc.
+    const args = {
+      ctx: {} as ExtensionContext,
+      runConfig: {} as BuildScoreDepsArgs["runConfig"],
+      manifest: {} as ScenarioManifest,
+      meta: {} as BuildScoreDepsArgs["meta"],
+      signal: new AbortController().signal,
+      modelsPath: "x",
+    } satisfies BuildScoreDepsArgs;
+    // score deps carry no widget-coupled seam at all.
+    expect(Object.keys(args)).not.toContain("widget");
   });
 });
 

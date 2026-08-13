@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The user-simulator's observation primitives — adapted from avtc-pi-memkeeper
-// (`format/chunk.ts` + `triggers.ts`), which the simulator reuses to read the
-// coding agent's output. Unlike memkeeper (which renders to
-// cite source ids for an Observer), the simulator renders a readable transcript
-// of the agent's recent work to decide its next user message, so it calls
-// `buildChunks` with `includeEntryId: false` (it never cites).
+// The user-simulator's observation primitives: read the coding agent's output +
+// render a readable transcript of recent work so the simulator LLM can decide its
+// next user message. Unlike a memory Observer (which renders to cite source ids),
+// the simulator renders a readable transcript + calls `buildChunks` with
+// `includeEntryId: false` (it never cites).
 //
 // What's here: `isRenderableEntry` (the renderable filter), `computeUnobserved`
 // (the id-cursor frontier gap), `renderGroups` + `buildChunks` (the entry-bounded,
@@ -14,8 +13,6 @@
 // pairs), and `stripAnsi` (tool output often carries ANSI codes — stripped so the
 // simulator's context stays compact + clean). The chars/4 token estimate is shared
 // with the agent-loop runtime (single source: `../runtime/streaming-tokens.js`).
-//
-// Faithful to memkeeper's proven logic; differences noted inline.
 
 import type { AssistantMessage, TextContent, ToolCall } from "@earendil-works/pi-ai";
 import type {
@@ -26,7 +23,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { CHARS_PER_TOKEN_ESTIMATE } from "../runtime/streaming-tokens.js";
 
-// --- stripAnsi (verbatim from memkeeper format/sanitize.ts) -----------------
+// --- stripAnsi -------------------------------------------------------------
 
 /** ANSI/VT escape sequences stripped from all rendered text (CSI incl. 24-bit
  *  color with ':' params + cursor moves + '?' private modes via \x1b[ or the
@@ -39,7 +36,7 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
-// --- isRenderableEntry (verbatim from memkeeper format/chunk.ts) ------------
+// --- isRenderableEntry (the renderable filter) -----------------------------
 
 /** Entry types the simulator renders (message/custom_message/branch_summary). */
 const RENDERABLE_ENTRY_TYPES: ReadonlySet<string> = new Set(["message", "custom_message", "branch_summary"]);
@@ -49,7 +46,7 @@ export function isRenderableEntry(entry: SessionEntry): boolean {
   return RENDERABLE_ENTRY_TYPES.has(entry.type);
 }
 
-// --- render block / group / chunk types (verbatim from memkeeper) -----------
+// --- render block / group / chunk types -----------------------------------
 
 /** One rendered tag-block in the transcript (carries entry=entryId when cited). */
 interface RenderBlock {
@@ -84,7 +81,7 @@ export interface RenderedChunk {
   readonly lastEntryId: string;
 }
 
-// --- computeUnobserved (id-cursor frontier gap; from memkeeper triggers.ts) -
+// --- computeUnobserved (id-cursor frontier gap) ---------------------------
 
 /** Whether a session entry is a user message (anchors the null-frontier start). */
 function isUserMessageEntry(entry: SessionEntry): boolean {
@@ -129,7 +126,7 @@ export function computeUnobserved(entries: readonly SessionEntry[], frontier: st
   return entries.slice(startIndex).filter(isRenderableEntry);
 }
 
-// --- sanitization & truncation (verbatim from memkeeper) --------------------
+// --- sanitization & truncation --------------------------------------------
 
 const TRUNCATION_MARKER = "[…truncated…]";
 const THINKING_PREFIX_PATTERN = /^Thinking:\s*/;
@@ -190,7 +187,7 @@ function rBlock(id: string, inner: string, isError: boolean, includeEntryId: boo
   return { entryId: id, text: `<TOOLRESULT${attr}>${inner}</TOOLRESULT>` };
 }
 
-// --- per-entry group rendering (verbatim from memkeeper) --------------------
+// --- per-entry group rendering --------------------------------------------
 
 function renderCustomMessageGroup(entry: CustomMessageEntry, includeEntryId: boolean): RenderGroup | null {
   const text = cleanText(entry.content);
@@ -341,7 +338,7 @@ function emitToolCallPair(
   consumedResultIds.add(resultEntry.id);
 }
 
-// --- chunk splitting (entry-bounded; verbatim from memkeeper) ---------------
+// --- chunk splitting (entry-bounded) --------------------------------------
 
 /**
  * Split entries into entry-bounded, token-gated chunks. A whole entry (its group)

@@ -39,7 +39,7 @@ function runGit(cwd: string, args: string[]): string {
 
 /**
  * Initialize a scenario repo at `repoPath` (its working tree already populated with the project
- * files by the caller — Task 10 prepare; the session transcript lives outside the repo). Creates
+ * files by the caller — the prepare flow; the session transcript lives outside the repo). Creates
  * a `main` branch + commits the tree. Sets a local git identity so commits succeed in a fresh repo.
  */
 export function initScenarioRepo(repoPath: string, opts: { message?: string } = {}): string {
@@ -87,7 +87,7 @@ export function diffFile(repo: string, a: string, b: string, file: string): stri
 }
 
 /** True when `branch` exists in `repo` (has been committed at least once). Used by freeze
- *  (Task 10c) to enforce main immutability — re-prepare is refused without `--force`. */
+ *  to enforce main immutability — re-prepare is refused without `--force`. */
 export function branchExists(repo: string, branch: string): boolean {
   try {
     runGit(repo, ["rev-parse", "--verify", branch]);
@@ -97,7 +97,7 @@ export function branchExists(repo: string, branch: string): boolean {
   }
 }
 
-/** Delete `branch`'s ref so the next commit recreates it fresh. Used by freeze (Task 10c)
+/** Delete `branch`'s ref so the next commit recreates it fresh. Used by freeze
  *  for the `--force` re-prepare path: reset main, then `initScenarioRepo` re-commits the
  *  (new) working tree as a fresh main. */
 export function resetBranch(repo: string, branch: string): void {

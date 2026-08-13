@@ -4,7 +4,7 @@
 // Pre-slice the compacted-away span (all entries before `firstKeptEntryId`) into a
 // standalone JSONL for the manifest-authoring agent (the pre-sliced input). This
 // STRUCTURALLY guarantees every entry-id the author cites is in-span, so validation
-// (Task 9) only needs the cited-content-present check — no boundary logic in the
+// only needs the cited-content-present check — no boundary logic in the
 // authoring prompt.
 //
 // The session header (type:"session") is excluded — the slice is a span of

@@ -111,8 +111,8 @@ function buildSystemPrompt(axis: MetricId, manifest: ScenarioManifest, cwd: stri
  * design's edge-handling is the single-call + ranking paths' maxRetries; the agentLoop+tools path self-corrects via multi-turn bounded by
  * the no-capture STOP+surface floor (the agent never emits a valid summary ->
  * runJsonToolStage raises no-capture). A hard turn cap on the agentLoop+tools
- * stages is a cross-cutting hardening item (would change gradeTrajectory +
- * manifest-authoring too) — deferred.
+ * stages is a separate hardening concern (it would also affect gradeTrajectory +
+ * manifest-authoring); the rate-limit + STOP+surface paths bound the risk without it.
  */
 export async function summarizeTrajectory(deps: TrajectorySummaryDeps): Promise<string> {
   const terminalTool: JsonOutputTool = makeJsonOutputTool(

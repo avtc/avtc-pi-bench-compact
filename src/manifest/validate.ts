@@ -5,14 +5,14 @@
 // guarantee is structural (the harness pre-slices the compacted-away entries, so
 // every id the author sees IS in-span), but this layer DEFENDS it + checks the
 // cited content is genuinely present, the essential condition-lists are populated,
-// and the compaction precondition holds. Used by prepare-scenario (Task 10) before
+// and the compaction precondition holds. Used by prepare-scenario before
 // freezing; failures STOP-and-surface.
 
 import type { Abstention, DoneOp, RecallFact, ScenarioManifest, Supersession } from "./schema.js";
 
 /** Which condition lists may be required non-empty (the essential scoring axes).
  *  recallFacts + doneOps are essential (they back the effectiveness metrics); supersessions/abstentions
- *  are safeToSkip — see CONDITION_TOPICS (Task 8). */
+ *  are safeToSkip — see CONDITION_TOPICS. */
 export type ConditionListName = "recallFacts" | "doneOps" | "supersessions" | "abstentions";
 
 /** Context the validator needs (all harness-supplied — no file I/O here). */

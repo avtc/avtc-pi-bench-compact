@@ -13,7 +13,7 @@
  *     which is a convention doc that legitimately quotes the forbidden patterns)
  *
  * Refs flagged: design-doc sections (§N, §2B.2), decisions (D27, D27 line 849),
- * requirements (R2-8), acceptance criteria (AC6b), tasks (Task 2.1), phases
+ * requirements (R2-8, R2.1), acceptance criteria (AC6b), tasks (Task 2, Task 2.1), phases
  * (P2-1), WN2, "Section N", "Design ref…", and commit-hash refs (commit deadbeef).
  *
  * NOT flagged (the legitimate home for these refs): design docs and `.featyard/`
@@ -55,8 +55,10 @@ const TOKEN_RES = [
   // these because A→D has no word boundary.
   /\bAD\d{1,2}\b/g,
   /\bR\d{1,2}-\d{1,3}\b/g,
+  // review/gate finding refs in DOT form (R2.1) — the hyphen pattern above misses these.
+  /\bR\d{1,2}\.\d{1,3}\b/g,
   /\bAC\d+\w?\b/g,
-  /\bTask \d+\.\d+\b/g,
+  /\bTask \d+(?:\.\d+)?\b/g,
   /\bWN\d+\b/g,
   /\bP\d-\d\b/g,
   /\bSection \d+\b/g,

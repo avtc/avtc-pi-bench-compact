@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Registers every `/bench-compact:*` command EXCEPT `settings` (wired in
-// Task 2 via registerBenchSettings). Each handler closes over `pi` (for
+// Registers every `/bench-compact:*` command EXCEPT `settings` (wired separately
+// via registerBenchSettings). Each handler closes over `pi` (for
 // sendUserMessage) and receives `(args, ctx)` from pi.
 //
 // prepare-scenario + results + run/run-scenario/run-session-file are all real
-// handlers (Task 23 replaced the run-command stubs). `pause`/`resume`/`abort`/
+// handlers (not stubs). `pause`/`resume`/`abort`/
 // `status` are real-minimal control commands (steer/continue/stop/report).
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
