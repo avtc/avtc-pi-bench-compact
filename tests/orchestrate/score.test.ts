@@ -321,8 +321,8 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
       attempt: 1,
       continuation: trace,
       probes: [
-        { arm: "A3", probeId: "1", branch: "b", answer: "yes", kept: true },
-        { arm: "A3", probeId: "2", branch: "b", answer: "I refuse to guess", kept: true },
+        { arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "yes", kept: true },
+        { arm: "A3", attempt: 1, probeId: "2", branch: "b", answer: "I refuse to guess", kept: true },
       ],
       repo: "/repo",
       branch: "arm-x-1",
@@ -349,8 +349,8 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
       attempt: 1,
       continuation: trace,
       probes: [
-        { arm: "A3", probeId: "1", branch: "b", answer: "x", kept: true },
-        { arm: "A3", probeId: "9", branch: "b", answer: "y", kept: true },
+        { arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "x", kept: true },
+        { arm: "A3", attempt: 1, probeId: "9", branch: "b", answer: "y", kept: true },
       ],
       repo: "/repo",
       branch: "arm-x-1",
@@ -648,8 +648,8 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
     const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 50)], [c1]);
     const probes = [
-      { arm: "A1" as const, probeId: "1", branch: "A1-1", answer: "formula", kept: true },
-      { arm: "A1" as const, probeId: "2", branch: "A1-1", answer: "I refuse", kept: true },
+      { arm: "A1" as const, attempt: 1, probeId: "1", branch: "A1-1", answer: "formula", kept: true },
+      { arm: "A1" as const, attempt: 1, probeId: "2", branch: "A1-1", answer: "I refuse", kept: true },
     ];
     const runs: ArmAttemptRun[] = [
       {
@@ -764,7 +764,7 @@ describe("K-judge ensemble (K>1)", () => {
       arm: "A3",
       attempt: 1,
       continuation: trace,
-      probes: [{ arm: "A3", probeId: "1", branch: "b", answer: "yes", kept: true }],
+      probes: [{ arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "yes", kept: true }],
       repo: "/repo",
       branch: "arm-x-1",
     };

@@ -33,7 +33,7 @@ import { type InjectMode, inject } from "../session/inject.js";
 import { extractContentText } from "../session/message-text.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
-import { appendProbe } from "../storage/branches.js";
+import { appendProbeAttempt } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
 import { isQaOnlyBranch } from "../storage/probe-lifecycle.js";
 import { branchExists, checkout, commitAll, forkBranch, resetBranch } from "../storage/repo.js";
@@ -77,6 +77,8 @@ export class ProbeStoppedError extends Error {
 export interface ProbeTrace {
   /** The arm this probe belongs to. */
   readonly arm: ArmId;
+  /** The 1-based attempt this probe fork samples (probes fork N× per arm → rate over N). */
+  readonly attempt: number;
   /** The 1-based positional probe id (probes carry no id in the manifest schema). */
   readonly probeId: string;
   /** The probe branch the answer was captured on. */
@@ -123,6 +125,9 @@ export interface ProbeDeps {
   readonly cmdCtx: ExtensionCommandContext;
   /** The arm's compacted base (Phase-1 result) — the fork point for every probe. */
   readonly armBase: ArmBase;
+  /** Probes fork N× per arm (one probe-set per attempt 1..N) → rate over N. Each fork is an
+   *  independent sample of agent-response variance from the SAME post-compaction memory. */
+  readonly N: number;
   /** The scenario manifest (its `probes[]` are the direct probes to run). */
   readonly manifest: ScenarioManifest;
   /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
@@ -214,12 +219,14 @@ const DEFAULT_OPS: ProbeOps = {
 // --- runProbes ---------------------------------------------------------------
 
 /**
- * Run the direct probes for one arm's compacted base. For each probe in
- * `manifest.probes`: fork the arm base into a 1-based probe branch, checkout, load
- * the session in-place (switchSession re-activates the extension → fresh pi/ctx),
- * inject the anti-peek-prefixed probe question, await `agent_settled`, capture the
- * answer, commit, then apply the probe-lifecycle (delete a Q&A-only branch; keep a
- * branch the agent changed). Returns one {@link ProbeTrace} per probe.
+ * Run the direct probes for one arm's compacted base, forked N× per arm (one probe-set per
+ * attempt 1..N). For each attempt × probe: fork the arm base into a probe branch (the
+ * branch carries the attempt suffix), checkout, load the session in-place (switchSession
+ * re-activates the extension → fresh pi/ctx), inject the anti-peek-prefixed probe
+ * question, await `agent_settled`, capture the answer, commit, then apply the
+ * probe-lifecycle (delete a Q&A-only branch; keep a branch the agent changed). Returns
+ * N×{@link ProbeTrace}s (one per attempt × probe) — each an independent sample of
+ * agent-response variance from the SAME post-compaction memory → rate over N.
  *
  * @throws {ProbeStoppedError} on a probe failure (inject/settle error) or hang (abort).
  */
@@ -230,65 +237,72 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
 
   let currentCtx: ExtensionCommandContext = deps.cmdCtx;
   const traces: ProbeTrace[] = [];
-  for (let i = FIRST_INDEX; i < deps.manifest.probes.length; i++) {
-    const probe = deps.manifest.probes[i];
-    deps.widget?.setDetail(`${i + 1}/${deps.manifest.probes.length}`);
-    const probeId = String(i + ONE_BASED_OFFSET); // 1-based positional (probes carry no id in the schema)
-    const probeBranch = appendProbe(baseBranch, probeId);
+  for (let attempt = 1; attempt <= deps.N; attempt++) {
+    for (let i = FIRST_INDEX; i < deps.manifest.probes.length; i++) {
+      const probe = deps.manifest.probes[i];
+      deps.widget?.setDetail(`probe ${i + 1}/${deps.manifest.probes.length} · attempt ${attempt}/${deps.N}`);
+      const probeId = String(i + ONE_BASED_OFFSET); // 1-based positional (probes carry no id in the schema)
+      const probeBranch = appendProbeAttempt(baseBranch, probeId, attempt);
 
-    // Fork arm-base → probe branch (idempotent: a re-run reuses an existing probe branch).
-    if (!ops.branchExists(deps.repo, probeBranch)) {
-      ops.fork(deps.repo, baseBranch, probeBranch);
-    }
-    ops.checkout(deps.repo, probeBranch);
-    // Seed this probe's session file from its arm base's (parallel to forking the git
-    // branch): the transcript lives in the sessions store (outside the repo), so each
-    // probe gets its OWN file, appended to by the probe turn below.
-    const sessionPath = branchSessionFile(deps.sessionsDir, probeBranch);
-    ops.copySeed(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
-
-    // Load the arm base in-place + drive the single probe turn. switchSession
-    // RE-ACTIVATES the extension (fresh pi stashed in globalThis) AND invalidates the
-    // prior ctx — so ALL probe work runs INSIDE withSession using the fresh pi (read
-    // from globalThis) + the fresh ctx (the withSession arg). The fresh ctx is threaded
-    // into currentCtx for the next probe's switchSession. ANTI_PEEK is prepended to the
-    // question so the agent re-sees the forbid-peek instruction before answering.
-    await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
-      currentCtx = sessionCtx;
-      const pi: ExtensionAPI = getBenchPi();
-      try {
-        const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${probe.question}`;
-        inject(pi, body, DELIVER_AS_FOLLOW_UP);
-        await ops.awaitSettled(pi, { signal });
-      } catch (err) {
-        if (err instanceof ProbeStoppedError) throw err;
-        const aborted = err instanceof AgentSettledAbortedError;
-        const cause = aborted ? "run signal aborted" : err instanceof Error ? err.message : String(err);
-        const reason: ProbeStopReason = aborted ? "probe-hung" : "probe-failed";
-        throw new ProbeStoppedError(arm, probeId, reason, `probe ${probeId} for arm ${arm} did not settle (${cause})`);
+      // Fork arm-base → probe branch (idempotent: a re-run reuses an existing probe branch).
+      if (!ops.branchExists(deps.repo, probeBranch)) {
+        ops.fork(deps.repo, baseBranch, probeBranch);
       }
-    });
+      ops.checkout(deps.repo, probeBranch);
+      // Seed this probe's session file from its arm base's (parallel to forking the git
+      // branch): the transcript lives in the sessions store (outside the repo), so each
+      // probe gets its OWN file, appended to by the probe turn below.
+      const sessionPath = branchSessionFile(deps.sessionsDir, probeBranch);
+      ops.copySeed(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
 
-    // Capture the answer off the probe branch's session file, then commit the probe boundary.
-    const answer = ops.readAnswer(sessionPath);
-    ops.commit(deps.repo, `phase-2b: probe ${probeId} for arm ${arm} (${tool})`);
+      // Load the arm base in-place + drive the single probe turn. switchSession
+      // RE-ACTIVATES the extension (fresh pi stashed in globalThis) AND invalidates the
+      // prior ctx — so ALL probe work runs INSIDE withSession using the fresh pi (read
+      // from globalThis) + the fresh ctx (the withSession arg). The fresh ctx is threaded
+      // into currentCtx for the next probe's switchSession. ANTI_PEEK is prepended to the
+      // question so the agent re-sees the forbid-peek instruction before answering.
+      await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
+        currentCtx = sessionCtx;
+        const pi: ExtensionAPI = getBenchPi();
+        try {
+          const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${probe.question}`;
+          inject(pi, body, DELIVER_AS_FOLLOW_UP);
+          await ops.awaitSettled(pi, { signal });
+        } catch (err) {
+          if (err instanceof ProbeStoppedError) throw err;
+          const aborted = err instanceof AgentSettledAbortedError;
+          const cause = aborted ? "run signal aborted" : err instanceof Error ? err.message : String(err);
+          const reason: ProbeStopReason = aborted ? "probe-hung" : "probe-failed";
+          throw new ProbeStoppedError(
+            arm,
+            probeId,
+            reason,
+            `probe ${probeId} (attempt ${attempt}) for arm ${arm} did not settle (${cause})`,
+          );
+        }
+      });
 
-    // Probe-lifecycle: a Q&A-only branch (diff is exclusively message entries) is
-    // DELETED (clean repo); a branch the agent tool-called/edited is KEPT. The session
-    // transcript is compared by reading the base + probe session FILES directly.
-    const kept = !ops.isQaOnly(
-      deps.repo,
-      baseBranch,
-      probeBranch,
-      branchSessionFile(deps.sessionsDir, baseBranch),
-      sessionPath,
-    );
-    if (!kept) {
-      ops.deleteBranch(deps.repo, probeBranch);
+      // Capture the answer off the probe branch's session file, then commit the probe boundary.
+      const answer = ops.readAnswer(sessionPath);
+      ops.commit(deps.repo, `phase-2b: probe ${probeId} (attempt ${attempt}) for arm ${arm} (${tool})`);
+
+      // Probe-lifecycle: a Q&A-only branch (diff is exclusively message entries) is
+      // DELETED (clean repo); a branch the agent tool-called/edited is KEPT. The session
+      // transcript is compared by reading the base + probe session FILES directly.
+      const kept = !ops.isQaOnly(
+        deps.repo,
+        baseBranch,
+        probeBranch,
+        branchSessionFile(deps.sessionsDir, baseBranch),
+        sessionPath,
+      );
+      if (!kept) {
+        ops.deleteBranch(deps.repo, probeBranch);
+      }
+
+      traces.push({ arm, attempt, probeId, branch: probeBranch, answer, kept });
+      log.info(`phase-2b: arm ${arm} probe ${probeId} (attempt ${attempt}) settled → ${probeBranch} (kept=${kept})`);
     }
-
-    traces.push({ arm, probeId, branch: probeBranch, answer, kept });
-    log.info(`phase-2b: arm ${arm} probe ${probeId} settled → ${probeBranch} (kept=${kept})`);
   }
   return { traces, finalCtx: currentCtx };
 }

@@ -128,6 +128,7 @@ function probesMock(
   impl: (deps: {
     armBase: ArmBase;
     cmdCtx: unknown;
+    N: number;
   }) => Promise<{ traces: unknown[]; finalCtx: Phase1Result["finalCtx"] }>,
 ): ReturnType<typeof vi.fn> {
   return vi.fn(impl);
@@ -410,7 +411,7 @@ describe("startRun — Phase 3 scoring", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("ScoreRunInput: one entry per (arm, attempt); probes on the FIRST attempt only; testSpec attached", async () => {
+  it("ScoreRunInput: one entry per (arm, attempt); probes on EVERY attempt (forked N×); testSpec attached", async () => {
     const bases = fakeBases(["A1", "A3"]);
     const traces = [
       ...fakeTraces(["A1"]),
@@ -420,11 +421,16 @@ describe("startRun — Phase 3 scoring", () => {
     ] as unknown as RunTrace[];
     const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
     const continuations = continuationsMock(async () => ({ traces, finalCtx: FINAL_CTX }));
-    const probes = probesMock(async (d: { armBase: ArmBase }) => ({
-      traces: [
-        { arm: d.armBase.arm, probeId: "1", branch: "pb", answer: "a1", kept: true },
-        { arm: d.armBase.arm, probeId: "2", branch: "pb", answer: "a2", kept: true },
-      ],
+    // Probes fork N× per arm (one set per attempt) → the mock returns a set tagged with
+    // each attempt 1..N, so buildScoreRunInput attaches attempt-i probes to attempt i.
+    const probes = probesMock(async (d: { armBase: ArmBase; N: number }) => ({
+      traces: Array.from({ length: d.N }, (_, idx) => {
+        const attempt = idx + 1;
+        return [
+          { arm: d.armBase.arm, attempt, probeId: "1", branch: "pb", answer: "a1", kept: true },
+          { arm: d.armBase.arm, attempt, probeId: "2", branch: "pb", answer: "a2", kept: true },
+        ];
+      }).flat(),
       finalCtx: FINAL_CTX,
     }));
     let capturedInput: unknown = null;
@@ -442,11 +448,10 @@ describe("startRun — Phase 3 scoring", () => {
       testSpecResult: { kind: string };
     }>;
     expect(input).toHaveLength(4); // 2 arms × 2 attempts
-    // probes ONLY on the first attempt of each arm (graded once, not duplicated)
-    const a1Attempt1 = input.find((r) => r.arm === "A1" && r.attempt === 1);
-    const a1Attempt2 = input.find((r) => r.arm === "A1" && r.attempt === 2);
-    expect(a1Attempt1?.probes).toHaveLength(2);
-    expect(a1Attempt2?.probes).toHaveLength(0);
+    // probes on EVERY attempt (forked N× → each attempt gets its own probe-set)
+    for (const r of input) {
+      expect(r.probes).toHaveLength(2);
+    }
     // testSpec attached to every attempt
     expect(input.every((r) => r.testSpecResult !== undefined)).toBe(true);
   });

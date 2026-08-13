@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendAttempt,
   appendProbe,
+  appendProbeAttempt,
   buildArmBaseBranch,
   buildAttemptBranch,
   buildCfgId,
@@ -56,6 +57,11 @@ describe("branch naming (§3.14)", () => {
   it("appendProbe: appends the -probe-{probeId} suffix to any base branch (single source)", () => {
     expect(appendProbe("bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c", "p2")).toBe(
       "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c-probe-p2",
+    );
+  });
+  it("appendProbeAttempt: appends the -probe-{probeId}-{attemptN} suffix (probes fork N× per arm)", () => {
+    expect(appendProbeAttempt("bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c", "p2", 3)).toBe(
+      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-om-default-g1a2b3c-probe-p2-3",
     );
   });
   it("buildProbeBranch: arm-{tool}-{ver}-probe-{probeId}", () => {

@@ -12,7 +12,7 @@ import type { ArmBase } from "../../src/orchestrate/phase1.js";
 import { extractProbeAnswer, type ProbeOps, ProbeStoppedError, runProbes } from "../../src/orchestrate/probes.js";
 import { AgentSettledAbortedError } from "../../src/session/done.js";
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
-import { appendProbe } from "../../src/storage/branches.js";
+import { appendProbeAttempt } from "../../src/storage/branches.js";
 import { branchSessionFile } from "../../src/storage/paths.js";
 
 // --- fixtures ----------------------------------------------------------------
@@ -138,6 +138,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     const { traces } = await runProbes({
       cmdCtx,
       armBase: base,
+      N: 1,
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -147,24 +148,57 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     expect(traces).toHaveLength(2);
     // one fork per probe, from the arm base, into the 1-based probe branch
     expect(ops.fork).toHaveBeenCalledTimes(2);
-    expect(ops.fork.mock.calls[0]).toEqual([repo, base.branch, appendProbe(base.branch, "1")]);
-    expect(ops.fork.mock.calls[1]).toEqual([repo, base.branch, appendProbe(base.branch, "2")]);
+    expect(ops.fork.mock.calls[0]).toEqual([repo, base.branch, appendProbeAttempt(base.branch, "1", 1)]);
+    expect(ops.fork.mock.calls[1]).toEqual([repo, base.branch, appendProbeAttempt(base.branch, "2", 1)]);
     // one checkout + one commit per probe
     expect(ops.checkout).toHaveBeenCalledTimes(2);
-    expect(ops.checkout.mock.calls[0]).toEqual([repo, appendProbe(base.branch, "1")]);
+    expect(ops.checkout.mock.calls[0]).toEqual([repo, appendProbeAttempt(base.branch, "1", 1)]);
     expect(ops.commit).toHaveBeenCalledTimes(2);
     // each probe's session file is seeded from its arm base's + readAnswer receives the probe file (NOT the repo)
     expect(ops.copySeed.mock.calls[0]).toEqual([
       branchSessionFile(join(repo, "sessions"), base.branch),
-      branchSessionFile(join(repo, "sessions"), appendProbe(base.branch, "1")),
+      branchSessionFile(join(repo, "sessions"), appendProbeAttempt(base.branch, "1", 1)),
     ]);
     expect(ops.readAnswer.mock.calls[0]?.[0]).toBe(
-      branchSessionFile(join(repo, "sessions"), appendProbe(base.branch, "1")),
+      branchSessionFile(join(repo, "sessions"), appendProbeAttempt(base.branch, "1", 1)),
     );
     expect(traces[0]?.answer).toBe("canvas was chosen");
     expect(traces[0]?.probeId).toBe("1");
-    expect(traces[0]?.branch).toBe(appendProbe(base.branch, "1"));
+    expect(traces[0]?.branch).toBe(appendProbeAttempt(base.branch, "1", 1));
     expect(traces[0]?.arm).toBe("A1");
+  });
+
+  it("forks probes N× per arm (one set per attempt) → N×probes traces, branch names carry the attempt suffix, each tagged with attempt", async () => {
+    const ops = makeFakeProbeOps({ answer: "canvas was chosen" });
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces } = await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 3,
+      manifest: makeManifest(PROBES),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      ops: ops as unknown as ProbeOps,
+    });
+
+    // N×probes = 3×2 = 6 independent forks (one probe-set per attempt)
+    expect(traces).toHaveLength(6);
+    expect(ops.fork).toHaveBeenCalledTimes(6);
+    // each (probe, attempt) gets its own branch with the attempt suffix (no collision)
+    const forkedBranches = ops.fork.mock.calls.map((c) => c[2] as string);
+    expect(new Set(forkedBranches).size).toBe(6); // all distinct
+    expect(forkedBranches).toContain(appendProbeAttempt(base.branch, "1", 1));
+    expect(forkedBranches).toContain(appendProbeAttempt(base.branch, "2", 3));
+    // every attempt is sampled for every probe (attempt tag present + spans 1..3)
+    const attempts = new Set(traces.map((t) => t.attempt));
+    expect(attempts).toEqual(new Set([1, 2, 3]));
+    // each attempt contributes one trace per probe (probeIds 1 + 2)
+    for (const attempt of [1, 2, 3]) {
+      const attemptTraces = traces.filter((t) => t.attempt === attempt);
+      expect(attemptTraces).toHaveLength(2);
+      expect(attemptTraces.map((t) => t.probeId).sort()).toEqual(["1", "2"]);
+      expect(attemptTraces.every((t) => t.branch.endsWith(`-${attempt}`))).toBe(true);
+    }
   });
 
   it("injects ANTI_PEEK_PROMPT + the probe question as a followUp on the FRESH pi", async () => {
@@ -172,6 +206,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
       manifest: makeManifest([PROBES[0]]),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -195,6 +230,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -211,6 +247,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -229,6 +266,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     const { traces } = await runProbes({
       cmdCtx,
       armBase: base,
+      N: 1,
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -236,7 +274,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     });
 
     expect(ops.deleteBranch).toHaveBeenCalledTimes(2);
-    expect(ops.deleteBranch.mock.calls[0]).toEqual([repo, appendProbe(base.branch, "1")]);
+    expect(ops.deleteBranch.mock.calls[0]).toEqual([repo, appendProbeAttempt(base.branch, "1", 1)]);
     expect(traces.every((t) => t.kept === false)).toBe(true);
   });
 
@@ -245,6 +283,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     const { traces } = await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -261,6 +300,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
       manifest: makeManifest(PROBES),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -277,6 +317,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     const { traces } = await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
       manifest: makeManifest([]),
       repo,
       sessionsDir: join(repo, "sessions"),
@@ -308,6 +349,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
       runProbes({
         cmdCtx,
         armBase: makeArmBase("A1", "bare-pi", undefined),
+        N: 1,
         manifest: makeManifest([PROBES[0]]),
         repo,
         sessionsDir: join(repo, "sessions"),
@@ -323,6 +365,7 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
       runProbes({
         cmdCtx,
         armBase: makeArmBase("A2", "om-default", "g1a2b3c"),
+        N: 1,
         manifest: makeManifest([PROBES[0]]),
         repo,
         sessionsDir: join(repo, "sessions"),

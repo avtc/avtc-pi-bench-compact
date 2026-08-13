@@ -5,7 +5,7 @@
 //
 // Branch model (every branch holds the project files at the same paths → git diff is
 // like-for-like; the session transcript lives outside the repo, in the per-branch sessions store):
-//   bench-compact/run-{date}-{id}/{cfgId}/arm-{tool}[-{ver}][-{attemptN}|-probe-{probeId}]
+//   bench-compact/run-{date}-{id}/{cfgId}/arm-{tool}[-{ver}][-{attemptN}|-probe-{probeId}-{attemptN}]
 // where {ver} is OMITTED for the bare-pi arm (no memory tool → no version). {cfgId} = cfg-<6hex> is the
 // complete run-condition fingerprint (any model / thinking-level / N / arm-tool-version difference
 // ⇒ a different cfgId). The full config is persisted at configs/<cfgId>.json (configs.ts).
@@ -80,6 +80,13 @@ export function buildAttemptBranch(b: BranchBase & { attemptN: number }): string
 /** Append the `-probe-{probeId}` suffix to an arm-base branch. Single source for the format. */
 export function appendProbe(baseBranch: string, probeId: string): string {
   return `${baseBranch}-probe-${probeId}`;
+}
+
+/** Append the `-probe-{probeId}-{attemptN}` suffix to an arm-base branch. Direct probes fork
+ *  N× per arm (one probe-set per attempt) so each probe answer is an independent sample of
+ *  agent-response variance (rate over N); the attempt suffix disambiguates the N forks. */
+export function appendProbeAttempt(baseBranch: string, probeId: string, attemptN: number): string {
+  return `${appendProbe(baseBranch, probeId)}-${attemptN}`;
 }
 
 /** Direct-probe branch, branched from the arm base. */

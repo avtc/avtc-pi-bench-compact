@@ -232,6 +232,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       const probeResult = await probes({
         cmdCtx: probeCtx,
         armBase: base,
+        N: deps.config.N,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
         sessionsDir,
@@ -358,18 +359,18 @@ function buildScoreRunInput(
 ): ScoreRunInput {
   const input: ArmAttemptRun[] = [];
   for (const base of bases) {
-    const armProbes = probeTraces.filter((p) => p.arm === base.arm);
     const armContTraces = continuationTraces.filter(
       (t): t is RunTrace & { arm: ArmId; attempt: number } => t.arm === base.arm && t.attempt !== undefined,
     );
-    armContTraces.forEach((trace, idx) => {
+    armContTraces.forEach((trace) => {
+      // Probes fork N× per arm (one set per attempt) → each attempt's probes attach to
+      // that attempt, so gradeProbeAxesForRun grades one sample per (attempt × probe).
+      const attemptProbes = probeTraces.filter((p) => p.arm === base.arm && p.attempt === trace.attempt);
       input.push({
         arm: trace.arm,
         attempt: trace.attempt,
         continuation: trace,
-        // Probes are arm-level (one set per arm, forked from the base). Attach them to
-        // the first attempt so gradeProbeAxesForRun grades them exactly once per arm.
-        probes: idx === 0 ? armProbes : [],
+        probes: attemptProbes,
         testSpecResult: testSpecByBranch.get(trace.branch),
         repo,
         branch: trace.branch,

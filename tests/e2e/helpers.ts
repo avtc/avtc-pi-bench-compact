@@ -338,8 +338,15 @@ const MEMORY_STAGES: readonly string[] = ["observer", "builder", "selector"];
 /** Build the two direct-probe answers for one arm (matching the smoke manifest's probes by position). */
 export function buildProbeAnswers(arm: ArmId): ProbeTrace[] {
   return [
-    { arm, probeId: "1", branch: `probe-${arm}-1`, answer: "the production formula", kept: true },
-    { arm, probeId: "2", branch: `probe-${arm}-2`, answer: "I cannot decide without more information", kept: true },
+    { arm, attempt: 1, probeId: "1", branch: `probe-${arm}-1`, answer: "the production formula", kept: true },
+    {
+      arm,
+      attempt: 1,
+      probeId: "2",
+      branch: `probe-${arm}-2`,
+      answer: "I cannot decide without more information",
+      kept: true,
+    },
   ];
 }
 
