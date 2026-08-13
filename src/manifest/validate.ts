@@ -140,6 +140,21 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     for (const c of untargetedConditions) {
       reasons.push(`${c.id} is not targeted by any probe — a probe is required per condition`);
     }
+
+    // Each reversal (supersession) needs TWO probes: a latest-value accept-probe (the
+    // supersession axis) AND a stale-value correctRefusal probe (the abstention stale
+    // face). A single-probe supersession leaves one face silently untested, skewing its
+    // sample count.
+    for (const s of manifest.supersessions) {
+      const targeting = manifest.probes.filter((p) => p.targets.some((id) => s.entryIds.includes(id)));
+      const hasLatest = targeting.some((p) => p.correctRefusal !== true && (p.accept?.length ?? 0) > 0);
+      const hasStale = targeting.some((p) => p.correctRefusal === true);
+      if (!hasLatest || !hasStale) {
+        reasons.push(
+          `${s.id} (reversal) is missing a ${!hasLatest ? "latest-value accept" : "stale-value correctRefusal"} probe — each reversal needs both (latest → supersession axis, stale → abstention stale face)`,
+        );
+      }
+    }
   }
 
   for (const list of ctx.essentialLists) {

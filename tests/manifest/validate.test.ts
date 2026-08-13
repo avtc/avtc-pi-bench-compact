@@ -60,6 +60,7 @@ function cleanManifest(): ScenarioManifest {
     probes: [
       { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] },
       { question: "keys?", accept: ["arrows"], targets: ["e3"], lanes: ["direct-probe"] },
+      { question: "we use WASD, right?", correctRefusal: true, targets: ["e3"], lanes: ["direct-probe"] },
       { question: "renderer?", correctRefusal: true, targets: ["e4"], lanes: ["direct-probe"] },
     ],
   };
@@ -165,6 +166,22 @@ describe("validateManifest — probe checks", () => {
     const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/exactly one/i);
+  });
+
+  it("rejects a supersession targeted by only ONE probe (missing latest-value OR stale-value face)", () => {
+    // ss1 (entryIds ["e3"]) needs BOTH a latest-value accept-probe (E8) AND a stale-value
+    // correctRefusal probe (E6 stale face). Drop the stale probe → reject.
+    const m = {
+      ...cleanManifest(),
+      probes: [
+        { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] },
+        { question: "keys?", accept: ["arrows"], targets: ["e3"], lanes: ["direct-probe"] },
+        { question: "renderer?", correctRefusal: true, targets: ["e4"], lanes: ["direct-probe"] },
+      ] as Probe[],
+    };
+    const r = validateManifest(m, cleanCtx({}));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/stale-value correctRefusal/i);
   });
 
   it("rejects a manifest with conditions but NO probes", () => {
