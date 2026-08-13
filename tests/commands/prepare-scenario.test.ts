@@ -95,6 +95,6 @@ describe("makePrepareScenarioHandler", () => {
       makeWidget: capturingWidget,
     });
     await failHandler("my idea", ctx);
-    expect(widgetCalls.some((c) => c.startsWith("setStatus:stopped:/bench-compact:resume"))).toBe(true);
+    expect(widgetCalls.some((c) => c.startsWith("setStatus:stopped:/bench-compact:prepare-scenario"))).toBe(true);
   });
 });

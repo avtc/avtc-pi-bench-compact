@@ -516,14 +516,14 @@ describe("startRun — live-progress widget wiring", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("shows on run start (compact), advances compact→resume→probe→score→done", async () => {
+  it("shows on run start (compact), advances compact→eval→probe→score→done", async () => {
     const widget = capturingWidget();
     const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
     const deps = makeDeps({ arms: ["A1"], root, phase1, widget });
 
     await startRun(deps);
 
-    // show + compact at start; resume/probe/score across phases; done on completion.
+    // show + compact at start; eval/probe/score across phases; done on completion.
     expect(widget.calls).toEqual([
       "show",
       "startPhase:compact:-",

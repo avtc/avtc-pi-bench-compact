@@ -19,7 +19,7 @@ import { buildLiveSeams } from "../production/live-seams.js";
 import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { benchRoot, scenarioDir, scenarioManifest, scenarioRepo } from "../storage/paths.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
-import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
+import { makeTuiWidgetDeps, NO_DETAIL, WidgetController } from "../widget/tracker.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
 import { preflight } from "./validate.js";
 
@@ -94,6 +94,8 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
     const widget = (opts.makeWidget ?? makePrepareWidget)(ctx);
     setActiveWidget(widget);
     widget.show();
+    // Extract mode skips the build drive (session provided) → start at 'extract' so build renders ■.
+    if (parsed.fromSession !== undefined) widget.startPhase("extract", NO_DETAIL);
 
     const scenarioId = computeScenarioId(parsed);
     try {
@@ -102,7 +104,7 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       widget.setStatus("prepared", `/bench-compact:run-scenario ${result.repoPath}`);
       notify(`prepared scenario ${scenarioId}: ${result.repoPath}`, "info");
     } catch (err) {
-      widget.setStatus("stopped", "/bench-compact:resume");
+      widget.setStatus("stopped", "/bench-compact:prepare-scenario");
       const msg = err instanceof Error ? err.message : String(err);
       notify(`prepare failed: ${msg}`, "error");
     }

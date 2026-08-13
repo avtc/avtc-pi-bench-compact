@@ -22,6 +22,10 @@ import { startRun as startRunImpl } from "../orchestrate/run.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { setActiveWidget } from "../widget/active-widget.js";
+
+/** Named null for {@link setActiveWidget} (no-bare-literals). */
+const NO_ACTIVE_WIDGET: null = null;
+
 import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
 import type { PrepareArgs } from "./parse.js";
 import { computeScenarioId, defaultBuildPrepareDeps } from "./prepare-scenario.js";
@@ -119,6 +123,10 @@ export interface PrepareThenRunOptions {
 
 /** Prepare (build/extract) then run. See {@link PrepareThenRunOptions}. */
 export async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
+  // Clear any stale active widget so the prepare seams (which read getActiveWidget)
+  // don't re-animate a prior command's terminal widget. executeRun sets the run widget
+  // after prepare; the shorthand's prepare phase is intentionally widget-less.
+  setActiveWidget(NO_ACTIVE_WIDGET);
   const notify = (msg: string, level: "info" | "warning" | "error"): void => {
     opts.ctx.ui.notify(msg, level);
   };

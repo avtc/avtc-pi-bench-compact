@@ -46,13 +46,13 @@ describe("fitLine", () => {
 
   it("middle-elides the elastic tail when the assembled line overflows", () => {
     // fixed prefix + elastic tail that's far too long for a narrow terminal.
-    const segs: Segment[] = ["🅑 1/5", { prefix: "", tail: "memkeeper-builder-very-long-tool-name" }, "◧□□□□ resume"];
+    const segs: Segment[] = ["🅑 1/5", { prefix: "", tail: "memkeeper-builder-very-long-tool-name" }, "■■■◧□□ eval"];
     const out = fitLine(segs, 30);
     expect(out).toContain("…");
     expect(out.length).toBeLessThanOrEqual(30);
     // fixed segments survive (never shortened).
     expect(out).toContain("🅑 1/5");
-    expect(out).toContain("resume");
+    expect(out).toContain("eval");
   });
 
   it("keeps the elastic segment's fixed prefix when eliding its tail", () => {
