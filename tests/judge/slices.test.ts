@@ -87,22 +87,61 @@ describe("buildProbeAnswerSlice (E5/E6/E8)", () => {
       targets: ["rf1"],
       lanes: ["direct-probe"],
     };
-    const slice = buildProbeAnswerSlice({ probe, answerText: "Revenue is price times units sold." }, null);
+    const slice = buildProbeAnswerSlice(
+      { probe, answerText: "Revenue is price times units sold.", supersessionEntryIds: new Set() },
+      null,
+    );
     expect(slice).toContain("How is revenue calculated?");
     expect(slice).toContain("price * units sold");
     expect(slice).toContain("price times units sold");
   });
 
-  it("notes correctRefusal probes (abstention face) so the judge checks refusal vs fabrication", () => {
+  it("never-decided face: correctRefusal probe with no supersession target → REFUSE criteria", () => {
     const probe: Probe = {
       question: "What is the lab's power source?",
       correctRefusal: true,
       targets: ["ab1"],
       lanes: ["direct-probe"],
     };
-    const slice = buildProbeAnswerSlice({ probe, answerText: "I don't know — we never decided." }, null);
+    const slice = buildProbeAnswerSlice(
+      { probe, answerText: "I don't know — we never decided.", supersessionEntryIds: new Set() },
+      null,
+    );
     expect(slice.toLowerCase()).toContain("refus");
+    expect(slice).not.toMatch(/flag the value as stale/i);
     expect(slice).toContain("I don't know");
+  });
+
+  it("stale-value face: correctRefusal probe whose targets intersect a supersession → FLAG AS STALE criteria", () => {
+    const probe: Probe = {
+      question: "What's the company's org structure?",
+      correctRefusal: true,
+      targets: ["sup-entry-2"],
+      lanes: ["direct-probe"],
+    };
+    // The probe targets an entry id belonging to a supersession — the stale-value face.
+    const supersessionEntryIds = new Set(["sup-entry-1", "sup-entry-2"]);
+    const slice = buildProbeAnswerSlice(
+      { probe, answerText: "That structure is outdated — we reorganized since.", supersessionEntryIds },
+      null,
+    );
+    expect(slice.toLowerCase()).toContain("flag the value as stale");
+    expect(slice).not.toMatch(/correct answer = refuse/i);
+    expect(slice).toContain("reorganized");
+  });
+
+  it("a correctRefusal probe whose target is NOT a supersession stays on the never-decided face (REFUSE)", () => {
+    const probe: Probe = {
+      question: "What is the lab's power source?",
+      correctRefusal: true,
+      targets: ["ab1"],
+      lanes: ["direct-probe"],
+    };
+    // supersession entry ids exist, but the probe targets an abstention (not a supersession).
+    const supersessionEntryIds = new Set(["sup-entry-1"]);
+    const slice = buildProbeAnswerSlice({ probe, answerText: "I don't know.", supersessionEntryIds }, null);
+    expect(slice.toLowerCase()).toContain("refus");
+    expect(slice).not.toMatch(/flag the value as stale/i);
   });
 });
 

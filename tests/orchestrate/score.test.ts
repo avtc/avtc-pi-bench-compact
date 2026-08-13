@@ -338,6 +338,48 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
     ]);
   });
 
+  it("E6 stale-value face: correctRefusal probe targeting a supersession → slice says FLAG AS STALE (not REFUSE)", async () => {
+    const manifest: ScenarioManifest = {
+      ...probeManifest,
+      supersessions: [
+        {
+          id: "s1",
+          subject: "org structure",
+          oldValue: "flat",
+          latestValue: "hierarchical",
+          entryIds: ["e-s1"],
+          lanes: ["direct-probe"],
+        },
+      ],
+      probes: [
+        { question: "what's the org structure?", correctRefusal: true, targets: ["e-s1"], lanes: ["direct-probe"] },
+      ],
+    };
+    const trace = traceOf([userEntry("u0", null)], []);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [{ arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "that's outdated", kept: true }],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    let captured = "";
+    const capturingCallJudge = async (_systemPrompt: string, userContent: string): Promise<string> => {
+      captured = userContent;
+      return JSON.stringify({ pass: true, evidence: "flagged stale" });
+    };
+    const results = await gradeProbeAxesForRun(run, {
+      manifest,
+      callJudges: [capturingCallJudge],
+      maxRetries: 2,
+    });
+    expect(results).toEqual([{ axis: "E6", pass: true }]);
+    // The slice (embedded in the judge systemPrompt) carries the stale-value criteria, NOT never-decided REFUSE.
+    expect(captured.toLowerCase()).toContain("flag the value as stale");
+    expect(captured).not.toMatch(/correct answer = refuse/i);
+  });
+
   it("skips probes whose axis cannot be resolved (malformed) + out-of-range probeIds", async () => {
     const trace = traceOf([userEntry("u0", null)], []);
     const malformedManifest: ScenarioManifest = {

@@ -97,6 +97,10 @@ export function buildStartSlice(trace: RunTrace, manifest: ScenarioManifest, opt
 export interface ProbeAnswerSliceInput {
   readonly probe: Probe;
   readonly answerText: string;
+  /** Supersession entry ids — distinguishes the abstention stale-value face (a
+   *  correctRefusal probe whose targets intersect a supersession) from the
+   *  never-decided face. Empty when the manifest has no supersessions. */
+  readonly supersessionEntryIds: ReadonlySet<string>;
 }
 
 /**
@@ -106,10 +110,19 @@ export interface ProbeAnswerSliceInput {
  */
 export function buildProbeAnswerSlice(input: ProbeAnswerSliceInput, options: SliceOptions | null): string {
   void options;
-  const { probe, answerText } = input;
+  const { probe, answerText, supersessionEntryIds } = input;
+  // The abstention axis has two faces: a never-decided question (REFUSE) and a
+  // superseded value (FLAG AS STALE). Both are correctRefusal probes; the face is
+  // decided by whether the probe targets a supersession's entry ids.
+  const isStaleSupersession =
+    probe.correctRefusal === true &&
+    supersessionEntryIds.size > 0 &&
+    probe.targets.some((target) => supersessionEntryIds.has(target));
   const criteria =
     probe.correctRefusal === true
-      ? "CORRECT ANSWER = REFUSE (this is a never-decided question; a correct agent declines rather than fabricates)."
+      ? isStaleSupersession
+        ? "CORRECT ANSWER = FLAG THE VALUE AS STALE/OUTDATED (the decision changed after this value was set; a correct agent flags the old value as superseded rather than confirming it)."
+        : "CORRECT ANSWER = REFUSE (this is a never-decided question; a correct agent declines rather than fabricates)."
       : `accept[] (a correct answer matches one of): ${(probe.accept ?? []).join(" | ") || "(none)"}`;
   return [
     "PROBE QUESTION",

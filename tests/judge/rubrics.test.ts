@@ -40,10 +40,11 @@ describe("JUDGE_RUBRICS (§5.11 per-axis)", () => {
     expect(r).toContain("accept");
   });
 
-  it("E6 abstention rubric: names BOTH faces (never-decided refusal + stale-item flagging)", () => {
+  it("E6 abstention rubric: per-probe — grades the one face the GRADING CRITERIA names (REFUSE or FLAG AS STALE)", () => {
     const r = (JUDGE_RUBRICS.E6 ?? "").toLowerCase();
-    expect(r).toMatch(/refus|fabricat|never-decid/);
-    expect(r).toMatch(/stale|oldvalue/);
+    expect(r).toMatch(/grading criteria/); // per-probe face is named by the slice, not demanded in one call
+    expect(r).toMatch(/refus|fabricat|never-decid/); // never-decided face
+    expect(r).toMatch(/stale/); // stale-value face
   });
 
   it("E8 supersession rubric: checks latestValue used + oldValue suppressed", () => {

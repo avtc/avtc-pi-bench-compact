@@ -361,13 +361,17 @@ export async function gradeProbeAxesForRun(
   deps: ProbeRoutingDeps,
 ): Promise<ReadonlyArray<{ readonly axis: MetricId; readonly pass: boolean }>> {
   const out: Array<{ readonly axis: MetricId; readonly pass: boolean }> = [];
+  const supersessionEntryIds = new Set(deps.manifest.supersessions.flatMap((s) => s.entryIds));
   for (const probeTrace of run.probes) {
     const idx = Number(probeTrace.probeId) - 1;
     const probe = deps.manifest.probes[idx];
     if (probe === undefined) continue; // probeId out of range
     const axis = axisForProbe(probe, deps.manifest);
     if (axis === null) continue; // malformed probe (no axis)
-    const slice = buildProbeAnswerSlice({ probe, answerText: probeTrace.answer }, DEFAULT_SLICE_OPTIONS);
+    const slice = buildProbeAnswerSlice(
+      { probe, answerText: probeTrace.answer, supersessionEntryIds },
+      DEFAULT_SLICE_OPTIONS,
+    );
     const judgePromises = deps.callJudges.map(async (callJudge) => {
       const grade = await gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
       return grade.pass;
