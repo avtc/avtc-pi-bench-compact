@@ -55,7 +55,7 @@ export interface WidgetState {
 
 /** The 🅑 marker prefixing every line, followed by a SINGLE space (not ` · ` —
  *  the design glues it to the first content segment: `🅑 <arm|phase-bar>`). */
-export const GLYPH_PREFIX = "🅑 ";
+const GLYPH_PREFIX = "🅑 ";
 
 /** Cell glyphs: ■ done, ◧ active, □ pending. */
 const CELL_DONE = "■";
@@ -107,7 +107,7 @@ function phaseLabel(state: WidgetState): string {
  * when an arm counter is present) is the single elastic segment; all others are
  * fixed. Exposed so the tracker can fit it to the terminal width via `fitLine`.
  */
-export function buildContentSegments(state: WidgetState): Segment[] {
+function buildContentSegments(state: WidgetState): Segment[] {
   const segs: Segment[] = [];
 
   // Arm counter (omitted during build/extract + the done/prepared terminals — no per-arm tool there).

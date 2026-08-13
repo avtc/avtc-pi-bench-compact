@@ -20,7 +20,7 @@ import { getTermWidth } from "./fitline.js";
 import { fitRenderedLine, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
 
 /** Throttle window (ms) — leading + trailing edge. */
-export const THROTTLE_MS = 200;
+const THROTTLE_MS = 200;
 
 /** No detail — the named null for `startPhase`'s detail arg (no-bare-literals). */
 export const NO_DETAIL: string | null = null;
@@ -31,7 +31,7 @@ export const WIDGET_PLACEMENT = "aboveEditor" as const;
 
 /** `setWidget` is not on the no-bare-literals allowlist → a bare `undefined`
  *  2nd arg fails lint; pass this named constant to hide the line. */
-export const HIDE_WIDGET: undefined = undefined;
+const HIDE_WIDGET: undefined = undefined;
 
 /** A timer handle (opaque across Node + the test seam). */
 export type WidgetTimer = ReturnType<typeof setTimeout>;

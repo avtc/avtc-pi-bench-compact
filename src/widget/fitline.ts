@@ -14,7 +14,7 @@
 export type Segment = string | { readonly prefix: string; readonly tail: string };
 
 /** The ` · ` separator between segments. */
-export const SEGMENT_SEP = " · ";
+const SEGMENT_SEP = " · ";
 
 /** Default terminal width when stdout.columns is unavailable. */
 const TERM_DEFAULT = 80;
