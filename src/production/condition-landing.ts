@@ -15,7 +15,7 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import type { ConditionTopic } from "../simulator/condition-topics.js";
 
 /** Per-topic landing status. */
-export type LandingStatus = "landed" | "tail" | "missing";
+type LandingStatus = "landed" | "tail" | "missing";
 
 /** A topic's landing outcome (with its conditions' individual statuses). */
 export interface TopicLanding {

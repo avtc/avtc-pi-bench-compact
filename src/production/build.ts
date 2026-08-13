@@ -15,8 +15,6 @@
 import { join } from "node:path";
 import type { ScenarioManifest } from "../manifest/schema.js";
 
-export type { ScenarioContext } from "../manifest/schema.js";
-
 import { type ConditionListName, validateManifest } from "../manifest/validate.js";
 import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
 import { buildEntryOrder, classifyLanding, decideLandingAction, type LandingAction } from "./condition-landing.js";
@@ -69,7 +67,7 @@ export interface BuildBackupResult {
 
 /** The essential condition-list names derived from CONDITION_TOPICS (the
  *  `essential`-tagged axes). Passed to validateManifest's essential-lists check. */
-export const ESSENTIAL_LISTS: ReadonlySet<ConditionListName> = new Set(
+const ESSENTIAL_LISTS: ReadonlySet<ConditionListName> = new Set(
   CONDITION_TOPICS.filter((t) => t.tag === "essential").map((t) => `${t.metricAxis}s` as ConditionListName),
 );
 

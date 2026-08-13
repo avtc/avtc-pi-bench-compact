@@ -239,7 +239,7 @@ export interface BuildDriver {
 }
 
 /** Args the build-simulator factory binds to the FRESH pi + fresh ctx (inside withSession). */
-export interface MakeBuildSimulatorArgs {
+interface MakeBuildSimulatorArgs {
   readonly pi: ExtensionAPI;
   readonly ctx: ExtensionCommandContext;
   readonly targetContext: number;
@@ -295,7 +295,7 @@ function ensureBuildSession(
  *  wired to the fresh session ctx (branch + model resolution) + the bench agent-loop
  *  runner, using the anti-peek-wrapped inject seam. Delegates the driver construction
  *  to the shared {@link buildSimulatorDriver} (same as Phase 2). */
-export function createDefaultBuildSimulatorFactory(deps: {
+function createDefaultBuildSimulatorFactory(deps: {
   evaluatedModel: string | null;
   scenarioDescription: string;
   maxTokens: number;
