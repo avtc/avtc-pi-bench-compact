@@ -264,7 +264,7 @@ describe("buildDriveAndCaptureSeam", () => {
       loadSession: fakeLoadSession,
       awaitSettled: async () => {},
       makeSimulator: (_args) => fakeDriver(2, _args.onStop),
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       read: () => `{"type":"session","id":"h","cwd":"/repo"}\n{"type":"message","id":"m1"}\n`,
     });
 
@@ -296,7 +296,7 @@ describe("buildDriveAndCaptureSeam", () => {
         trackContext: () => {},
         onAgentSettled: async () => args.onStop({ contextTokens: 0, reason: "boundary" }),
       }),
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       widget,
       read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
     });
@@ -324,7 +324,7 @@ describe("buildDriveAndCaptureSeam", () => {
       loadSession: fakeLoadSession,
       awaitSettled: async () => {},
       makeSimulator: (args) => fakeDriver(1, args.onStop),
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
     });
 
@@ -350,7 +350,7 @@ describe("buildDriveAndCaptureSeam", () => {
       loadSession: fakeLoadSession,
       awaitSettled: async () => {},
       makeSimulator: (args) => fakeDriver(1, args.onStop),
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       getProxies: () => ({ om: {}, mk: {} }) as unknown as MemoryProxies,
       configureArm: ((_pi: unknown, _om: unknown, _mk: unknown, arm: string, repoCwd: string) => {
         configured.arm = arm;
@@ -392,7 +392,7 @@ describe("buildDriveAndCaptureSeam", () => {
           },
         };
       },
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
     });
     await expect(driveAndCapture(0)).rejects.toThrow(/simulator stopped with an error/);
@@ -417,7 +417,7 @@ describe("buildDriveAndCaptureSeam", () => {
         throw new Error("agent did not settle (run signal aborted)");
       },
       makeSimulator: (args) => fakeDriver(99, args.onStop), // never boundary-stops
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       read: () => `{"type":"session","id":"h","cwd":"/repo"}\n`,
     });
     await expect(driveAndCapture(0)).rejects.toThrow(/agent did not settle/);
@@ -461,7 +461,7 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
         trackContext: () => {},
         onAgentSettled: async () => args.onStop({ contextTokens: 0, reason: "boundary" }),
       }),
-      getPi: () => ({ events: { on: () => () => {} } }) as unknown as ExtensionAPI,
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
       read: () => `{"type":"session","id":"h","cwd":"/repo"}\n{"type":"message","id":"m1"}\n`,
     });
     const trialCompact = buildTrialCompactSeam({

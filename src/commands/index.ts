@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
-import { abortActiveRun } from "../orchestrate/run-state.js";
+import { abortActiveRun, getRunState, statusString } from "../orchestrate/run-state.js";
 import { hideActiveWidget } from "../widget/active-widget.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { registerResultsCommand } from "./results.js";
@@ -65,7 +65,11 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const v = validateBenchConfig(getBenchConfig());
       const validity = v.ok ? "config OK" : `config invalid: ${v.reason}`;
-      ctx.ui.notify(`${validity} · not started`, "info");
+      // The run-state singleton survives `/reload` (globalThis) — null when no run
+      // is active or after a run completed cleanly; stop-and-surface states persist
+      // (lastStopReason) so the operator can query WHY a run stopped.
+      const run = getRunState() === null ? "not started" : statusString();
+      ctx.ui.notify(`${validity} · ${run}`, "info");
     },
   });
 }

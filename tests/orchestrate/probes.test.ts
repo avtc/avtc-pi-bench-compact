@@ -56,16 +56,17 @@ function makeArmBase(arm: string, tool: string, ver: string | undefined): ArmBas
 
 // --- fake fresh pi + ops -----------------------------------------------------
 
-/** A fake fresh pi: sendUserMessage (the inject seam target) over a tiny event bus. */
+/** A fake fresh pi: sendUserMessage (the inject seam target) over the agent-event
+ *  handler surface (`pi.on`; emit is unused in these tests — the probes drive path
+ *  registers no listeners the tests fire). */
 interface FreshPi {
   pi: ExtensionAPI;
   sendUserMessage: ReturnType<typeof vi.fn>;
 }
 
 function makeFreshPi(): FreshPi {
-  const on = (): (() => void) => () => {};
   const sendUserMessage = vi.fn();
-  const pi = { sendUserMessage, setActiveTools: vi.fn(), events: { on, emit: () => {} } } as unknown as ExtensionAPI;
+  const pi = { sendUserMessage, setActiveTools: vi.fn(), on: () => {} } as unknown as ExtensionAPI;
   return { pi, sendUserMessage };
 }
 
@@ -312,23 +313,28 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     expect(traces.every((t) => t.kept === true)).toBe(true);
   });
 
-  it("is idempotent on re-run: skips fork when the probe branch already exists", async () => {
+  it("a pre-existing probe branch is a CONFLICT — ProbeStoppedError(branch-conflict), no re-seed/commit", async () => {
+    // Branch names embed the runId; a fresh run never reuses one within an output
+    // root. An existing probe branch means a prior run derived the same id against
+    // this shared scenario repo — stop + surface instead of corrupting both runs.
     const ops = makeFakeProbeOps();
     ops.branchExists = vi.fn(() => true);
-    await runProbes({
-      cmdCtx,
-      armBase: makeArmBase("A1", "bare-pi", undefined),
-      N: 1,
-      manifest: makeManifest(PROBES),
-      repo,
-      sessionsDir: join(repo, "sessions"),
-      omFullReflectionThresholdTokens: 4000,
-      ops: ops as unknown as ProbeOps,
-    });
-
+    await expect(
+      runProbes({
+        cmdCtx,
+        armBase: makeArmBase("A1", "bare-pi", undefined),
+        N: 1,
+        manifest: makeManifest(PROBES),
+        repo,
+        sessionsDir: join(repo, "sessions"),
+        omFullReflectionThresholdTokens: 4000,
+        ops: ops as unknown as ProbeOps,
+      }),
+    ).rejects.toMatchObject({ name: "ProbeStoppedError", arm: "A1", probeId: "1", reason: "branch-conflict" });
     expect(ops.fork).not.toHaveBeenCalled();
-    expect(ops.checkout).toHaveBeenCalledTimes(2);
-    expect(ops.loadSession).toHaveBeenCalledTimes(2);
+    expect(ops.copySeed).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+    expect(ops.loadSession).not.toHaveBeenCalled();
   });
 
   it("returns no traces (and does no git work) when the manifest has no probes", async () => {

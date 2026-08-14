@@ -176,7 +176,7 @@ describe("registerBenchCommands", () => {
     expect(sent.some((s) => s.text === "continue")).toBe(true);
   });
 
-  it("status reports config validity + 'not started'", async () => {
+  it("status reports config validity + 'not started' when no run is active", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
@@ -184,5 +184,45 @@ describe("registerBenchCommands", () => {
     expect(notifies.length).toBe(1);
     expect(notifies[0].msg).toMatch(/not started/i);
     expect(notifies[0].msg).toMatch(/config/i);
+  });
+
+  it("status reports the live run state (arm / attempt / phase) mid-run, + the stop reason after a stop", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    const { ctx, notifies } = fakeCtx();
+    const { setRunState, clearRunState } = await import("../../src/orchestrate/run-state.js");
+
+    // Mid-run: the singleton reflects the orchestrator's live writes.
+    setRunState({
+      runId: "2026-08-14-1",
+      date: "2026-08-14",
+      id: 1,
+      cfgId: "cfg-abc123",
+      scenarioRepo: "/scenario/repo",
+      phase: "phase-2",
+      currentArm: "A3",
+      currentAttempt: 2,
+      lastStopReason: null,
+    });
+    notifies.length = 0;
+    await handlerOf(commands, "bench-compact:status")("", ctx);
+    expect(notifies[0].msg).toContain("phase-2");
+    expect(notifies[0].msg).toContain("A3");
+    expect(notifies[0].msg).toContain("attempt 2");
+    expect(notifies[0].msg).not.toMatch(/not started/i);
+
+    // After a stop-and-surface: the state persists so the operator can query the reason.
+    const { updateRunState } = await import("../../src/orchestrate/run-state.js");
+    updateRunState({ lastStopReason: "judge model unavailable" });
+    notifies.length = 0;
+    await handlerOf(commands, "bench-compact:status")("", ctx);
+    expect(notifies[0].msg).toContain("stopped");
+    expect(notifies[0].msg).toContain("judge model unavailable");
+
+    // After a clean completion the orchestrator clears the state → back to 'not started'.
+    clearRunState();
+    notifies.length = 0;
+    await handlerOf(commands, "bench-compact:status")("", ctx);
+    expect(notifies[0].msg).toMatch(/not started/i);
   });
 });

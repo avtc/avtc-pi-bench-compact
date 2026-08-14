@@ -52,35 +52,29 @@ const RESUME_MESSAGE = "Resume the Phase-C work — finish the remaining systems
 
 // --- fake builders ----------------------------------------------------------
 
-/** A fake fresh pi: sendUserMessage (inject seam target) + a raw event bus
- *  (on/emit) so the orchestration can register turn_end + compaction listeners
- *  and the test can fire them. Models the post-switchSession re-activation pi. */
+/** A fake fresh pi: sendUserMessage (inject seam target) + the agent-event handler
+ *  surface (`pi.on` registration + `emit` firing them the way the extension runner
+ *  does) so the orchestration can register turn_end + compaction listeners and the
+ *  test can fire them. Models the post-switchSession re-activation pi. */
 interface FreshPi {
   pi: ExtensionAPI;
   sendUserMessage: ReturnType<typeof vi.fn>;
-  emit: (channel: string, data: unknown) => void;
+  emit: (event: string, data: unknown) => void;
 }
 
 function makeFreshPi(): FreshPi {
   const handlers = new Map<string, Array<(data: unknown) => void>>();
   const sendUserMessage = vi.fn();
-  const on = (channel: string, handler: (data: unknown) => void): (() => void) => {
-    const list = handlers.get(channel);
+  const on = (event: string, handler: (data: unknown) => void): void => {
+    const list = handlers.get(event);
     if (list) list.push(handler);
-    else handlers.set(channel, [handler]);
-    return () => {
-      const arr = handlers.get(channel);
-      if (arr) {
-        const i = arr.indexOf(handler);
-        if (i >= 0) arr.splice(i, 1);
-      }
-    };
+    else handlers.set(event, [handler]);
   };
-  const emit = (channel: string, data: unknown): void => {
-    const arr = handlers.get(channel);
+  const emit = (event: string, data: unknown): void => {
+    const arr = handlers.get(event);
     if (arr) for (const h of [...arr]) h(data);
   };
-  const pi = { sendUserMessage, setActiveTools: vi.fn(), events: { on, emit } } as unknown as ExtensionAPI;
+  const pi = { sendUserMessage, setActiveTools: vi.fn(), on } as unknown as ExtensionAPI;
   return { pi, sendUserMessage, emit };
 }
 
@@ -314,25 +308,30 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     ]);
   });
 
-  it("is idempotent on re-run: skips fork when the attempt branch already exists", async () => {
-    // branchExists=true models a re-run where attempt branches already exist → fork is
-    // skipped (resume in place), but checkout/commit/loadSession still run.
+  it("a pre-existing attempt branch is a CONFLICT — Phase2StoppedError(branch-conflict), no re-seed/commit", async () => {
+    // Branch names embed the runId; a fresh run never reuses one within an output
+    // root. An existing attempt branch means a prior run derived the same id against
+    // this shared scenario repo — re-seeding the session + stacking commits would
+    // corrupt both runs' traces, so the bench stops + surfaces instead.
     const ops = makeFakeOps();
     ops.branchExists = vi.fn(() => true);
     const base = makeArmBase("A1", "bare-pi", undefined);
-    await runContinuations({
-      cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
-      armBases: [base],
-      config: makeConfig(2),
-      manifest: MANIFEST,
-      repo,
-      sessionsDir: join(repo, "sessions"),
-      N: 2,
-      ops: ops as unknown as Phase2Ops,
-    });
+    await expect(
+      runContinuations({
+        cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+        armBases: [base],
+        config: makeConfig(2),
+        manifest: MANIFEST,
+        repo,
+        sessionsDir: join(repo, "sessions"),
+        N: 2,
+        ops: ops as unknown as Phase2Ops,
+      }),
+    ).rejects.toMatchObject({ name: "Phase2StoppedError", arm: "A1", attempt: 1, reason: "branch-conflict" });
     expect(ops.fork).not.toHaveBeenCalled();
-    expect(ops.checkout).toHaveBeenCalledTimes(2);
-    expect(ops.loadSession).toHaveBeenCalledTimes(2);
+    expect(ops.copySeed).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+    expect(ops.loadSession).not.toHaveBeenCalled();
   });
 
   it("threads the fresh ctx from each withSession into the next attempt's switchSession", async () => {

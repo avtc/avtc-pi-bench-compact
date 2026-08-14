@@ -3,14 +3,44 @@
 
 // Typed event helpers for the bench's session-driving primitives.
 //
-// The pi event bus has two surfaces: `pi.on(event, handler)` (typed per-event
-// overloads, returns void — no removal) and `pi.events.on(channel, handler)` (raw
-// bus, returns a `() => void` disposer). The bench uses the disposer-returning
-// `pi.events.on` everywhere so one-shot listeners (compact, agent-settled) and
-// widget listeners (turn_end) can be cleanly torn down — no handler leak.
+// pi has TWO event surfaces, and they never cross:
+//  - `pi.on(event, handler)` — the typed per-event registrations that AGENT/SESSION
+//    events flow through (agent-session emits via the extension runner → the
+//    extension's handler map). This is the ONLY surface agent_settled / turn_end /
+//    message_end / session_before_compact / session_compact ever reach.
+//  - `pi.events.on(channel, handler)` — a separate bus for CUSTOM inter-extension
+//    channels (e.g. `memkeeper:ready`); the only emitter onto it is another
+//    extension's `pi.events.emit`.
+// The bench subscribes to agent events via `pi.on` (see {@link subscribeAgentEvent}).
+// `pi.on` returns void — no unsubscribe — so disposers here are GUARD FLAGS: a
+// disposed listener no-ops, and the registration itself dies with the pi's runner
+// when the next switchSession/newSession invalidates it (createRuntime re-activates
+// extensions with a fresh handler map). Handlers return undefined — never a hook
+// result — so the bench never interferes with `session_before_*` aggregation.
 
 import type { ExtensionAPI, MessageEndEvent, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { type MessageUsage, messageEndUsage } from "../runtime/streaming-tokens.js";
+
+/** `pi.on`'s typed per-event overloads cannot accept a dynamic event name, so this
+ *  named seam types the one call site that registers by (bench-internal) name.
+ *  The handler's extra `ctx` parameter is intentionally absent (TS allows fewer
+ *  parameters) and the handler returns undefined — never a hook result. */
+type PiOnByName = (event: string, handler: (data: unknown) => void) => void;
+
+/** Subscribe to an AGENT/SESSION event on `pi` via `pi.on` — the surface those events
+ *  actually flow through. Returns a guard-flag disposer: after it runs, the handler
+ *  no-ops (pi offers no removal; the registration dies with the pi's runner at the
+ *  next session switch). */
+export function subscribeAgentEvent(pi: ExtensionAPI, event: string, handler: (data: unknown) => void): () => void {
+  let disposed = false;
+  const onByName = pi.on as PiOnByName;
+  onByName(event, (data: unknown) => {
+    if (!disposed) handler(data);
+  });
+  return () => {
+    disposed = true;
+  };
+}
 
 /** Read the usage slice off a `message_end` event's assistant message. Returns null
  *  when the message carries no usage (prompt/steering messages). Delegates to the
@@ -22,29 +52,26 @@ export function readMessageEndUsage(event: MessageEndEvent): MessageUsage | null
 /** Register a `turn_end` handler; returns a disposer to stop listening. Used by the
  *  live-progress widget and the Phase-2 context monitor. */
 export function onTurnEnd(pi: ExtensionAPI, fn: (event: TurnEndEvent) => void): () => void {
-  return pi.events.on("turn_end", (data) => {
+  return subscribeAgentEvent(pi, "turn_end", (data) => {
     fn(data as TurnEndEvent);
   });
 }
 
-/** Register a ONE-SHOT listener for `channel` on `pi.events`: `fn` fires at most once,
- *  then the listener is auto-removed. Returns a disposer for early external teardown
- *  (idempotent — safe to call after the listener already fired/removed). The shared
- *  basis for the session-driving primitives' one-shot listeners (`triggerCompact`,
- *  `awaitAgentSettled`) so the one-shot + dispose pattern lives in one place. */
+/** Register a ONE-SHOT listener for `event` on `pi`: `fn` fires at most once, then
+ *  the listener is guarded off (no further fires). Returns a disposer for early
+ *  external teardown (idempotent — safe to call after the listener already fired).
+ *  The shared basis for the session-driving primitives' one-shot listeners
+ *  (`triggerCompact`, `awaitAgentSettled`) so the one-shot + dispose pattern lives
+ *  in one place. */
 export function once<T = unknown>(pi: ExtensionAPI, channel: string, fn: (data: T) => void): () => void {
-  let disposed = false;
-  const eventDispose = pi.events.on(channel, (data) => {
-    if (disposed) return;
-    disposed = true;
-    eventDispose();
+  let fired = false;
+  const dispose = subscribeAgentEvent(pi, channel, (data) => {
+    if (fired) return;
+    fired = true;
+    dispose();
     fn(data as T);
   });
-  return () => {
-    if (disposed) return;
-    disposed = true;
-    eventDispose();
-  };
+  return dispose;
 }
 
 /** Race a one-shot `channel` event against an optional `signal`, settling exactly once

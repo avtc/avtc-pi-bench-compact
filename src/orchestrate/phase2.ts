@@ -29,6 +29,7 @@ import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
+import { subscribeAgentEvent } from "../session/events.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import {
@@ -54,7 +55,7 @@ import { captureTrace, type RunTrace } from "./trace.js";
 const NEVER_ABORT_CONTROLLER = new AbortController();
 
 /** Why a Phase-2 continuation halted (stop-and-surface). */
-export type Phase2StopReason = "run-failed" | "run-hung" | "config-failed";
+export type Phase2StopReason = "run-failed" | "run-hung" | "config-failed" | "branch-conflict";
 
 /** Result of {@link runContinuations}: the captured traces (one per arm×attempt) + the
  *  FINAL fresh command ctx (the last arm's last attempt's `withSession`). The run
@@ -115,7 +116,9 @@ export interface Phase2Ops {
   loadSession: typeof loadSession;
   fork: typeof forkBranch;
   checkout: typeof checkout;
-  /** Check whether a branch already exists (idempotent re-run skips fork). Injectable
+  /** Check whether a branch already exists (foreign-branch conflict detection — a
+   *  pre-existing branch with this run's name is a stop-and-surface conflict, never
+   *  silently reused). Injectable
    * so unit tests avoid real git + can exercise the exists-skip path. */
   branchExists: typeof branchExists;
   commit: typeof commitAll;
@@ -176,10 +179,10 @@ function makeContinuationInject(pi: ExtensionAPI): (text: string) => void {
 function makeCompactionTimer(pi: ExtensionAPI): { wallMsMap: Map<string, number>; dispose: () => void } {
   const wallMsMap = new Map<string, number>();
   let pendingStart: number | null = null;
-  const disposeBefore = pi.events.on("session_before_compact", () => {
+  const disposeBefore = subscribeAgentEvent(pi, "session_before_compact", () => {
     pendingStart = Date.now();
   });
-  const disposeAfter = pi.events.on("session_compact", (data: unknown) => {
+  const disposeAfter = subscribeAgentEvent(pi, "session_compact", (data: unknown) => {
     const event = data as SessionCompactEvent;
     if (pendingStart === null) return; // no before-compact seen (e.g. a compaction started before the timer armed)
     wallMsMap.set(event.compactionEntry.id, Date.now() - pendingStart);
@@ -275,9 +278,21 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
       deps.widget?.setDetail(`${attempt}/${deps.N}`);
       // Attempt branch = arm-base branch + the -{attemptN} suffix (single source in branches.ts).
       const attemptBranch = appendAttempt(base.branch, attempt);
-      if (!ops.branchExists(deps.repo, attemptBranch)) {
-        ops.fork(deps.repo, base.branch, attemptBranch);
+      // A pre-existing attempt branch is a CONFLICT (branch names embed the runId; a
+      // fresh run never reuses one within an output root — an existing branch means a
+      // prior run derived the same id against this shared scenario repo). Stop+surface:
+      // silently re-seeding the session + stacking commits on foreign work would
+      // corrupt both runs' traces.
+      if (ops.branchExists(deps.repo, attemptBranch)) {
+        throw new Phase2StoppedError(
+          base.arm,
+          attempt,
+          "branch-conflict",
+          `branch ${attemptBranch} already exists — runId collision with a prior run on this scenario repo. ` +
+            `Inspect the repo's bench-compact/* branches or point outputDir at the earlier root.`,
+        );
       }
+      ops.fork(deps.repo, base.branch, attemptBranch);
       ops.checkout(deps.repo, attemptBranch);
       // Seed this attempt's session file from its arm base's (parallel to forking the
       // git branch): the transcript lives in the sessions store (outside the repo), so

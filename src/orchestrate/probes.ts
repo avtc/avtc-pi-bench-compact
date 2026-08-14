@@ -55,7 +55,7 @@ const FIRST_INDEX = 0;
 const ONE_BASED_OFFSET = 1;
 
 /** Why a direct probe halted (stop-and-surface). */
-export type ProbeStopReason = "probe-failed" | "probe-hung" | "config-failed";
+export type ProbeStopReason = "probe-failed" | "probe-hung" | "config-failed" | "branch-conflict";
 
 /** Thrown/recorded when a direct probe must stop-and-surface. The run driver catches
  *  it, records the reason, notifies the operator, and yields — never auto-retries. A
@@ -247,10 +247,19 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       const probeId = String(i + ONE_BASED_OFFSET); // 1-based positional (probes carry no id in the schema)
       const probeBranch = appendProbeAttempt(baseBranch, probeId, attempt);
 
-      // Fork arm-base → probe branch (idempotent: a re-run reuses an existing probe branch).
-      if (!ops.branchExists(deps.repo, probeBranch)) {
-        ops.fork(deps.repo, baseBranch, probeBranch);
+      // A pre-existing probe branch is a CONFLICT (branch names embed the runId; a
+      // fresh run never reuses one within an output root — an existing branch means a
+      // prior run derived the same id against this shared scenario repo). Stop+surface.
+      if (ops.branchExists(deps.repo, probeBranch)) {
+        throw new ProbeStoppedError(
+          arm,
+          probeId,
+          "branch-conflict",
+          `branch ${probeBranch} already exists — runId collision with a prior run on this scenario repo. ` +
+            `Inspect the repo's bench-compact/* branches or point outputDir at the earlier root.`,
+        );
       }
+      ops.fork(deps.repo, baseBranch, probeBranch);
       ops.checkout(deps.repo, probeBranch);
       // Seed this probe's session file from its arm base's (parallel to forking the git
       // branch): the transcript lives in the sessions store (outside the repo), so each

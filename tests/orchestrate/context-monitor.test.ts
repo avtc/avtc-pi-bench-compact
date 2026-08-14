@@ -124,12 +124,14 @@ describe("makeContextMonitor", () => {
 
     expect(listenerCount("turn_end")).toBe(1);
     monitor.dispose();
-    expect(listenerCount("turn_end")).toBe(0);
+    // pi.on offers no removal — the registration stays; dispose GUARDS the handler off
+    // (the behavioral no-fire after dispose is covered by the test above).
+    expect(listenerCount("turn_end")).toBe(1);
   });
 
-  it("the pi arg is the ExtensionAPI carrying the event bus (typed for clarity)", () => {
+  it("the pi arg is the ExtensionAPI carrying the agent-event handler surface (typed for clarity)", () => {
     // Compile-time guard: the signature accepts an ExtensionAPI (the fresh pi).
-    const pi = { events: { on: () => () => {} } } as unknown as ExtensionAPI;
+    const pi = { on: () => {} } as unknown as ExtensionAPI;
     const onApproachingWindow = vi.fn();
     const { ctx } = makeCtx({ tokens: 0, contextWindow: 100, percent: 0 });
     const monitor = makeContextMonitor(pi, ctx, { onApproachingWindow });

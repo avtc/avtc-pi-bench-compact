@@ -230,10 +230,10 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
     expect(result.resultsPath).toContain("results.json");
     expect(result.reportPath).toContain("report.md");
 
-    // run-state set eagerly to phase-1; the run advanced through every phase to done.
-    const s = getRunState();
-    expect(s?.runId).toBe("2026-08-11-1");
-    expect(s?.cfgId).toBe(result.cfgId);
+    // run-state set eagerly to phase-1; the run advanced through every phase to done —
+    // a CLEAN completion clears the singleton (`/bench-compact:status` → "not started";
+    // only stop-and-surface states persist so the stop reason stays queryable).
+    expect(getRunState()).toBeNull();
 
     // Phase-1 received the resolved identity + config-derived knobs.
     expect(phase1).toHaveBeenCalledTimes(1);
@@ -280,28 +280,35 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
       root,
       phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
     });
-    await startRun(deps);
-    const s = getRunState();
-    expect(existsSync(join(root, "configs", `${s?.cfgId}.json`))).toBe(true);
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    if (result.kind !== "done") return;
+    expect(existsSync(join(root, "configs", `${result.cfgId}.json`))).toBe(true);
     expect(existsSync(join(root, "runs", "2026-08-11-1"))).toBe(true);
   });
 
   it("same-day re-run increments the id (no collision with the reserved run dir)", async () => {
-    await startRun(
+    const first = await startRun(
       makeDeps({
         arms: ["A1"],
         root,
         phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
       }),
     );
-    await startRun(
+    expect(first.kind).toBe("done");
+    expect(first).toMatchObject({ runId: "2026-08-11-1" });
+    const second = await startRun(
       makeDeps({
         arms: ["A1"],
         root,
         phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
       }),
     );
-    expect(getRunState()?.runId).toBe("2026-08-11-2");
+    expect(second.kind).toBe("done");
+    // The done-run clears the state singleton, so the id is read from the result —
+    // the second run reserved a fresh dir (no collision).
+    expect(second).toMatchObject({ runId: "2026-08-11-2" });
+    expect(getRunState()).toBeNull();
   });
 });
 

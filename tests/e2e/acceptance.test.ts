@@ -331,6 +331,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
       fork: async () => {},
       checkout: async () => {},
       commit: async () => {},
+      branchExists: () => false,
       copySeed: () => {},
     };
     return { ops, triggeredPis, injectedTexts };

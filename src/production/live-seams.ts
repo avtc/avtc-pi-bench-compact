@@ -34,7 +34,7 @@ import { runBenchStage } from "../runtime/agent-loop.js";
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { triggerCompact } from "../session/compact.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
-import { readMessageEndUsage } from "../session/events.js";
+import { readMessageEndUsage, subscribeAgentEvent } from "../session/events.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import {
@@ -365,7 +365,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       // correctly against the already-grown session, not a fresh zero).
       const usage = sessionCtx.getContextUsage();
       if (usage?.tokens !== undefined && usage.tokens !== null) driver.trackContext(usage.tokens);
-      const disposeMsgEnd = pi.events.on("message_end", (event: unknown) => {
+      const disposeMsgEnd = subscribeAgentEvent(pi, "message_end", (event: unknown) => {
         const parsed = readMessageEndUsage(event as MessageEndEvent);
         if (parsed !== null) driver.trackContext(parsed.totalTokens);
       });

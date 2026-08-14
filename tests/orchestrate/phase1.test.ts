@@ -110,6 +110,7 @@ interface FakeOps {
   fork: ReturnType<typeof vi.fn>;
   checkout: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
+  branchExists: ReturnType<typeof vi.fn>;
   copySeed: ReturnType<typeof vi.fn>;
   /** The fresh pi stashed per loadSession call (one per arm) — for assertions. */
   freshPis: FakePi[];
@@ -149,6 +150,7 @@ function makeFakeOps(): FakeOps {
     fork: vi.fn(),
     checkout: vi.fn(),
     commit: vi.fn(),
+    branchExists: vi.fn(() => false),
     copySeed: vi.fn(),
     freshPis,
     freshProxies,
@@ -315,11 +317,23 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     expect((bases[0] as ArmBase).ver).toBe("gabc123"); // A2 has a toolVersions entry
   });
 
-  it("fork is idempotent — a base branch that already exists is not re-forked (branchExists guard)", async () => {
-    // The guard is `if (!branchExists(repo, branch)) fork(...)`. branchExists is a real
-    // git read, so exercising it end-to-end needs a real repo: covered by the fork
-    // round-trip in storage/repo.test.ts. Here we only assert the guard is present
-    // (the branch is forked exactly once when it does not yet exist).
+  it("a pre-existing arm-base branch is a CONFLICT — Phase1StoppedError(branch-conflict), no re-seed/commit", async () => {
+    // Branch names embed the runId; a fresh run never reuses one within an output
+    // root. An existing branch means a PRIOR run derived the same id against this
+    // shared scenario repo (e.g. an outputDir change reset the same-day counter) —
+    // silently re-seeding + stacking commits would corrupt both runs' traces, so
+    // the bench stops + surfaces instead.
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    await expect(
+      runPhase1(makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1"] })),
+    ).rejects.toMatchObject({ name: "Phase1StoppedError", arm: "A1", reason: "branch-conflict" });
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.copySeed).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+  });
+
+  it("forks the arm-base branch exactly once when it does not yet exist (no conflict)", async () => {
     const ops = makeFakeOps();
     await runPhase1(makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1"] }));
     expect(ops.fork).toHaveBeenCalledTimes(1);

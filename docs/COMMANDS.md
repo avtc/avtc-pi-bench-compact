@@ -78,7 +78,7 @@ Show the current run state (arm / attempt / phase / ctx) + the last config valid
 
 ## Live-progress widget
 
-While a run is active, a single full-width TUI line shows progress through the phases (`build` → `compact` → `resume` → `probe` → `score`), the active arm + tool, and the background agent's token usage (user-simulator during build/resume, maintenance during compact, judge during score). It stays visible through completion and is hidden only on `/bench-compact:abort`.
+While a run is active, a single full-width TUI line shows progress through the phases (`build` → `extract` → `compact` → `eval` → `probe` → `score`), the active arm + tool, and the background agent's token usage (user-simulator during build/eval, judge during score). It stays visible through completion and is hidden only on `/bench-compact:abort`.
 
 ## Failure handling
 

@@ -6,37 +6,32 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** Shared fake event bus: `events.on` registers + returns a disposer; `emit` fires
- *  handlers; `listenerCount` introspects a channel (to assert one-shot/dispose
- *  cleanup). Models the disposer-returning `pi.events.on` surface the primitives use. */
+/** Shared fake pi agent-event surface: `on` registers (returns void — no removal,
+ *  exactly like the real `pi.on`; guard-flag disposal lives in the production
+ *  `subscribeAgentEvent` wrapper) + `emit` fires handlers the way the extension
+ *  runner does. `listenerCount` introspects an event (registered wrappers — a
+ *  disposed listener's wrapper REMAINS registered, mirroring production). */
 export function fakeBus(): {
   pi: ExtensionAPI;
-  emit: (channel: string, data: unknown) => void;
-  listenerCount: (channel: string) => number;
+  emit: (event: string, data: unknown) => void;
+  listenerCount: (event: string) => number;
 } {
   const handlers = new Map<string, Array<(data: unknown) => void>>();
-  const on = (channel: string, handler: (data: unknown) => void): (() => void) => {
-    const list = handlers.get(channel);
+  const on = (event: string, handler: (data: unknown) => void): void => {
+    const list = handlers.get(event);
     if (list) {
       list.push(handler);
     } else {
-      handlers.set(channel, [handler]);
+      handlers.set(event, [handler]);
     }
-    return () => {
-      const arr = handlers.get(channel);
-      if (arr) {
-        const i = arr.indexOf(handler);
-        if (i >= 0) arr.splice(i, 1);
-      }
-    };
   };
   return {
-    pi: { events: { on } } as unknown as ExtensionAPI,
-    emit: (channel, data) => {
-      const arr = handlers.get(channel);
-      if (arr) for (const h of [...arr]) h(data); // snapshot — a self-removing listener must not skip later ones (R3-1)
+    pi: { on } as unknown as ExtensionAPI,
+    emit: (event, data) => {
+      const arr = handlers.get(event);
+      if (arr) for (const h of [...arr]) h(data); // snapshot — a self-guarding listener must not skip later ones
     },
-    listenerCount: (channel) => handlers.get(channel)?.length ?? 0,
+    listenerCount: (event) => handlers.get(event)?.length ?? 0,
   };
 }
 

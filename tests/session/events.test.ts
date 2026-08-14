@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { MessageEndEvent, TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, MessageEndEvent, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { awaitOnce, once, onTurnEnd, readMessageEndUsage } from "../../src/session/events.js";
+import { awaitOnce, once, onTurnEnd, readMessageEndUsage, subscribeAgentEvent } from "../../src/session/events.js";
 import { fakeBus, fakeSignal } from "./helpers.js";
 
 /** Minimal EventBus fake: events.on registers + returns a disposer; emit fires handlers. */
@@ -30,6 +30,43 @@ describe("readMessageEndUsage", () => {
   it("returns null when the message carries no usage", () => {
     const event = { type: "message_end", message: {} };
     expect(readMessageEndUsage(event as unknown as MessageEndEvent)).toBeNull();
+  });
+});
+
+describe("subscribeAgentEvent — the agent-event surface", () => {
+  it("subscribes via pi.on (NOT the pi.events.on custom-channel bus — agent events never flow there)", () => {
+    const handlers = new Map<string, Array<(data: unknown) => void>>();
+    let customBusMisuse = 0;
+    const pi = {
+      on: (event: string, handler: (data: unknown) => void): void => {
+        const list = handlers.get(event);
+        if (list) list.push(handler);
+        else handlers.set(event, [handler]);
+      },
+      // The custom inter-extension bus — subscribing an AGENT event here would silently
+      // never fire (nothing emits agent events onto it). Count any use as misuse.
+      events: {
+        on: (): (() => void) => {
+          customBusMisuse += 1;
+          return () => {};
+        },
+      },
+    } as unknown as ExtensionAPI;
+
+    const seen: unknown[] = [];
+    const dispose = subscribeAgentEvent(pi, "agent_settled", (data) => {
+      seen.push(data);
+    });
+    expect(customBusMisuse).toBe(0); // registered on the AGENT surface
+
+    // Dispatch through the pi.on handler map (how the extension runner delivers)
+    for (const h of [...(handlers.get("agent_settled") ?? [])]) h({ type: "agent_settled" });
+    expect(seen).toHaveLength(1);
+
+    // Disposer guards the handler off (pi.on offers no removal)
+    dispose();
+    for (const h of [...(handlers.get("agent_settled") ?? [])]) h({ type: "agent_settled" });
+    expect(seen).toHaveLength(1); // no further fires
   });
 });
 
@@ -103,7 +140,7 @@ describe("awaitOnce", () => {
   });
 
   it("no double-settle: an event after extra.resolve is ignored (one-shot, idempotent)", async () => {
-    const { pi, emit, listenerCount } = fakeBus();
+    const { pi, emit } = fakeBus();
     let resolves = 0;
     const p = awaitOnce<{ v: number }>(pi, "agent_settled", {
       makeAbortedError: () => new Error("x"),
@@ -115,11 +152,20 @@ describe("awaitOnce", () => {
     emit("agent_settled", { v: 99 }); // must NOT re-resolve
     await p;
     expect(resolves).toBe(1);
-    expect(listenerCount("agent_settled")).toBe(0); // listener torn down by the extra settle
+    // The settled race guards its listener off (no further fires). pi.on offers no
+    // removal, so the wrapper stays registered — a LATER event must be a no-op.
+    let lateFire = 0;
+    const late = once(pi, "agent_settled", () => {
+      lateFire += 1;
+    });
+    void late;
+    emit("agent_settled", { v: 100 });
+    expect(lateFire).toBe(1); // sanity: events still reach NEW listeners
+    expect(resolves).toBe(1); // the settled race did not re-fire
   });
 
-  it("R2-1: if extra throws synchronously, awaitOnce rejects AND tears down both listeners (no leak)", async () => {
-    const { pi, listenerCount } = fakeBus();
+  it("R2-1: if extra throws synchronously, awaitOnce rejects AND guards the event listener off", async () => {
+    const { pi, emit } = fakeBus();
     const signal = fakeSignal();
     await expect(
       awaitOnce(pi, "session_compact", {
@@ -130,8 +176,17 @@ describe("awaitOnce", () => {
         },
       }),
     ).rejects.toThrow(/stale ctx/);
-    // both listeners must be removed despite the throw (R4-3 guarantee holds on this path)
+    // the signal listener is removed (real removeEventListener) …
     expect(signal.listenerCount()).toBe(0);
-    expect(listenerCount("session_compact")).toBe(0);
+    // … and a later event on the channel is harmless: the rejected race cannot
+    // re-settle (promise already settled), and NEW listeners still receive events
+    // (the channel is not poisoned by the guarded wrapper).
+    let lateFire = 0;
+    const late = once(pi, "session_compact", () => {
+      lateFire += 1;
+    });
+    void late;
+    emit("session_compact", { type: "session_compact" });
+    expect(lateFire).toBe(1);
   });
 });

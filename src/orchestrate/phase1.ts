@@ -58,7 +58,7 @@ export interface ArmBase {
 }
 
 /** Why Phase-1 halted on an arm (stop-and-surface). */
-export type Phase1StopReason = "cancelled" | "empty-summary" | "config-failed";
+export type Phase1StopReason = "cancelled" | "empty-summary" | "config-failed" | "branch-conflict";
 
 /** Thrown/recorded when Phase-1 must stop-and-surface. The run driver catches it,
  *  records `lastStopReason`, notifies the operator, and yields — never auto-retries. */
@@ -82,6 +82,9 @@ export interface Phase1Ops {
   fork: typeof forkBranch;
   checkout: typeof checkout;
   commit: typeof commitAll;
+  /** Check whether a branch already exists (foreign-branch conflict detection). Injectable
+   *  for testing; default is the real implementation. */
+  branchExists: typeof branchExists;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
   copySeed: (src: string, dest: string) => void;
 }
@@ -92,6 +95,7 @@ const DEFAULT_OPS: Phase1Ops = {
   fork: forkBranch,
   checkout,
   commit: commitAll,
+  branchExists,
   copySeed: (src, dest) => copyFileSync(src, dest),
 };
 
@@ -198,10 +202,21 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     const ver = tv?.commit;
     const branch = buildArmBaseBranch({ date, id, cfgId, tool: def.tool, ver });
 
-    // Fork main → arm-base (idempotent: re-running an arm reuses an existing base).
-    if (!branchExists(scenarioRepo, branch)) {
-      ops.fork(scenarioRepo, "main", branch);
+    // Fork main → arm-base. A pre-existing branch of this name is a CONFLICT, not a
+    // reusable artifact: branch names embed the runId, and a fresh run never reuses
+    // a runId within an output root — an existing branch means a DIFFERENT run
+    // derived the same id against this shared scenario repo (e.g. an outputDir
+    // change reset the same-day id counter). Stop+surface: silently re-seeding the
+    // session + stacking commits on foreign work would corrupt both runs' traces.
+    if (ops.branchExists(scenarioRepo, branch)) {
+      throw new Phase1StoppedError(
+        arm,
+        "branch-conflict",
+        `branch ${branch} already exists — runId collision with a prior run on this scenario repo. ` +
+          `Inspect the repo's bench-compact/* branches or point outputDir at the earlier root.`,
+      );
     }
+    ops.fork(scenarioRepo, "main", branch);
     ops.checkout(scenarioRepo, branch);
     // Seed this arm's session file from `main`'s (parallel to forking the git branch):
     // the transcript lives in the sessions store (outside the repo), so each arm gets

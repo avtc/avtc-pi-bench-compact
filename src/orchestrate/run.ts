@@ -43,7 +43,7 @@ import {
 } from "./phase1.js";
 import { type Phase2Result, Phase2StoppedError, type Phase2StopReason, runContinuations } from "./phase2.js";
 import { type ProbeOps, ProbeStoppedError, type ProbeStopReason, runProbes } from "./probes.js";
-import { NO_RUN_ABORT, setActiveRunAbort, setRunState, updateRunState } from "./run-state.js";
+import { clearRunState, NO_RUN_ABORT, setActiveRunAbort, setRunState, updateRunState } from "./run-state.js";
 import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
 import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
 import { runTestSpec, TestSpecFaultError } from "./testspec.js";
@@ -287,6 +287,9 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     writeFileSync(reportPath, markdown);
 
     widget?.setStatus("done", "/bench-compact:results");
+    // A cleanly-finished run clears the state singleton — `/bench-compact:status` goes
+    // back to "not started" (stop-and-surface states persist so the stop stays queryable).
+    clearRunState();
     log.info(`run ${runId} done: ${resultsPath}`);
     return { kind: "done", runId, cfgId, resultsPath, reportPath };
   } catch (err) {

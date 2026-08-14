@@ -18,6 +18,7 @@
 // data, so the ctx cannot be pulled from the handler args and must be threaded in.
 
 import type { ContextUsage, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { subscribeAgentEvent } from "../session/events.js";
 
 /** Default fire threshold — 90% of the model's context window. Dimensionless ratio. */
 const DEFAULT_WINDOW_THRESHOLD = 0.9;
@@ -34,9 +35,11 @@ export interface ContextMonitorOptions {
   readonly threshold?: number;
 }
 
-/** A disposable turn_end monitor. Call `dispose()` to remove the listener. */
+/** A disposable turn_end monitor. Call `dispose()` to guard the listener off
+ *  (no further fires; pi offers no removal — the registration dies with the pi's
+ *  runner at the next session switch). */
 export interface ContextMonitor {
-  /** Remove the turn_end listener (idempotent). */
+  /** Guard the turn_end listener off (idempotent). */
   dispose(): void;
 }
 
@@ -55,7 +58,7 @@ export function makeContextMonitor(
   options: ContextMonitorOptions,
 ): ContextMonitor {
   const ratio = options.threshold ?? DEFAULT_WINDOW_THRESHOLD;
-  const dispose = pi.events.on("turn_end", () => {
+  const dispose = subscribeAgentEvent(pi, "turn_end", () => {
     const usage = ctx.getContextUsage();
     if (usage === undefined) return; // no usage signal yet
     if (usage.tokens === null) return; // unknown (e.g. right after a compaction)
