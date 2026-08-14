@@ -27,7 +27,7 @@ describe("arm-env leak guard (global beforeEach clears configureArm env between 
 });
 
 describe("globalThis bench-slot leak guard (global beforeEach clears every __benchCompact* slot)", () => {
-  it("test 1: writes all six bench globalThis slots", () => {
+  it("test 1: writes all seven bench globalThis slots", () => {
     const g = globalThis as Record<string, unknown>;
     g.__benchCompactRunState = { stale: true };
     g.__benchCompactMemoryProxies = { stale: true };
@@ -35,6 +35,7 @@ describe("globalThis bench-slot leak guard (global beforeEach clears every __ben
     g.__benchCompactPrepareInFlight = true;
     g.__benchCompactPrepareAbort = new AbortController();
     g.__benchCompactPi = { stale: true };
+    g.__benchCompactRunAbort = new AbortController();
   });
 
   it("test 2: sees every slot cleared (no cross-file singleton leaks under isolate:false)", () => {
@@ -45,5 +46,6 @@ describe("globalThis bench-slot leak guard (global beforeEach clears every __ben
     expect(g.__benchCompactPrepareInFlight).toBeUndefined();
     expect(g.__benchCompactPrepareAbort).toBeUndefined();
     expect(g.__benchCompactPi).toBeUndefined();
+    expect(g.__benchCompactRunAbort).toBeUndefined();
   });
 });

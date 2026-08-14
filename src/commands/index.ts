@@ -62,7 +62,7 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
   // prepare that died between set + finally, no live controller) is cleared directly.
   // `preflight` is not applicable (abort needs no args/config).
   pi.registerCommand("bench-compact:abort", {
-    description: "Stop the run cleanly (fires the run's abort signal + tears down the progress widget).",
+    description: "Stop any active bench run or scenario prepare; hides the progress widget.",
     handler: async (_args, ctx) => {
       const wasRunning = abortActiveRun();
       const prepareAborted = abortActivePrepare();
@@ -75,9 +75,9 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
       const msg = wasRunning
         ? "aborted — run stopping"
         : prepareAborted
-          ? "aborted — prepare stopping (do NOT start another bench command until it exits; abort again if the guard sticks)"
+          ? "aborted — prepare stopping (wait for it to exit before starting another bench command)"
           : wasPreparing
-            ? "aborted — stale prepare guard cleared"
+            ? "aborted — stale prepare state cleared"
             : "aborted (no active run)";
       ctx.ui.notify(msg, "info");
     },

@@ -152,14 +152,21 @@ export function getPrepareAbortSignal(): AbortSignal {
 }
 
 /** Fire the live prepare's abort controller (registered by {@link beginPrepare})
- *  and drop the holder. Returns true if a prepare controller was fired. Does NOT
- *  clear the in-flight guard — the aborting prepare's own `finally` does that, so
- *  the concurrency window stays closed until the prepare has actually exited. */
+ *  and KEEP the fired controller in the holder. Returns true if a prepare
+ *  controller was fired (or already fired — abort is idempotent). Does NOT clear
+ *  the in-flight guard — the aborting prepare's own `finally` does that, so the
+ *  concurrency window stays closed until the prepare has actually exited. The
+ *  holder is deliberately NOT dropped here: while the aborted prepare winds down
+ *  (its seams' abort propagation can span seconds to minutes), a SECOND abort must
+ *  still see "controller present" and take the stopping path — dropping the holder
+ *  would make the wind-down state indistinguishable from a wedged guard and the
+ *  second abort would clear the guard while the prepare is still live. Only
+ *  {@link endPrepare} (the prepare's `finally`) removes the controller; a guard
+ *  without a controller then genuinely means the prepare died pre-finally. */
 export function abortActivePrepare(): boolean {
   const controller = readPrepareAbort();
   if (controller === null) return false;
-  controller.abort();
-  delete (globalThis as Record<string, unknown>)[PREPARE_ABORT_KEY];
+  if (!controller.signal.aborted) controller.abort();
   return true;
 }
 

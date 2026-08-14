@@ -256,10 +256,15 @@ describe("prepare-in-flight marker", () => {
     expect(abortActivePrepare()).toBe(true); // fired
     expect(signal.aborted).toBe(true);
     expect(isPrepareInFlight()).toBe(true); // guard STAYS until the prepare's finally
-    expect(abortActivePrepare()).toBe(false); // holder dropped after firing
+    // The fired controller STAYS in the holder through the wind-down: a second
+    // abort still takes the stopping path (returns true) instead of looking like a
+    // wedged guard — only endPrepare (the prepare's finally) removes it.
+    expect(abortActivePrepare()).toBe(true); // idempotent re-abort during wind-down
+    expect(getPrepareAbortSignal()).toBe(signal);
     endPrepare();
     expect(isPrepareInFlight()).toBe(false);
     expect(getPrepareAbortSignal().aborted).toBe(false); // fresh fallback signal
+    expect(abortActivePrepare()).toBe(false); // holder genuinely gone now
   });
 
   it("false by default; set/clear round-trips on globalThis", () => {

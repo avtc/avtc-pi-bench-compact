@@ -124,7 +124,7 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       return;
     }
     if (isPrepareInFlight()) {
-      notify("a bench prepare is already active — /bench-compact:abort clears a stuck guard", "warning");
+      notify("a bench prepare is already active — /bench-compact:abort stops it", "warning");
       return;
     }
 

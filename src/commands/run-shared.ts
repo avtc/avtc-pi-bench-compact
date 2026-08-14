@@ -264,7 +264,7 @@ export function guardPreflight(
     return false;
   }
   if (isPrepareInFlight()) {
-    notifyOf(ctx)("a bench prepare is already active — /bench-compact:abort clears a stuck guard", "warning");
+    notifyOf(ctx)("a bench prepare is already active — /bench-compact:abort stops it", "warning");
     return false;
   }
   return true;

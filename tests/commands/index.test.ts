@@ -144,6 +144,20 @@ describe("registerBenchCommands", () => {
     expect(isPrepareInFlight()).toBe(false);
   });
 
+  it("a SECOND abort during the prepare's wind-down keeps the guard (no wedged-guard misread)", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    beginPrepare();
+    const { ctx: ctx1 } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx1);
+    const { ctx: ctx2, notifies: n2 } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx2); // during wind-down
+    expect(isPrepareInFlight()).toBe(true); // STILL closed — not misread as wedged
+    expect(n2.some((n) => /prepare stopping/.test(n.msg))).toBe(true);
+    expect(n2.some((n) => /stale prepare state cleared/.test(n.msg))).toBe(false);
+    endPrepare();
+  });
+
   it("abort with a WEDGED prepare guard (no live controller) clears it directly", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
@@ -151,7 +165,7 @@ describe("registerBenchCommands", () => {
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
     expect(isPrepareInFlight()).toBe(false);
-    expect(notifies.some((n) => /stale prepare guard cleared/.test(n.msg))).toBe(true);
+    expect(notifies.some((n) => /stale prepare state cleared/.test(n.msg))).toBe(true);
   });
 
   it("abort with no active run notifies 'no active run' without throwing", async () => {
@@ -167,7 +181,7 @@ describe("registerBenchCommands", () => {
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
-    // : assert message content (sibling handlers all assert content, not just length)
+    // assert message content (sibling handlers all assert content, not just length)
     expect(notifies.some((n) => /abort/i.test(n.msg))).toBe(true);
   });
 

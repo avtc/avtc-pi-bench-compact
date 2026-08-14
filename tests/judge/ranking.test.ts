@@ -91,7 +91,7 @@ describe("rankAxis (combined)", () => {
     ).rejects.toThrow(/unknown.*label|invented/i);
   });
 
-  // : the combined order must be a PERMUTATION of the known labels (right
+  // the combined order must be a PERMUTATION of the known labels (right
   // count, no dups, none omitted) — same completeness class as c2/trajectory.
   it("re-prompts when the order has a duplicate label, then succeeds", async () => {
     const responses = [JSON.stringify({ order: ["A", "A"] }), JSON.stringify({ order: ["A", "B"] })];

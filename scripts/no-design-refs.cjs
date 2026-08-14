@@ -390,6 +390,9 @@ function stripTokens(text) {
 
 function cleanBody(body) {
   let b = stripTokens(body);
+  // A stripped leading ref token often leaves its separator glue behind
+  // ("R2-1: rest" → ": rest") — drop a leading orphaned colon.
+  b = b.replace(/^:\s*/, "");
   // parentheticals: trim glue, drop if only separators remain
   let prev;
   do {

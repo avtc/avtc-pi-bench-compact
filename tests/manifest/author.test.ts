@@ -111,7 +111,7 @@ describe("buildAuthoringTools", () => {
     expect(names).toContain("read");
     expect(names).toContain("grep");
     expect(names).toContain("find");
-    expect(names).toContain("bash"); // : bash for JSONL parsing (jq)
+    expect(names).toContain("bash"); // bash for JSONL parsing (jq)
     expect(names).toContain("write_manifest");
     expect(writeManifest.name).toBe("write_manifest");
   });

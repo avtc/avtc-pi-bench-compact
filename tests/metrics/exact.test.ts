@@ -272,7 +272,7 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
   });
 
   it("a present-but-EMPTY compactionStages array → [] (NOT native-summary; the arm ran, emitted no stages)", () => {
-    // : an empty array is present (the arm is NOT native) — must not fall through
+    // an empty array is present (the arm is NOT native) — must not fall through
     // to native-summary. Only an ABSENT compactionStages field (native arm) gets it.
     const c1 = compaction("c1", "u0", "summary", makeUsage(1, 1), {
       details: { compactionStages: [] },
@@ -282,7 +282,7 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
   });
 
   it("captures ≥2 Phase-2 compactions as a lossless per-compaction array in file order", () => {
-    // : permits multiple Phase-2 compactions; the array length + ordering
+    // permits multiple Phase-2 compactions; the array length + ordering
     // must be locked in (boundary c1 + phase-2 c2, c3 → 2 entries, file order).
     const c1 = compaction("c1", "u0", "s1", makeUsageFull(100, 10, 50, 0), { wallMs: 1000 });
     const c2 = compaction("c2", "c1", "s2", makeUsageFull(200, 20, 30, 0), { wallMs: 2000 });

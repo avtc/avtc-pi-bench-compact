@@ -85,7 +85,7 @@ Temporarily pause: steer the live agent to stop + abort the current op.
 Continue the agent after a pause, an interrupt, or a mid-turn error.
 
 ### `/bench-compact:abort`
-Stop the run cleanly (tears down the live-progress widget). Also aborts a LIVE prepare (build/extract drive, trial compaction, authoring) via its cooperative-abort signal — do NOT start another bench command until the aborted prepare has exited (its guard clears on exit; abort again if the guard sticks after a crashed prepare).
+Stop any active bench activity — a live run or a live scenario prepare — and hide the progress widget. An aborted prepare finishes winding down on its own; wait for it to exit before starting another bench command.
 
 ### `/bench-compact:status`
 Show the current run state (arm / attempt / phase / ctx) + the last config validity.

@@ -283,8 +283,8 @@ describe("buildDriveAndCaptureSeam", () => {
 
   it("paces against ACTUAL session usage: a >continueStep overshoot still leaves headroom (plant retry)", async () => {
     const holder: CtxHolder = { current: {} as ExtensionCommandContext };
-    // Session already at 180K (attempt 4's target was 220K? no — simulate a big
-    // overshoot: usage 180K while the resumed formula target is only 160K).
+    // A big overshoot: usage 180K already exceeds the resumed formula target
+    // (140K + 1×20K = 160K), so the pacing target must grow to usage+step.
     const grownCtx = {
       getContextUsage: () => ({ tokens: 180000, contextWindow: 200000 }),
     } as unknown as ExtensionCommandContext;
