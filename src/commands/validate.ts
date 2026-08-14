@@ -46,16 +46,44 @@ export function preflight(
     case "prepare":
     case "run": {
       const a = args as PrepareArgs;
-      // build vs extract are mutually exclusive (distinct modes).
-      if (a.fromSession !== undefined && a.idea !== undefined && a.idea.length > 0) {
-        return { ok: false, reason: "provide a build idea OR --from-session <path>, not both" };
+      // build / extract / plant-recovery / skip-recovery are mutually exclusive modes.
+      const modes = [
+        a.idea !== undefined && a.idea.length > 0,
+        a.fromSession !== undefined,
+        a.plantFrom !== undefined,
+        a.skipFrom !== undefined,
+      ].filter(Boolean).length;
+      if (modes > 1) {
+        return {
+          ok: false,
+          reason:
+            "provide exactly one of: a build idea, --from-session <path>, --plant <folder>, or --from <folder> (with --skip-topics)",
+        };
       }
       if (a.fromSession !== undefined) {
         if (!existsFn(a.fromSession)) return { ok: false, reason: `--from-session path not found: ${a.fromSession}` };
         return { ok: true };
       }
+      if (a.plantFrom !== undefined) {
+        if (a.skipTopics !== undefined)
+          return { ok: false, reason: "--plant does not take --skip-topics (use --from with --skip-topics)" };
+        if (!existsFn(a.plantFrom)) return { ok: false, reason: `--plant folder not found: ${a.plantFrom}` };
+        return { ok: true };
+      }
+      if (a.skipFrom !== undefined) {
+        if (a.skipTopics === undefined)
+          return { ok: false, reason: "--from <folder> requires --skip-topics <ids> (skip-and-proceed recovery)" };
+        if (!existsFn(a.skipFrom)) return { ok: false, reason: `--from folder not found: ${a.skipFrom}` };
+        return { ok: true };
+      }
+      if (a.skipTopics !== undefined) {
+        return { ok: false, reason: "--skip-topics requires --from <folder> (skip-and-proceed recovery)" };
+      }
       if (a.idea !== undefined && a.idea.length > 0) return { ok: true };
-      return { ok: false, reason: "provide a build idea or --from-session <path>" };
+      return {
+        ok: false,
+        reason: "provide a build idea, --from-session <path>, --plant <folder>, or --from <folder> with --skip-topics",
+      };
     }
     case "run-scenario": {
       const folder = (args as { value: string | undefined }).value;

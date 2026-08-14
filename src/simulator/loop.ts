@@ -123,6 +123,10 @@ export interface SimulatorDriverDeps {
   /** Cooperative-abort signal (the run/compaction signal). */
   readonly signal: AbortSignal;
   readonly hooks?: SimulatorHooks;
+  /** Plant-and-continue recovery: overrides the harness instruction for the driver's
+   *  FIRST cycle only (the resumed drive's plant step), then falls back to the normal
+   * per-step pacing instructions. */
+  readonly firstInstruction?: string;
   /** Optional sink for the simulator's agentLoop events (forwarded to runStage's
    *  onEvent). The live-progress widget subscribes here for ctx/tok during resume. */
   readonly onEvent?: (event: AgentEvent) => void;
@@ -205,8 +209,13 @@ export class SimulatorDriver {
       }
       this.deps.onModelResolved?.(resolved.model);
 
-      // 4. build the simulator input (rendered context + the harness's step instruction)
-      const harnessInstruction = nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
+      // 4. build the simulator input (rendered context + the harness's step instruction).
+      //    A plant-resume's first cycle uses the plant instruction; every other cycle
+      //    uses the normal per-step pacing text.
+      const harnessInstruction =
+        this._step === 0 && this.deps.firstInstruction !== undefined
+          ? this.deps.firstInstruction
+          : nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
       const messages = buildSimulatorInput({ renderedChunk, harnessInstruction });
 
       // 5. run ONE stage (maxTurns:1, no tools) → the simulator's next user voice
@@ -292,6 +301,8 @@ export interface BuildSimulatorDriverArgs {
   readonly signal: AbortSignal;
   readonly inject: (text: string) => void;
   readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
+  /** Plant-and-continue recovery: the first cycle's harness instruction override. */
+  readonly firstInstruction?: string;
   /** Optional event sink forwarded to the simulator's runStage (the widget subscribes for ctx/tok). */
   readonly onEvent?: (event: AgentEvent) => void;
   /** Optional hook fired after a successful model resolution (the widget sets its ctx window). */
@@ -320,6 +331,7 @@ export function buildSimulatorDriver(args: BuildSimulatorDriverArgs): SimulatorD
     maxTokens: args.maxTokens,
     signal: args.signal,
     hooks: { onStop: args.onStop },
+    firstInstruction: args.firstInstruction,
     onEvent: args.onEvent,
     onModelResolved: args.onModelResolved,
   });

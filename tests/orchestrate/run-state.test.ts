@@ -6,6 +6,7 @@ import {
   abortActiveRun,
   clearRunState,
   getRunState,
+  isRunInFlight,
   setActiveRunAbort,
   setRunState,
   statusString,
@@ -178,5 +179,46 @@ describe("run-abort holder (cooperative abort)", () => {
     setActiveRunAbort(null);
     expect(controller.signal.aborted).toBe(false);
     expect(abortActiveRun()).toBe(false);
+  });
+});
+
+describe("isRunInFlight", () => {
+  const liveState = {
+    runId: "2026-08-14-1",
+    date: "2026-08-14",
+    id: 1,
+    cfgId: "cfg-abc123",
+    scenarioRepo: "/repo/s",
+    phase: "phase-2" as const,
+    currentArm: "A3" as const,
+    currentAttempt: 2,
+    lastStopReason: null,
+  };
+
+  it("no state (idle/done) → NOT in-flight", () => {
+    expect(isRunInFlight()).toBe(false);
+  });
+
+  it("a live run (lastStopReason null) → in-flight (concurrent commands must refuse)", () => {
+    setRunState(liveState);
+    expect(isRunInFlight()).toBe(true);
+  });
+
+  it("a stopped run (lastStopReason set) → NOT in-flight (follow-up runs allowed)", () => {
+    setRunState(liveState);
+    updateRunState({ lastStopReason: "judge model unavailable" });
+    expect(isRunInFlight()).toBe(false);
+  });
+
+  it("a crashed run (unexpected-error exit recorded a stop) → NOT in-flight", () => {
+    setRunState(liveState);
+    updateRunState({ lastStopReason: "unexpected error: git fault" });
+    expect(isRunInFlight()).toBe(false);
+  });
+
+  it("a done run (state cleared) → NOT in-flight", () => {
+    setRunState(liveState);
+    clearRunState();
+    expect(isRunInFlight()).toBe(false);
   });
 });

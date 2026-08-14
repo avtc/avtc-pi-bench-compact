@@ -30,7 +30,13 @@ import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type AuthoringSeams, runAuthoringAgent } from "../manifest/author.js";
 import type { ScenarioContext, ScenarioManifest } from "../manifest/schema.js";
 import { getBenchPi } from "../orchestrate/bench-ctx.js";
-import { runBenchStage } from "../runtime/agent-loop.js";
+import {
+  NO_EVENT_SINK,
+  NO_LOOP_OVERRIDE,
+  NO_REASONING,
+  NO_STAGE_END_HOOK,
+  runBenchStage,
+} from "../runtime/agent-loop.js";
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { triggerCompact } from "../session/compact.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
@@ -40,6 +46,7 @@ import { loadSession } from "../session/switch.js";
 import {
   buildSimulatorDriver,
   driveUntilStop,
+  extractAssistantText,
   makeDriveStop,
   SIMULATOR_MAX_TOKENS,
   type SimulatorHooks,
@@ -47,7 +54,8 @@ import {
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
-import type { BuildSeams } from "./build.js";
+import type { BuildResume, BuildSeams } from "./build.js";
+import { parseTailCheckResponse, renderTailText, TAIL_CHECK_SYSTEM_PROMPT } from "./tail-check.js";
 import type { TrialCut } from "./trial-compaction.js";
 
 /** A minimal session-header shape (enough to author a build-session file). */
@@ -160,6 +168,87 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
   };
 }
 
+// --- tail-check seam -------------------------------------------------------
+
+/** Per-call output-token cap for the tail check (the reply is a tiny JSON object). */
+const TAIL_CHECK_MAX_TOKENS = 512;
+/** Per-turn wall-clock cap for the tail-check stage call. */
+const TAIL_CHECK_TIMEOUT_MS = 120_000;
+/** Single-turn, no-tool stage (the reply IS the answer). */
+const SINGLE_TURN = 1;
+
+/** Inputs to {@link buildTailCheckSeam} (mirrors the author seam's threading). */
+export interface TailCheckSeamDeps {
+  readonly ctxGetter: () => ExtensionContext;
+  /** The evaluated model the check runs on (null = session default). */
+  readonly evaluatedModel: string | null;
+  readonly signal: AbortSignal;
+  /** Injectable (default = resolveBenchModel). */
+  readonly resolveModel?: ResolveModel;
+  /** Injectable (default = runBenchStage). */
+  readonly runStage?: RunStage;
+  /** Injectable file reader (default = fs readFileSync utf-8). */
+  readonly read?: ReadText;
+  /** The live-progress widget (build-phase ctx/tok for the check call). */
+  readonly widget?: WidgetPort | null;
+}
+
+/** Read the raw backup entries (header skipped) — the tail check needs full message
+ *  bodies, not just ids. Pure parse; throws on malformed JSONL lines. */
+export function readRawBackupEntries(jsonlPath: string, deps: { read: ReadText }): unknown[] {
+  const text = deps.read(jsonlPath);
+  const entries: unknown[] = [];
+  for (const line of text.split(JSONL_NEWLINE)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const entry = JSON.parse(trimmed) as { type?: string };
+    if (entry.type === SESSION_HEADER_TYPE) continue;
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/** Slice the KEPT TAIL: entries at/after `firstKeptEntryId` in file order (the same
+ *  boundary classifyLanding treats as the tail). Unknown cut id → empty tail (nothing
+ *  provably in-tail). */
+export function sliceKeptTail(entries: readonly unknown[], firstKeptEntryId: string): readonly unknown[] {
+  const cut = entries.findIndex((e) => (e as { id?: string }).id === firstKeptEntryId);
+  if (cut === -1) return [];
+  return entries.slice(cut);
+}
+
+/** Build the `findTailContent` seam: render the kept tail + one single-call kind-level
+ *  presence check. Malformed replies are conservative (empty set → surface), model/
+ *  transport failures propagate (stop-and-surface). */
+export function buildTailCheckSeam(deps: TailCheckSeamDeps): NonNullable<BuildSeams["findTailContent"]> {
+  const resolve = deps.resolveModel ?? resolveBenchModel;
+  const runStage = deps.runStage ?? runBenchStage;
+  const hooks = widgetStageHooks(deps.widget);
+  return async (backupPath: string, firstKeptEntryId: string): Promise<ReadonlySet<string>> => {
+    const raw = readRawBackupEntries(backupPath, { read: deps.read ?? ((p) => readFileSync(p, "utf-8")) });
+    const tailText = renderTailText(sliceKeptTail(raw, firstKeptEntryId));
+    const resolved = await resolve(deps.ctxGetter(), deps.evaluatedModel);
+    if (!resolved.ok) throw new Error(`tail check model not available: ${resolved.error}`);
+    hooks?.onModelResolved(resolved.model);
+    const result = await runStage({
+      systemPrompt: TAIL_CHECK_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: tailText, timestamp: Date.now() }],
+      tools: [],
+      model: resolved.model,
+      apiKey: resolved.apiKey,
+      signal: deps.signal,
+      reasoning: NO_REASONING,
+      maxTurns: SINGLE_TURN,
+      maxTokens: TAIL_CHECK_MAX_TOKENS,
+      timeoutMs: TAIL_CHECK_TIMEOUT_MS,
+      onEvent: hooks?.onEvent ?? NO_EVENT_SINK,
+      onStageEnd: NO_STAGE_END_HOOK,
+      loopFn: NO_LOOP_OVERRIDE,
+    });
+    return parseTailCheckResponse(extractAssistantText(result.messages));
+  };
+}
+
 // --- trialCompact seam (26c) -----------------------------------------------
 
 /** The bare-pi arm — used to disable memory hooks for a NATIVE trial compaction
@@ -245,6 +334,8 @@ interface MakeBuildSimulatorArgs {
   readonly targetContext: number;
   readonly signal: AbortSignal;
   readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
+  /** Plant-resume: the drive's first-cycle harness instruction override. */
+  readonly firstInstruction?: string;
   /** The live-progress widget (the factory wires its onEvent + ctx-window for build ctx/tok). */
   readonly widget?: WidgetPort | null;
 }
@@ -273,6 +364,9 @@ export interface DriveAndCaptureSeamDeps {
   readonly loadSession?: typeof loadSession;
   readonly awaitSettled?: typeof awaitAgentSettled;
   readonly makeSimulator?: (args: MakeBuildSimulatorArgs) => BuildDriver;
+  /** Plant-and-continue recovery: when the drive runs THIS attempt, the simulator's
+   *  first cycle gets the plant instruction (steering the missing topics in). */
+  readonly plant?: { readonly attempt: number; readonly instruction: string };
   readonly getPi?: () => ExtensionAPI;
   /** The live-progress widget (advances to the 'build' cell + wires the user-simulator's ctx/tok). */
   readonly widget?: WidgetPort | null;
@@ -312,6 +406,7 @@ function createDefaultBuildSimulatorFactory(deps: {
       signal: args.signal,
       inject: makeAntiPeekInject(args.pi, deps.antiPeekPrompt),
       onStop: args.onStop,
+      firstInstruction: args.firstInstruction,
       ...widgetStageHooks(args.widget),
     });
 }
@@ -359,6 +454,8 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
         targetContext,
         signal: deps.signal,
         onStop,
+        firstInstruction:
+          deps.plant !== undefined && deps.plant.attempt === attempt ? deps.plant.instruction : undefined,
         widget: deps.widget,
       });
       // Seed the driver with the session's current context (so a continue attempt paces
@@ -409,7 +506,8 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
 /** Filename for the trial-compaction copy (under preSliceDir, OUTSIDE the repo). */
 const TRIAL_COPY_NAME = "trial-copy.jsonl";
 /** Filename for the stable build session (under preSliceDir, OUTSIDE the repo). */
-const BUILD_SESSION_NAME = "build.jsonl";
+/** The stable build-session file name (persists + grows across attempts + prepares). */
+export const BUILD_SESSION_NAME = "build.jsonl";
 
 /** Inputs to {@link buildLiveSeams}. The caller computes paths + the scenario identity;
  *  this assembles the three seams bound to a shared `CtxHolder` (threaded across seams). */
@@ -427,6 +525,10 @@ export interface BuildLiveSeamsArgs {
   readonly compactionPlan: string;
   /** The live-progress widget (build/extract ctx/tok + phase cells). Null/absent → no widget. */
   readonly widget?: WidgetPort | null;
+  /** Plant-and-continue recovery (`--plant`): the failed prepare's attempt + the plant
+   *  steering instruction. Drives the build loop from that attempt with the plant
+   *  instruction as the resumed drive's first harness instruction. */
+  readonly resume?: BuildResume;
   readonly signal: AbortSignal;
 }
 
@@ -470,6 +572,16 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): BuildSeams {
     getPi: getBenchPi,
     getProxies: getMemoryProxies,
     widget: args.widget,
+    plant:
+      args.resume?.plantInstruction !== undefined
+        ? { attempt: args.resume.attempt, instruction: args.resume.plantInstruction }
+        : undefined,
   });
-  return { driveAndCapture, trialCompact, author };
+  const findTailContent = buildTailCheckSeam({
+    ctxGetter: () => holder.current,
+    evaluatedModel: args.config.evaluatedModel,
+    signal: args.signal,
+    widget: args.widget,
+  });
+  return { driveAndCapture, trialCompact, author, findTailContent };
 }

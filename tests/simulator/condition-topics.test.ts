@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  buildPlantInstruction,
   CONDITION_TOPICS,
   type ConditionTag,
   type ConditionTopic,
@@ -93,5 +94,18 @@ describe("CONDITION_TOPICS", () => {
     expect(typeof sample.id).toBe("string");
     expect(typeof sample.label).toBe("string");
     expect(typeof sample.hint).toBe("string");
+  });
+});
+
+describe("buildPlantInstruction", () => {
+  it("embeds each topic's label + hint (the approved plant steering text)", () => {
+    const text = buildPlantInstruction(["change-mind", "open-question"]);
+    expect(text).toContain("Changed mind —");
+    expect(text).toContain("Open question —");
+    expect(text).toContain("one per step, naturally, as the user");
+  });
+
+  it("unknown topic id throws (ids come from landing.json / CONDITION_TOPICS)", () => {
+    expect(() => buildPlantInstruction(["nope"])).toThrow(/unknown condition topic id/);
   });
 });

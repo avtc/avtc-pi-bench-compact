@@ -40,3 +40,47 @@ export function fakeCommandCtx(opts: { mode?: string; hasUI?: boolean } = {}): {
     },
   };
 }
+
+/** A fake command ctx modeling pi's GUARDED ctx getters: after `invalidate()` (what
+ *  switchSession → runner.invalidate does), every getter access (ui/mode/hasUI)
+ *  throws "stale" — exactly like runner.js createContext's assertActive guards.
+ *  Handlers that capture the UI surface EAGERLY keep working after invalidation;
+ *  lazy ctx.ui readers throw (the regression the guard catches). */
+export function fakeGuardedCtx(): {
+  ctx: FakeCommandCtx;
+  invalidate: () => void;
+  notifies: { msg: string; level: string }[];
+} {
+  const notifies: { msg: string; level: string }[] = [];
+  let active = true;
+  const assertActive = (): void => {
+    if (!active) throw new Error("This extension ctx is stale after session replacement");
+  };
+  const ui = {
+    notify: (msg: string, level: string): void => {
+      notifies.push({ msg, level });
+    },
+    setWidget: (): void => {},
+  };
+  return {
+    notifies,
+    invalidate: (): void => {
+      active = false;
+    },
+    ctx: {
+      get mode(): string {
+        assertActive();
+        return "tui";
+      },
+      get hasUI(): boolean {
+        assertActive();
+        return true;
+      },
+      get ui(): FakeCommandCtx["ui"] {
+        assertActive();
+        return ui;
+      },
+      switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
+    },
+  };
+}

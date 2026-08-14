@@ -19,6 +19,7 @@ import type { BenchConfig } from "../config/types.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { RunResult, StartRunDeps } from "../orchestrate/run.js";
 import { startRun as startRunImpl } from "../orchestrate/run.js";
+import { isRunInFlight } from "../orchestrate/run-state.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { setActiveWidget } from "../widget/active-widget.js";
@@ -127,8 +128,13 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
   // don't re-animate a prior command's terminal widget. executeRun sets the run widget
   // after prepare; the shorthand's prepare phase is intentionally widget-less.
   setActiveWidget(NO_ACTIVE_WIDGET);
+  // Capture the UI surface EAGERLY: prepare's build/extract work switchSessions, which
+  // invalidates the command ctx's guarded getters — the catch-path notifies below fire
+  // AFTER those switches, so a lazy ctx.ui read would throw "stale" (the uiContext
+  // object itself is host-level + stays live).
+  const ui = opts.ctx.ui;
   const notify = (msg: string, level: "info" | "warning" | "error"): void => {
-    opts.ctx.ui.notify(msg, level);
+    ui.notify(msg, level);
   };
   const scenarioId = computeScenarioId(opts.parsed);
 
@@ -224,12 +230,28 @@ export function guardPreflight(
     notifyOf(ctx)(check.reason, "warning");
     return false;
   }
+  // One bench run drives the ONE main pi session (+ the shared scenario repo) — a
+  // second concurrent run/prepare would clobber the run-state + abort holder and
+  // interleave git. Refuse while a run is in-flight (done clears the state; stop +
+  // unexpected-error exits record lastStopReason, so follow-ups are allowed).
+  if (isRunInFlight()) {
+    notifyOf(ctx)(
+      "a bench run is already active — /bench-compact:status shows it; /bench-compact:abort stops it",
+      "warning",
+    );
+    return false;
+  }
   return true;
 }
 
 /** The common run tail: build the widget + StartRunDeps, drive the run, notify the
  *  operator of the outcome. Returns the run result (for the handler to surface). */
 export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
+  // Capture the UI surface EAGERLY: the run switchSessions (Phase-1 loads each arm),
+  // which invalidates the command ctx's guarded getters (ctx.ui would throw "stale"
+  // at notify time). The uiContext OBJECT itself is host-level and stays live across
+  // session switches — same eager-capture makeTuiWidgetDeps already does below.
+  const ui = opts.ctx.ui;
   const widgetDeps = makeTuiWidgetDeps({
     mode: opts.ctx.mode,
     hasUI: opts.ctx.hasUI,
@@ -246,7 +268,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     manifest: opts.manifest,
     widget,
     notify: (message: string): void => {
-      opts.ctx.ui.notify(message, "warning");
+      ui.notify(message, "warning");
     },
   };
   const run = opts.startRun ?? startRunImpl;
@@ -258,11 +280,11 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     // operator sees the run halted, then rethrow (pi's command runner handles the
     // rejection). The notify is the stop-and-surface channel (failure handling).
     const msg = err instanceof Error ? err.message : String(err);
-    opts.ctx.ui.notify(`run failed: ${msg}`, "error");
+    ui.notify(`run failed: ${msg}`, "error");
     throw err;
   }
   if (result.kind === "done") {
-    opts.ctx.ui.notify(`run ${result.runId} done: ${result.resultsPath}`, "info");
+    ui.notify(`run ${result.runId} done: ${result.resultsPath}`, "info");
   }
   // stopped: startRun already notified the detailed stop message via deps.notify
   // (arm/attempt/phase + message) — do NOT double-notify. The live-progress widget

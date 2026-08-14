@@ -43,7 +43,14 @@ import {
 } from "./phase1.js";
 import { type Phase2Result, Phase2StoppedError, type Phase2StopReason, runContinuations } from "./phase2.js";
 import { type ProbeOps, ProbeStoppedError, type ProbeStopReason, runProbes } from "./probes.js";
-import { clearRunState, NO_RUN_ABORT, setActiveRunAbort, setRunState, updateRunState } from "./run-state.js";
+import {
+  clearRunState,
+  getRunState,
+  NO_RUN_ABORT,
+  setActiveRunAbort,
+  setRunState,
+  updateRunState,
+} from "./run-state.js";
 import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
 import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
 import { runTestSpec, TestSpecFaultError } from "./testspec.js";
@@ -349,6 +356,13 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
     log.warn(`run ${runId} stopped: scoring ${category} — ${message}`);
     return { kind: "stopped", arm: null, attempt: null, phase: "score", reason: category, message, runId };
   }
+  // Unexpected error (fs fault, git fault, bug): re-throw for the command layer's
+  // catch — but FIRST record the stop so the run-state doesn't keep looking live
+  // (a live-looking state would block the concurrent-run guard + mislead
+  // /bench-compact:status + leave the widget without its stopped status).
+  const unexpectedMsg = err instanceof Error ? err.message : String(err);
+  if (getRunState() !== null) updateRunState({ lastStopReason: `unexpected error: ${unexpectedMsg}` });
+  widget?.setStatus("stopped", "/bench-compact:resume");
   throw err;
 }
 

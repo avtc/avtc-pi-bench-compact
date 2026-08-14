@@ -77,3 +77,15 @@ export const CONDITION_TOPICS: readonly ConditionTopic[] = Object.freeze(
     ] as ConditionTopic[]
   ).map((t) => Object.freeze(t)),
 );
+
+/** The plant-and-continue recovery instruction (harness → simulator): steer the
+ *  previously-missing topics in as the user's own decisions, one per step. Built from
+ *  the canonical topics (label + hint); unknown ids are rejected. */
+export function buildPlantInstruction(topicIds: readonly string[]): string {
+  const topics = topicIds.map((id) => {
+    const t = CONDITION_TOPICS.find((c) => c.id === id);
+    if (t === undefined) throw new Error(`buildPlantInstruction: unknown condition topic id "${id}"`);
+    return `${t.label} — ${t.hint}`;
+  });
+  return `Before continuing, bring these up now as your own decisions — for each: state it, let the agent implement or acknowledge it, and make sure it's settled before moving on: ${topics.join("; ")} (one per step, naturally, as the user).`;
+}

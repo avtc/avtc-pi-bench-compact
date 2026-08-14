@@ -61,7 +61,15 @@ describe("parsePrepareArgs", () => {
     expect(r.fromSession).toBeUndefined();
   });
   it("empty args -> nothing set, no error (completeness is preflight's job)", () => {
-    expect(parsePrepareArgs("")).toEqual({ idea: undefined, fromSession: undefined, force: false, error: undefined });
+    expect(parsePrepareArgs("")).toEqual({
+      idea: undefined,
+      fromSession: undefined,
+      plantFrom: undefined,
+      skipFrom: undefined,
+      skipTopics: undefined,
+      force: false,
+      error: undefined,
+    });
   });
 });
 
@@ -122,5 +130,43 @@ describe("parsePositional", () => {
   });
   it("empty -> undefined value, no error", () => {
     expect(parsePositional("")).toEqual({ value: undefined, error: undefined });
+  });
+});
+
+describe("parsePrepareArgs — recovery flags (--plant / --skip-topics / --from)", () => {
+  it("parses --plant <folder>", () => {
+    const r = parsePrepareArgs("--plant /scen/2026-08-14-1");
+    expect(r.plantFrom).toBe("/scen/2026-08-14-1");
+    expect(r.idea).toBeUndefined();
+    expect(r.error).toBeUndefined();
+  });
+
+  it("parses --skip-topics a,b --from <folder> (space form)", () => {
+    const r = parsePrepareArgs("--skip-topics change-mind,open-question --from /scen/x");
+    expect(r.skipTopics).toEqual(["change-mind", "open-question"]);
+    expect(r.skipFrom).toBe("/scen/x");
+    expect(r.error).toBeUndefined();
+  });
+
+  it("parses --skip-topics=a,b (equals form, space-free ids)", () => {
+    const r = parsePrepareArgs("--skip-topics=change-mind,open-question");
+    expect(r.skipTopics).toEqual(["change-mind", "open-question"]);
+  });
+
+  it("--plant with no value errors", () => {
+    expect(parsePrepareArgs("--plant").error).toMatch(/--plant requires a value/);
+  });
+
+  it("--plant followed by another flag errors", () => {
+    expect(parsePrepareArgs("--plant --force").error).toMatch(/--plant requires a value/);
+  });
+
+  it("--skip-topics with empty entries errors", () => {
+    expect(parsePrepareArgs("--skip-topics a,,b").error).toMatch(/no empty entries/);
+    expect(parsePrepareArgs("--skip-topics=").error).toMatch(/non-empty/);
+  });
+
+  it("--from with no value errors", () => {
+    expect(parsePrepareArgs("--from").error).toMatch(/--from requires a value/);
   });
 });

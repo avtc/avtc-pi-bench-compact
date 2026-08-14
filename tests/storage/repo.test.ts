@@ -4,7 +4,7 @@
 // Integration tests for the scenario-repo git wrappers — real `git` in a temp dir.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -111,5 +111,52 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     // checkout a non-existent branch -> git fails; runGit must surface the command + failure
     expect(() => checkout(repo, "no-such-branch")).toThrow(/failed/i);
     expect(() => checkout(repo, "no-such-branch")).toThrow(/checkout no-such-branch/);
+  });
+});
+
+describe("initScenarioRepo .gitignore preservation (extract mode copies a project .gitignore in)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(path.join(tmpdir(), "bench-repo-gi-"));
+    writeFileSync(path.join(repo, "session.jsonl"), '{"type":"session","cwd":"/x"}\n');
+    writeFileSync(path.join(repo, "game.ts"), "export const x = 1;\n");
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("APPENDS .pi/ to a pre-existing .gitignore instead of overwriting it", () => {
+    writeFileSync(path.join(repo, ".gitignore"), "node_modules/\ndist/\n");
+    initScenarioRepo(repo);
+    const lines = readFileSync(path.join(repo, ".gitignore"), "utf-8").split(/\r?\n/);
+    expect(lines).toContain("node_modules/");
+    expect(lines).toContain("dist/");
+    expect(lines).toContain(".pi/");
+  });
+
+  it("appends on a newline when the existing .gitignore lacks a trailing newline", () => {
+    writeFileSync(path.join(repo, ".gitignore"), "dist/");
+    initScenarioRepo(repo);
+    const content = readFileSync(path.join(repo, ".gitignore"), "utf-8");
+    expect(content.split(/\r?\n/)).toEqual(["dist/", ".pi/", ""]);
+  });
+
+  it("a pre-existing .pi/ line is kept WITHOUT duplication (already-ignoring source)", () => {
+    writeFileSync(path.join(repo, ".gitignore"), "dist/\n.pi/\n");
+    initScenarioRepo(repo);
+    const content = readFileSync(path.join(repo, ".gitignore"), "utf-8");
+    const piLines = content.split(/\r?\n/).filter((l) => l.trim() === ".pi/");
+    expect(piLines).toHaveLength(1);
+    expect(content).toContain("dist/");
+  });
+
+  it("the appended rules stay in force (gitignored project files + .pi/ both untracked)", () => {
+    writeFileSync(path.join(repo, ".gitignore"), "dist/\n");
+    mkdirSync(path.join(repo, "dist"));
+    writeFileSync(path.join(repo, "dist", "bundle.js"), "bundled");
+    initScenarioRepo(repo);
+    const tracked = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]);
+    expect(tracked).not.toContain("dist/bundle.js");
+    expect(tracked).not.toContain(".pi/settings.json");
   });
 });

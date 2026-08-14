@@ -424,3 +424,36 @@ describe("driveUntilStop — boundary-stop control flow (no hang)", () => {
     ).rejects.toThrow("cycle error: simulator stage failed");
   });
 });
+
+describe("SimulatorDriver — firstInstruction (plant-and-continue resume)", () => {
+  it("cycle 0 uses the plant override; later cycles fall back to the pacing instruction", async () => {
+    const runStage = vi.fn(async (input: { messages: { content: unknown }[] }) => {
+      const content = input.messages[0].content;
+      const text = typeof content === "string" ? content : JSON.stringify(content);
+      return fakeStageResult(`sim reply ${text.length}`);
+    });
+    const seams = makeSeams({ runStage: runStage as unknown as SimulatorSeams["runStage"] });
+    const driver = new SimulatorDriver({
+      seams,
+      systemPrompt: "SYSTEM",
+      targetContext: 140_000,
+      maxTokens: 1024,
+      signal: new AbortController().signal,
+      hooks: undefined,
+      firstInstruction: "Bring up the changed-mind topic now.",
+    });
+    const firstInstructionCall = await captureInstruction(runStage, driver);
+    expect(firstInstructionCall).toContain("Bring up the changed-mind topic now.");
+    driver.trackContext(1); // still under target
+    const secondInstructionCall = await captureInstruction(runStage, driver);
+    expect(secondInstructionCall).not.toContain("Bring up the changed-mind");
+    expect(secondInstructionCall).toContain("Review what the agent did");
+  });
+
+  async function captureInstruction(runStage: ReturnType<typeof vi.fn>, driver: SimulatorDriver): Promise<string> {
+    await driver.onAgentSettled();
+    const call = runStage.mock.calls.at(-1) as unknown as [{ messages: { content: unknown }[] }];
+    const content = call[0].messages[0].content;
+    return typeof content === "string" ? content : JSON.stringify(content);
+  }
+});

@@ -38,16 +38,21 @@ import {
   buildDriveAndCaptureSeam,
   buildLiveSeams,
   buildSessionHeader,
+  buildTailCheckSeam,
   buildTrialCompactSeam,
   type ConfigureArmOp,
   type CtxHolder,
+  type DriveAndCaptureSeamDeps,
   type ResolveModel,
   type RunAuthor,
   type RunStage,
   readBackupEntries,
+  readRawBackupEntries,
   serializeSessionFile,
+  sliceKeptTail,
   type TriggerCompactOp,
 } from "../../src/production/live-seams.js";
+import type { SimulatorHooks } from "../../src/simulator/loop.js";
 
 const fakeCtx = {} as ExtensionContext;
 const fakeCmdCtx = {} as ExtensionCommandContext;
@@ -541,7 +546,15 @@ describe("defaultBuildPrepareDeps", () => {
     try {
       const deps = defaultBuildPrepareDeps(
         fakeCmdCtx,
-        { idea: "build a game", fromSession: undefined, force: false, error: undefined },
+        {
+          idea: "build a game",
+          fromSession: undefined,
+          plantFrom: undefined,
+          skipFrom: undefined,
+          skipTopics: undefined,
+          force: false,
+          error: undefined,
+        },
         "sc1",
       );
       expect(deps.scenario).toBe("build a game");
@@ -564,7 +577,15 @@ describe("defaultBuildPrepareDeps", () => {
     try {
       const deps = defaultBuildPrepareDeps(
         fakeCmdCtx,
-        { idea: undefined, fromSession: "/real/session.jsonl", force: false, error: undefined },
+        {
+          idea: undefined,
+          fromSession: "/real/session.jsonl",
+          plantFrom: undefined,
+          skipFrom: undefined,
+          skipTopics: undefined,
+          force: false,
+          error: undefined,
+        },
         "session-basename",
       );
       expect(deps.scenario).toBeUndefined();
@@ -576,5 +597,169 @@ describe("defaultBuildPrepareDeps", () => {
     } finally {
       _setHandleForTest(null);
     }
+  });
+});
+
+describe("tail-check seam (findTailContent wiring)", () => {
+  const SESSION = [
+    JSON.stringify({ type: "session", id: "s1", cwd: "/repo" }),
+    JSON.stringify({
+      type: "message",
+      id: "e1",
+      message: { role: "user", content: [{ type: "text", text: "Early decision: fixed tick." }] },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "e2",
+      message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "e3",
+      message: { role: "user", content: [{ type: "text", text: "Actually use variable tick instead." }] },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "e4",
+      message: { role: "user", content: [{ type: "text", text: "What about the save format? Let's decide later." }] },
+    }),
+  ].join("\n");
+
+  it("readRawBackupEntries skips the header; sliceKeptTail keeps entries at/after the cut", () => {
+    const raw = readRawBackupEntries("/b.jsonl", { read: () => SESSION });
+    expect(raw).toHaveLength(4);
+    const tail = sliceKeptTail(raw, "e3");
+    expect((tail[0] as { id?: string }).id).toBe("e3"); // at the cut (kept tail)
+    expect(tail).toHaveLength(2);
+  });
+
+  it("unknown cut id → empty tail (nothing provably in-tail)", () => {
+    expect(sliceKeptTail(readRawBackupEntries("/b.jsonl", { read: () => SESSION }), "nope")).toHaveLength(0);
+  });
+
+  it("seam renders the kept tail as user content + parses the JSON reply into topic ids", async () => {
+    const captured: { systemPrompt: string; userContent: string } = { systemPrompt: "", userContent: "" };
+    const seam = buildTailCheckSeam({
+      ctxGetter: () => fakeCtx,
+      evaluatedModel: null,
+      signal: new AbortController().signal,
+      resolveModel: (async () => ({ ok: true, model: { id: "m" }, apiKey: "k" })) as unknown as ResolveModel,
+      read: () => SESSION,
+      runStage: (async (input: { systemPrompt: string; messages: { content: string }[] }) => {
+        captured.systemPrompt = input.systemPrompt;
+        captured.userContent = input.messages[0].content;
+        return {
+          aborted: false,
+          timedOut: false,
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "text",
+                  text: `{"key-decision": true, "completed-work": false, "reversal": true, "open-question": true}`,
+                },
+              ],
+            },
+          ],
+        };
+      }) as unknown as RunStage,
+    });
+    const ids = await seam("/b.jsonl", "e3");
+    expect(captured.systemPrompt).toContain("KEPT TAIL");
+    expect(captured.userContent).toContain("variable tick");
+    expect(captured.userContent).not.toContain("fixed tick"); // pre-cut entry excluded
+    expect([...ids].sort()).toEqual(["change-mind", "key-decision", "open-question"]);
+  });
+
+  it("malformed LLM reply → conservative empty set (missing → surface, never infinite-continue)", async () => {
+    const seam = buildTailCheckSeam({
+      ctxGetter: () => fakeCtx,
+      evaluatedModel: null,
+      signal: new AbortController().signal,
+      resolveModel: (async () => ({ ok: true, model: { id: "m" }, apiKey: "k" })) as unknown as ResolveModel,
+      read: () => SESSION,
+      runStage: (async () => ({
+        aborted: false,
+        timedOut: false,
+        messages: [{ role: "assistant", content: [{ type: "text", text: "cannot answer" }] }],
+      })) as unknown as RunStage,
+    });
+    expect((await seam("/b.jsonl", "e3")).size).toBe(0);
+  });
+
+  it("model unavailable → throws (stop-and-surface, not silent)", async () => {
+    const seam = buildTailCheckSeam({
+      ctxGetter: () => fakeCtx,
+      evaluatedModel: null,
+      signal: new AbortController().signal,
+      resolveModel: (async () => ({ ok: false, error: "no such model" })) as unknown as ResolveModel,
+      read: () => SESSION,
+      runStage: (async () => ({ aborted: false, timedOut: false, messages: [] })) as unknown as RunStage,
+    });
+    await expect(seam("/b.jsonl", "e3")).rejects.toThrow(/not available/);
+  });
+});
+
+describe("driveAndCapture — plant threading (plant-and-continue resume)", () => {
+  const baseDeps = (makeSimulator: DriveAndCaptureSeamDeps["makeSimulator"]): DriveAndCaptureSeamDeps => ({
+    holder: { current: {} as ExtensionCommandContext },
+    repoPath: "/repo",
+    buildSessionPath: "/tmp/build.jsonl",
+    compactionBoundary: 140000,
+    scenarioDescription: "build a game",
+    evaluatedModel: null,
+    omFullReflectionThresholdTokens: 4000,
+    signal: new AbortController().signal,
+    maxTokens: 1024,
+    exists: () => true,
+    writeHeader: () => {},
+    loadSession: (async (_ctx: unknown, _path: string, withSession: (ctx: unknown) => Promise<void>) => {
+      await withSession({ getContextUsage: () => null });
+    }) as unknown as DriveAndCaptureSeamDeps["loadSession"],
+    awaitSettled: async () => {},
+    makeSimulator,
+    getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
+    read: () => `{"type":"session","id":"h","cwd":"/repo"}\n{"type":"message","id":"m1"}\n`,
+  });
+
+  it("passes firstInstruction ONLY at the plant attempt (other attempts get undefined)", async () => {
+    const seen: (string | undefined)[] = [];
+    // Stops on its FIRST cycle (boundary) — the drive loop exits immediately.
+    const fakeDriver = (onStop: NonNullable<SimulatorHooks["onStop"]>): BuildDriver => ({
+      onAgentSettled: async (): Promise<void> => {
+        onStop({ contextTokens: 0, reason: "boundary" });
+      },
+      trackContext: () => {},
+    });
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      ...baseDeps((args) => {
+        seen.push(args.firstInstruction);
+        return fakeDriver(args.onStop);
+      }),
+      plant: { attempt: 2, instruction: "Bring up the changed-mind topic now." },
+    });
+    await driveAndCapture(0);
+    await driveAndCapture(2);
+    expect(seen[0]).toBeUndefined(); // pre-plant attempt
+    expect(seen[1]).toBe("Bring up the changed-mind topic now."); // the resumed plant drive
+  });
+
+  it("no plant configured → firstInstruction always undefined", async () => {
+    const seen: (string | undefined)[] = [];
+    const fakeDriver = (onStop: NonNullable<SimulatorHooks["onStop"]>): BuildDriver => ({
+      onAgentSettled: async (): Promise<void> => {
+        onStop({ contextTokens: 0, reason: "boundary" });
+      },
+      trackContext: () => {},
+    });
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      ...baseDeps((args) => {
+        seen.push(args.firstInstruction);
+        return fakeDriver(args.onStop);
+      }),
+    });
+    await driveAndCapture(0);
+    expect(seen[0]).toBeUndefined();
   });
 });

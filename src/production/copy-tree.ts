@@ -6,31 +6,113 @@
 // per-branch sessions store). The codebase at `session.cwd` IS the project files; this makes
 // them repo-resident so the agent resumes work on them in the repo cwd.
 //
-// `.git` is excluded (the repo has its own) + `node_modules` is excluded (bloat — the
-// operator reinstalls deps in the repo before Phase 2 if tests need them). Everything
-// else is copied verbatim.
+// What gets copied — the source's OWN ignore rules are respected, because the scenario repo
+// is readable by the cloud judge (an agentLoop with bash): a secret the operator gitignored
+// must not become a committed file one `git show` away.
+//   - Source IS a git repo: `git ls-files --cached --others --exclude-standard` lists exactly
+//     tracked + untracked-not-ignored files (the .gitignore rules applied by git itself).
+//   - Source is NOT a git repo (or git is unavailable): recursive copy of everything except
+//     the structural excludes.
+//   - Both paths additionally skip a SECRET-FILENAME DENYLIST (belt-and-suspenders: a
+//     force-added `.env` in a git repo still must not land in the judge-readable repo).
+//
+// `.git` + `node_modules` are always excluded (the repo has its own `.git`; node_modules is
+// bloat — the operator reinstalls deps in the repo before Phase 2 if tests need them).
+//
+// Returns the list of SKIPPED secret-like files (relative paths) so the caller can surface them.
 
-import { cpSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-/** Directories never copied (would conflict with the repo's own .git, or bloat it). */
+/** The root relative-path prefix for the recursive walk (no parent segment). */
+const ROOT_PREFIX = "";
+
+/** Structural directory excludes (never copied). */
 const EXCLUDE = new Set([".git", "node_modules"]);
 
-/** Recursively copy the project tree from `src` to `dest`, excluding .git + node_modules.
- *  Throws if `dest` is inside `src` (would recurse into itself). */
-export function copyProjectTree(src: string, dest: string): void {
+/** Secret-basename denylist (checked case-insensitively against every basename):
+ *  dotenv family (.env, .env.local, …) + .npmrc; key/certificate files; credential /
+ *  service-account / SSH-private-key names. Heuristic on purpose — reserving a filename
+ *  pattern is cheaper than exfiltrating one secret to a cloud judge. */
+const SECRET_DOTFILE = /^\.(env|npmrc)(\.|$)/i;
+const SECRET_SUFFIX = /\.(pem|key|p12|pfx)$/i;
+const SECRET_SUBSTRING = /(credential|service[-_]?account|id_rsa|id_ed25519)/i;
+
+/** Is this basename a secret-like file that must never be copied into the scenario repo? */
+export function isSecretBasename(base: string): boolean {
+  return SECRET_DOTFILE.test(base) || SECRET_SUFFIX.test(base) || SECRET_SUBSTRING.test(base);
+}
+
+/** Run `git` in `cwd` (same exec pattern as the repo wrappers); throws on failure. */
+const defaultGit = (cwd: string, args: string[]): string =>
+  execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).toString();
+
+/** Injectable git runner (tests fake the ls-files listing; any throw = non-git source). */
+export type GitRunner = (cwd: string, args: string[]) => string;
+
+/** Options for {@link copyProjectTree}. */
+export interface CopyTreeOptions {
+  /** Git runner (default: execFileSync). Throw = fall back to the recursive copy. */
+  readonly git?: GitRunner;
+}
+
+/** Copy the project tree from `src` to `dest`, honoring the source's ignore rules + the
+ *  secret denylist. Returns the relative paths of SKIPPED secret-like files. Throws if
+ *  `dest` is inside `src` (would recurse into itself). */
+export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions | null): string[] {
+  const git = opts?.git ?? defaultGit;
   const rel = path.relative(src, dest);
   if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) {
     throw new Error(`copyProjectTree: dest "${dest}" is inside src "${src}" (would recurse into itself)`);
   }
-  // node:fs cpSync with a recursive + filter fn — the cleanest built-in recursive copy.
-  cpSync(src, dest, {
-    recursive: true,
-    filter: (source) => {
-      // `source` is the path being considered (file or dir). Exclude top-level .git /
-      // node_modules by basename — cpSync calls filter for each entry under src.
-      const base = path.basename(source);
-      return !EXCLUDE.has(base);
-    },
-  });
+  let listed: string[] | null = null;
+  try {
+    // Relative paths under `src` (ls-files from a subdirectory lists only files there,
+    // relative to it) with the source's .gitignore rules applied by git itself.
+    const out = git(src, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]);
+    listed = out.split("\0").filter((f) => f.length > 0);
+  } catch {
+    listed = null; // not a git repo (or git unavailable) → recursive fallback below
+  }
+
+  const skipped: string[] = [];
+  mkdirSync(dest, { recursive: true });
+  if (listed !== null) {
+    for (const file of listed) {
+      // Structural excludes still apply (a force-added node_modules gains nothing).
+      if (file.split(/[/\\]/).some((seg) => EXCLUDE.has(seg))) continue;
+      const base = path.basename(file);
+      if (isSecretBasename(base)) {
+        skipped.push(file);
+        continue;
+      }
+      const target = path.join(dest, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      copyFileSync(path.join(src, file), target);
+    }
+    return skipped;
+  }
+
+  // Non-git fallback: recursive walk with the same excludes + denylist.
+  const walk = (srcDir: string, destDir: string, relPrefix: string): void => {
+    for (const ent of readdirSync(srcDir, { withFileTypes: true })) {
+      if (EXCLUDE.has(ent.name)) continue;
+      const relPath = relPrefix === "" ? ent.name : `${relPrefix}/${ent.name}`;
+      if (isSecretBasename(ent.name)) {
+        skipped.push(relPath);
+        continue;
+      }
+      const from = path.join(srcDir, ent.name);
+      const to = path.join(destDir, ent.name);
+      if (ent.isDirectory()) {
+        mkdirSync(to, { recursive: true });
+        walk(from, to, relPath);
+      } else if (ent.isFile() || ent.isSymbolicLink()) {
+        copyFileSync(from, to);
+      }
+    }
+  };
+  walk(src, dest, ROOT_PREFIX);
+  return skipped;
 }

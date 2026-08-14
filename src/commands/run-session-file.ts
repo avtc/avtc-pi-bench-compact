@@ -28,7 +28,15 @@ export function makeRunSessionFileHandler(opts: RunShorthandOptions) {
     if (!guardPreflight(handlerCtx, "run-session-file", parsed, exists)) return;
 
     // Lift the positional path into a PrepareArgs (extract mode) for the shared tail.
-    const prepareArgs = { idea: undefined, fromSession: parsed.value, force: false, error: undefined };
+    const prepareArgs = {
+      idea: undefined,
+      fromSession: parsed.value,
+      plantFrom: undefined,
+      skipFrom: undefined,
+      skipTopics: undefined,
+      force: false,
+      error: undefined,
+    };
     await invokeShorthand(handlerCtx, prepareArgs, opts);
   };
 }

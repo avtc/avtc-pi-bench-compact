@@ -26,6 +26,20 @@ Open the settings panel: evaluated model + thinking level, judge model(s) + thin
 ### `/bench-compact:prepare-scenario <idea> --force`
 Re-prepare over an existing scenario folder (otherwise an existing folder is rejected).
 
+### `/bench-compact:prepare-scenario --plant <folder>` *(recovery)*
+**Plant + continue.** When a build surfaces (condition topics did not land in the compacted-away span), the failed prepare persists `landing.json` in the scenario folder. This resumes the SAME build session at the surfaced attempt, steering the user-simulator to voice the missing topics (~+20K), then re-trials → re-authors → re-validates.
+
+```
+/bench-compact:prepare-scenario --plant ~/.pi/bench-compact/scenarios/2026-08-14-1
+```
+
+### `/bench-compact:prepare-scenario --skip-topics <ids> --from <folder>` *(recovery)*
+**Skip + proceed.** Freeze the surfaced prepare's manifest WITHOUT the dropped topics (no re-build). Ids are comma-separated; only `safeToSkip` topics that are actually missing can be skipped (essential topics are rejected).
+
+```
+/bench-compact:prepare-scenario --skip-topics change-mind,open-question --from ~/.pi/bench-compact/scenarios/2026-08-14-1
+```
+
 ### `/bench-compact:run-scenario <folder>`
 Run every enabled arm from a **prepared** scenario folder (skips prepare). The folder is either the scenario dir (containing `manifest.json` + `repo/`) or the repo dir (with `manifest.json` in its parent).
 

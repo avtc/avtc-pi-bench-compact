@@ -5,7 +5,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { computeScenarioId, makePrepareScenarioHandler } from "../../src/commands/prepare-scenario.js";
+import {
+  computeScenarioId,
+  makePrepareScenarioHandler,
+  surfaceConditionsMessage,
+} from "../../src/commands/prepare-scenario.js";
+import { SurfaceConditionsError } from "../../src/production/build.js";
 import type { PrepareDeps } from "../../src/production/prepare.js";
 
 describe("computeScenarioId", () => {
@@ -118,5 +123,180 @@ describe("makePrepareScenarioHandler", () => {
     expect(extractIdx).toBeGreaterThanOrEqual(0);
     expect(showIdx).toBeGreaterThanOrEqual(0);
     expect(extractIdx).toBeLessThan(showIdx); // startPhase('extract') before show
+  });
+});
+
+describe("makePrepareScenarioHandler — stale-ctx safety (guarded getters)", () => {
+  it("captures ui EAGERLY: the post-prepare notify works after prepare's switchSessions invalidate the ctx", async () => {
+    // Models pi: prepare's driveAndCapture/trialCompact/author switchSession, which
+    // invalidates the command ctx's guarded getters (ui/mode/hasUI throw "stale").
+    // The success + failure notifies fire AFTER those switches, so they must go
+    // through the eagerly-captured ui object.
+    const { fakeGuardedCtx } = await import("./helpers.js");
+    const { ctx, invalidate, notifies } = fakeGuardedCtx();
+    const fakePrepare = vi.fn().mockImplementation(async () => {
+      invalidate(); // the build drive's switchSession
+      return { repoPath: "/repo/x", manifestPath: "/m.json" };
+    });
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: fakePrepare,
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: () =>
+        ({
+          show: () => {},
+          startPhase: () => {},
+          setStatus: () => {},
+          setArm: () => {},
+          setDetail: () => {},
+          setCtxWindow: () => {},
+          onEvent: () => {},
+          hide: () => {},
+        }) as unknown as import("../../src/widget/active-widget.js").WidgetPort,
+    });
+    await handler("my idea", ctx);
+    expect(notifies.some((n) => n.msg.includes("/repo/x") && n.level === "info")).toBe(true);
+  });
+
+  it("the failure notify works after the ctx went stale (no throw masking the real error)", async () => {
+    const { fakeGuardedCtx } = await import("./helpers.js");
+    const { ctx, invalidate, notifies } = fakeGuardedCtx();
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn().mockImplementation(async () => {
+        invalidate();
+        throw new Error("simulator stopped with an error");
+      }),
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: () =>
+        ({
+          show: () => {},
+          startPhase: () => {},
+          setStatus: () => {},
+          setArm: () => {},
+          setDetail: () => {},
+          setCtxWindow: () => {},
+          onEvent: () => {},
+          hide: () => {},
+        }) as unknown as import("../../src/widget/active-widget.js").WidgetPort,
+    });
+    await handler("my idea", ctx);
+    expect(notifies.some((n) => n.level === "error" && n.msg.includes("simulator stopped"))).toBe(true);
+  });
+});
+
+describe("makePrepareScenarioHandler — concurrent-run refusal", () => {
+  it("refuses to prepare while a bench run is in-flight (prepare also drives the main session)", async () => {
+    const { setRunState } = await import("../../src/orchestrate/run-state.js");
+    setRunState({
+      runId: "2026-08-14-1",
+      date: "2026-08-14",
+      id: 1,
+      cfgId: "cfg-x",
+      scenarioRepo: "/repo/s",
+      phase: "phase-2",
+      currentArm: "A3",
+      currentAttempt: 2,
+      lastStopReason: null,
+    });
+    const notified: { msg: string; level: string }[] = [];
+    const ctx = { ui: { notify: (msg: string, level: string) => void notified.push({ msg, level }) } };
+    const fakePrepare = vi.fn();
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: fakePrepare,
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+    });
+    await handler("my idea", ctx);
+    expect(fakePrepare).not.toHaveBeenCalled();
+    expect(notified.some((n) => n.msg.includes("already active") && n.level === "warning")).toBe(true);
+  });
+});
+
+describe("makePrepareScenarioHandler — surface notify (v2 recovery options)", () => {
+  const surfaceErr = (
+    missing: { id: string; label: string; tag: "essential" | "safeToSkip" }[],
+    skipOffered: boolean,
+  ) =>
+    new SurfaceConditionsError(
+      { kind: "surface", skipOffered, missing: missing.map((m) => ({ ...m, hint: "h", metricAxis: "recallFact" })) },
+      { firstKeptEntryId: "e4", attempt: 1, manifest: {} as unknown as SurfaceConditionsError["manifest"] },
+    );
+
+  it("essential missing → names labels + the three options with the scenario folder", async () => {
+    const notified: { msg: string; level: string }[] = [];
+    const ctx = { ui: { notify: (msg: string, level: string) => void notified.push({ msg, level }) } };
+    const err = surfaceErr(
+      [
+        { id: "key-decision", label: "Key decision", tag: "essential" },
+        { id: "change-mind", label: "Changed mind", tag: "safeToSkip" },
+      ],
+      false,
+    );
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn().mockRejectedValue(err),
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: () => inertWidget(),
+    });
+    await handler("my idea", ctx);
+    const msg = notified.find((n) => n.level === "error")?.msg ?? "";
+    expect(msg).toContain("essential condition topics did not land");
+    expect(msg).toContain("Key decision");
+    expect(msg).toContain("(a) plant + continue — /bench-compact:prepare-scenario --plant");
+    expect(msg).toContain("(b) start over — re-run /bench-compact:prepare-scenario <idea>");
+    expect(msg).toContain("(c) skip — /bench-compact:prepare-scenario --skip-topics change-mind --from");
+    expect(msg).toContain("(safe-to-skip only: Changed mind)");
+  });
+
+  it("only safeToSkip missing → the safe-to-skip opening", async () => {
+    const notified: { msg: string; level: string }[] = [];
+    const ctx = { ui: { notify: (msg: string, level: string) => void notified.push({ msg, level }) } };
+    const err = surfaceErr([{ id: "open-question", label: "Open question", tag: "safeToSkip" }], true);
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn().mockRejectedValue(err),
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      makeWidget: () => inertWidget(),
+    });
+    await handler("my idea", ctx);
+    const msg = notified.find((n) => n.level === "error")?.msg ?? "";
+    expect(msg).toContain("only safe-to-skip topics are missing: Open question");
+    expect(msg).toContain("--skip-topics open-question");
+  });
+
+  it("no safe topics among missing → (c) not available", async () => {
+    const err = surfaceErr([{ id: "key-decision", label: "Key decision", tag: "essential" }], false);
+    const msg = surfaceConditionsMessage(err, "/scen/x");
+    expect(msg).toContain("(c) skip — not available (no safe-to-skip topics among the missing)");
+  });
+
+  function inertWidget(): import("../../src/widget/active-widget.js").WidgetPort {
+    return {
+      show: () => {},
+      startPhase: () => {},
+      setStatus: () => {},
+      setArm: () => {},
+      setDetail: () => {},
+      setCtxWindow: () => {},
+      onEvent: () => {},
+      hide: () => {},
+    } as unknown as import("../../src/widget/active-widget.js").WidgetPort;
+  }
+});
+
+describe("computeScenarioId — recovery modes", () => {
+  it("derives from the recovery folder basename", () => {
+    expect(
+      computeScenarioId({
+        idea: undefined,
+        fromSession: undefined,
+        plantFrom: "/root/scenarios/abc",
+        skipFrom: undefined,
+      }),
+    ).toBe("abc");
+    expect(
+      computeScenarioId({
+        idea: undefined,
+        fromSession: undefined,
+        plantFrom: undefined,
+        skipFrom: "/root/scenarios/xyz",
+      }),
+    ).toBe("xyz");
   });
 });

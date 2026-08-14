@@ -12,7 +12,7 @@
 // uncommitted mid-run). One branch live at a time → no worktrees.
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Bench-internal, never tracked scenario content: `.pi/` holds the arm-isolation settings
@@ -44,7 +44,21 @@ function runGit(cwd: string, args: string[]): string {
  */
 export function initScenarioRepo(repoPath: string, opts: { message?: string } = {}): string {
   // Ignore bench-internal `.pi/` BEFORE the first add — persists across forks/branches.
-  writeFileSync(join(repoPath, ".gitignore"), SCENARIO_GITIGNORE, "utf-8");
+  // APPEND to a pre-existing .gitignore (extract mode copies the project's own one in —
+  // its rules must survive) instead of overwriting it; skip when `.pi/` is already there
+  // (re-init on the same repo must not duplicate the line).
+  const gitignorePath = join(repoPath, ".gitignore");
+  let existing = "";
+  try {
+    existing = readFileSync(gitignorePath, "utf-8");
+  } catch {
+    existing = ""; // no pre-existing .gitignore → fresh write below
+  }
+  const hasPiLine = existing.split(/\r?\n/).some((line) => line.trim() === ".pi/" || line.trim() === ".pi");
+  if (!hasPiLine) {
+    const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    writeFileSync(gitignorePath, `${existing}${separator}${SCENARIO_GITIGNORE}`, "utf-8");
+  }
   runGit(repoPath, ["init", "-b", "main"]);
   // local identity — a fresh repo has none, so commits would fail without this.
   runGit(repoPath, ["config", "user.email", "bench-compact@local"]);

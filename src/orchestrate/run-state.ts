@@ -105,6 +105,17 @@ export function abortActiveRun(): boolean {
   return true;
 }
 
+/** True when a bench run is in-flight (state set + not yet stopped). While a run is
+ *  in-flight, NO other bench command may drive the main pi session — prepare AND run
+ *  phases all switchSession the ONE main session (plus git on the shared scenario
+ *  repo), so a concurrent command would corrupt both. Stopped/done/crashed runs are
+ *  NOT in-flight (done clears the state; stop + unexpected-error paths record
+ *  `lastStopReason`), so a follow-up run is allowed. */
+export function isRunInFlight(): boolean {
+  const s = readGlobal();
+  return s !== null && s.lastStopReason === null;
+}
+
 /** A one-line status for `/bench-compact:status` + the widget. */
 export function statusString(): string {
   const s = readGlobal();

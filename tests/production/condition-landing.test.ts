@@ -154,3 +154,30 @@ describe("decideLandingAction", () => {
     expect(decideLandingAction(cls).kind).toBe("surface"); // missing wins over tail
   });
 });
+
+describe("decideLandingAction — surface carries the missing topics", () => {
+  it("surface action names every missing topic (labels/tags flow to the notify + landing.json)", () => {
+    const m: ScenarioManifest = { ...baseManifest }; // ALL lists empty → every topic missing
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
+    const action = decideLandingAction(cls);
+    expect(action.kind).toBe("surface");
+    if (action.kind !== "surface") return;
+    expect(action.missing.map((t) => t.id)).toEqual(CONDITION_TOPICS.map((t) => t.id));
+    expect(action.skipOffered).toBe(false); // essential topics among the missing
+  });
+
+  it("surface with only safeToSkip missing: skipOffered true + only those topics carried", () => {
+    const m: ScenarioManifest = {
+      ...baseManifest,
+      recallFacts: [{ id: "rf1", fact: "x", accept: ["x"], entryIds: ["e1"], domain: "technical", lanes: [] }],
+      doneOps: [{ id: "do1", description: "x", artifact: "f", reworkable: false, entryIds: ["e2"], lanes: [] }],
+    };
+    const cls = classifyLanding(m, FIRST_KEPT, entryOrder, CONDITION_TOPICS, null);
+    const action = decideLandingAction(cls);
+    expect(action.kind).toBe("surface");
+    if (action.kind !== "surface") return;
+    expect(action.missing.map((t) => t.id).sort()).toEqual(["change-mind", "open-question"]);
+    expect(action.missing.every((t) => t.tag === "safeToSkip")).toBe(true);
+    expect(action.skipOffered).toBe(true);
+  });
+});

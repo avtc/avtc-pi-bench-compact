@@ -16,7 +16,7 @@ import { join } from "node:path";
 import type { ScenarioManifest } from "../manifest/schema.js";
 
 import { type ConditionListName, validateManifest } from "../manifest/validate.js";
-import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
+import { CONDITION_TOPICS, type ConditionTopic } from "../simulator/condition-topics.js";
 import { buildEntryOrder, classifyLanding, decideLandingAction, type LandingAction } from "./condition-landing.js";
 import { countCompactions, preSlice } from "./pre-slice.js";
 import type { TrialCut } from "./trial-compaction.js";
@@ -30,11 +30,22 @@ export interface BuildSeams {
   trialCompact(backupPath: string): Promise<TrialCut>;
   /** Author the manifest from the pre-sliced compacted-away JSONL. */
   author(preSlicedJsonlPath: string): Promise<ScenarioManifest>;
-  /** Detect which condition-topics' content lives in the KEPT TAIL (not the span the
-   *  author saw). Optional — when absent, missing topics are treated as
-   *  never-materialized (surface). `buildLiveSeams` does not wire this yet (the default
-   *  BuildSeams leaves it absent → missing tail topics surface); default empty = conservative. */
-  findTailContent?(backupPath: string): Promise<ReadonlySet<string>>;
+  /** Detect which condition-topics' content lives in the KEPT TAIL (at/after the
+   *  trial cut `firstKeptEntryId` — the same tail boundary classifyLanding uses), for
+   *  topics the author found nothing for. Optional — when absent, missing topics are
+   *  treated as never-materialized (surface). `buildLiveSeams` wires the tail check
+   *  (single-call kind-level presence check on the rendered tail). */
+  findTailContent?(backupPath: string, firstKeptEntryId: string): Promise<ReadonlySet<string>>;
+}
+
+/** Resume inputs for the plant-and-continue recovery (`--plant`): continue the
+ *  FAILED build's loop from a later attempt, steering the missing topics in. */
+export interface BuildResume {
+  /** The attempt the surfaced build ended on (the loop restarts here → the pacing
+   *  target grows by one continue-step so the planted content slides before the cut). */
+  readonly attempt: number;
+  /** The plant steering text (the resumed drive's FIRST harness instruction). */
+  readonly plantInstruction?: string;
 }
 
 /** Input to {@link buildBackup}. */
@@ -46,15 +57,32 @@ export interface BuildBackupDeps {
   readonly seams: BuildSeams;
   /** Max condition-landing iterations before giving up (default 5). */
   readonly maxAttempts?: number;
+  /** Plant-and-continue recovery: resume the loop at a later attempt with a plant
+   *  instruction (the build session persists across attempts, so the drive continues). */
+  readonly resume?: BuildResume;
 }
 
-/** Thrown when a condition never materialized + the user must decide (surface). */
+/** Thrown when a condition never materialized + the user must decide (surface).
+ *  Carries the landing CONTEXT (cut + attempt + last authored manifest) so the
+ *  orchestrator can persist the recovery state (`landing.json`) before re-throwing. */
 export class SurfaceConditionsError extends Error {
   readonly action: Extract<LandingAction, { kind: "surface" }>;
-  constructor(action: Extract<LandingAction, { kind: "surface" }>) {
+  /** The trial compaction's cut point at the surfaced attempt. */
+  readonly firstKeptEntryId: string;
+  /** The build attempt that surfaced (the --plant resume continues from here). */
+  readonly attempt: number;
+  /** The last authored manifest (--skip re-validates + freezes it with topics dropped). */
+  readonly manifest: ScenarioManifest;
+  constructor(
+    action: Extract<LandingAction, { kind: "surface" }>,
+    context: { firstKeptEntryId: string; attempt: number; manifest: ScenarioManifest },
+  ) {
     super(`condition-landing surfacing required (skipOffered=${action.skipOffered})`);
     this.name = "SurfaceConditionsError";
     this.action = action;
+    this.firstKeptEntryId = context.firstKeptEntryId;
+    this.attempt = context.attempt;
+    this.manifest = context.manifest;
   }
 }
 
@@ -65,25 +93,29 @@ export interface BuildBackupResult {
   readonly manifest: ScenarioManifest;
 }
 
-/** The essential condition-list names derived from CONDITION_TOPICS (the
- *  `essential`-tagged axes). Passed to validateManifest's essential-lists check. */
-const ESSENTIAL_LISTS: ReadonlySet<ConditionListName> = new Set(
-  CONDITION_TOPICS.filter((t) => t.tag === "essential").map((t) => `${t.metricAxis}s` as ConditionListName),
-);
+/** `topics` = every canonical topic (the default validation scope). */
+const ALL_TOPICS = null;
 
 /** Structural validation gate shared by build (after condition-landing
  *  'proceed') + extract (after authoring). The source backup is pre-compaction by
  *  construction (build captures before trial; extract guards none) → expected 0.
- *  Failures stop-and-surface. Throws on validation failure. */
+ *  Failures stop-and-surface. `topics` narrows the check to a subset (skip-and-proceed
+ *  recovery drops safeToSkip topics — their essential-list requirement goes too).
+ *  Throws on validation failure. */
 export function validateAuthoredManifest(
   manifest: ScenarioManifest,
   preSliced: { readonly entryIds: readonly string[]; readonly entryTextById: ReadonlyMap<string, string> },
   backupPath: string,
+  topics: readonly ConditionTopic[] | null,
 ): void {
+  const active = topics ?? CONDITION_TOPICS;
+  const essentialLists: ReadonlySet<ConditionListName> = new Set(
+    active.filter((t) => t.tag === "essential").map((t) => `${t.metricAxis}s` as ConditionListName),
+  );
   const validation = validateManifest(manifest, {
     preSlicedEntryIds: new Set(preSliced.entryIds),
     entryTextById: preSliced.entryTextById,
-    essentialLists: ESSENTIAL_LISTS,
+    essentialLists,
     compactionCount: countCompactions(backupPath),
     expectedCompactionCount: 0,
   });
@@ -102,7 +134,7 @@ export function validateAuthoredManifest(
  */
 export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupResult> {
   const maxAttempts = deps.maxAttempts ?? 5;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  for (let attempt = deps.resume?.attempt ?? 0; attempt < maxAttempts; attempt++) {
     const { backupPath, backupEntries } = await deps.seams.driveAndCapture(attempt);
     const { firstKeptEntryId } = await deps.seams.trialCompact(backupPath);
 
@@ -113,7 +145,10 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
 
     // Tail detection: which topics' content is in the kept tail (separate from the
     // manifest's citations, since the author only saw the span). Default = none.
-    const tailContent = deps.seams.findTailContent ? await deps.seams.findTailContent(backupPath) : new Set<string>();
+    const tailContent =
+      deps.seams.findTailContent !== undefined
+        ? await deps.seams.findTailContent(backupPath, firstKeptEntryId)
+        : new Set<string>();
 
     const classification = classifyLanding(
       manifest,
@@ -125,11 +160,11 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
     const action = decideLandingAction(classification);
 
     if (action.kind === "proceed") {
-      validateAuthoredManifest(manifest, preSliced, backupPath);
+      validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
       return { backupPath, backupEntries, manifest };
     }
     if (action.kind === "surface") {
-      throw new SurfaceConditionsError(action);
+      throw new SurfaceConditionsError(action, { firstKeptEntryId, attempt, manifest });
     }
     // action.kind === "continue" → loop again (driveAndCapture(attempt+1) continues the session)
   }

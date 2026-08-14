@@ -23,11 +23,13 @@ export interface TopicLanding {
   readonly status: LandingStatus;
 }
 
-/** What the harness should do after classifying landing. */
+/** What the harness should do after classifying landing. `surface` carries the
+ *  MISSING topics (id/label/tag) so the operator-facing options + the persisted
+ *  landing state can name them. */
 export type LandingAction =
   | { readonly kind: "proceed" }
   | { readonly kind: "continue" }
-  | { readonly kind: "surface"; readonly skipOffered: boolean };
+  | { readonly kind: "surface"; readonly skipOffered: boolean; readonly missing: readonly ConditionTopic[] };
 
 /** Build an entry-id → chronological-index map from the backup's entries (in order). */
 export function buildEntryOrder(entries: readonly { id: string }[]): Map<string, number> {
@@ -87,7 +89,7 @@ export function decideLandingAction(classification: readonly TopicLanding[]): La
   const missing = classification.filter((c) => c.status === "missing");
   if (missing.length > 0) {
     const allMissingSafeToSkip = missing.every((c) => c.topic.tag === "safeToSkip");
-    return { kind: "surface", skipOffered: allMissingSafeToSkip };
+    return { kind: "surface", skipOffered: allMissingSafeToSkip, missing: missing.map((c) => c.topic) };
   }
   if (classification.some((c) => c.status === "tail")) {
     return { kind: "continue" };

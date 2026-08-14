@@ -14,34 +14,90 @@ export interface PrepareArgs {
   idea: string | undefined;
   /** Extract-mode source session path (`--from-session <path>`). */
   fromSession: string | undefined;
+  /** Plant-and-continue recovery: the scenario folder of a FAILED prepare whose
+   *  missing condition topics should be steered in (`--plant <folder>`). */
+  plantFrom: string | undefined;
+  /** Skip-and-proceed recovery: the scenario folder of a FAILED prepare
+   *  (`--from <folder>`, pairs with `--skip-topics`). */
+  skipFrom: string | undefined;
+  /** Condition-topic ids to drop (`--skip-topics a,b`, comma-separated). */
+  skipTopics: string[] | undefined;
   /** `--force`: re-prepare over an existing scenario folder. */
   force: boolean;
   /** Set when a flag is malformed (e.g. `--from-session` with no path). */
   error: string | undefined;
 }
 
-/** Parse prepare/run args: `--from-session <path>`, `--force`, else the build idea. */
+/** Parse prepare/run args: `--from-session <path>`, `--plant <folder>`,
+ *  `--skip-topics <ids>`, `--from <folder>`, `--force`, else the build idea.
+ *  Mode mutual-exclusion + completeness are preflight's job (validate.ts). */
 export function parsePrepareArgs(args: string): PrepareArgs {
   const tokens = tokenize(args);
   const positionals: string[] = [];
   let fromSession: string | undefined;
+  let plantFrom: string | undefined;
+  let skipFrom: string | undefined;
+  let skipTopics: string[] | undefined;
   let force = false;
   let error: string | undefined;
+
+  const readValue = (flag: string, i: number): { value: string; next: number } | { error: string } => {
+    const next = tokens[i + 1];
+    if (next === undefined) return { error: `${flag} requires a value` };
+    if (next.startsWith("--")) return { error: `${flag} requires a value (got another flag)` };
+    return { value: next, next: i + 1 };
+  };
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok === "--from-session") {
-      const next = tokens[i + 1];
-      if (next === undefined) {
-        error = "--from-session requires a session file path";
+      const r = readValue(tok, i);
+      if ("error" in r) {
+        error = r.error;
         break;
       }
-      if (next.startsWith("--")) {
-        error = "--from-session requires a session file path (got another flag)";
+      fromSession = r.value;
+      i = r.next;
+    } else if (tok === "--plant") {
+      const r = readValue(tok, i);
+      if ("error" in r) {
+        error = r.error;
         break;
       }
-      fromSession = next;
-      i += 1;
+      plantFrom = r.value;
+      i = r.next;
+    } else if (tok === "--from") {
+      const r = readValue(tok, i);
+      if ("error" in r) {
+        error = r.error;
+        break;
+      }
+      skipFrom = r.value;
+      i = r.next;
+    } else if (tok === SKIP_TOPICS_FLAG || tok.startsWith(SKIP_TOPICS_EQ)) {
+      const raw = tok.startsWith(SKIP_TOPICS_EQ) ? tok.slice(SKIP_TOPICS_EQ.length) : undefined;
+      let list: string;
+      if (raw !== undefined) {
+        if (raw.length === 0) {
+          error = "--skip-topics= requires a non-empty comma-separated id list";
+          break;
+        }
+        list = raw;
+      } else {
+        const r = readValue(tok, i);
+        if ("error" in r) {
+          error = r.error;
+          break;
+        }
+        list = r.value;
+        i = r.next;
+      }
+      const pieces = list.split(",").map((s) => s.trim());
+      if (pieces.some((s) => s.length === 0)) {
+        error = "--skip-topics ids are comma-separated with no empty entries";
+        break;
+      }
+      skipTopics = pieces;
     } else if (tok === "--force") {
       force = true;
     } else if (tok.startsWith("--from-session=")) {
@@ -59,6 +115,9 @@ export function parsePrepareArgs(args: string): PrepareArgs {
   return {
     idea: positionals.length > 0 ? positionals.join(" ") : undefined,
     fromSession,
+    plantFrom,
+    skipFrom,
+    skipTopics,
     force,
     error,
   };
@@ -77,6 +136,10 @@ export interface ResultsArgs {
 }
 
 const VALID_ARMS = new Set<string>(ARM_IDS);
+
+/** The skip-recovery flag names (hoisted so the arg-parsing lines stay string-free). */
+const SKIP_TOPICS_FLAG = "--skip-topics";
+const SKIP_TOPICS_EQ = "--skip-topics=";
 
 /** Split raw args into non-empty whitespace tokens (shared by the parsers). */
 function tokenize(args: string): string[] {

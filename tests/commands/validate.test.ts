@@ -39,7 +39,15 @@ describe("preflight — config rules (all kinds)", () => {
 });
 
 describe("preflight — prepare (build idea)", () => {
-  const args = (idea: string): PrepareArgs => ({ idea, fromSession: undefined, force: false, error: undefined });
+  const args = (idea: string): PrepareArgs => ({
+    idea,
+    fromSession: undefined,
+    plantFrom: undefined,
+    skipFrom: undefined,
+    skipTopics: undefined,
+    force: false,
+    error: undefined,
+  });
   it("accepts a build idea", () => {
     expect(preflight(validConfig({}), "prepare", args("a tycoon game"), null)).toEqual({ ok: true });
   });
@@ -52,17 +60,41 @@ describe("preflight — prepare (build idea)", () => {
 
 describe("preflight — prepare (extract --from-session)", () => {
   it("accepts an existing --from-session path", () => {
-    const args: PrepareArgs = { idea: undefined, fromSession: "/s.jsonl", force: false, error: undefined };
+    const args: PrepareArgs = {
+      idea: undefined,
+      fromSession: "/s.jsonl",
+      plantFrom: undefined,
+      skipFrom: undefined,
+      skipTopics: undefined,
+      force: false,
+      error: undefined,
+    };
     expect(preflight(validConfig({}), "prepare", args, exists(new Set(["/s.jsonl"])))).toEqual({ ok: true });
   });
   it("rejects a non-existent --from-session path", () => {
-    const args: PrepareArgs = { idea: undefined, fromSession: "/missing.jsonl", force: false, error: undefined };
+    const args: PrepareArgs = {
+      idea: undefined,
+      fromSession: "/missing.jsonl",
+      plantFrom: undefined,
+      skipFrom: undefined,
+      skipTopics: undefined,
+      force: false,
+      error: undefined,
+    };
     const r = preflight(validConfig({}), "prepare", args, exists(new Set()));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/from-session|exist/i);
   });
   it("rejects when BOTH idea and --from-session are given (mutual exclusivity, R5-2)", () => {
-    const args: PrepareArgs = { idea: "a tycoon game", fromSession: "/s.jsonl", force: false, error: undefined };
+    const args: PrepareArgs = {
+      idea: "a tycoon game",
+      fromSession: "/s.jsonl",
+      plantFrom: undefined,
+      skipFrom: undefined,
+      skipTopics: undefined,
+      force: false,
+      error: undefined,
+    };
     const r = preflight(validConfig({}), "prepare", args, exists(new Set(["/s.jsonl"])));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/both|either|one of/i);
@@ -115,5 +147,55 @@ describe("preflight — results", () => {
     const r = preflight(validConfig({}), "results", args, null);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/runId/i);
+  });
+});
+
+describe("preflight — recovery modes (--plant / --skip-topics --from)", () => {
+  const rec = (over: Partial<PrepareArgs>): PrepareArgs => ({
+    idea: undefined,
+    fromSession: undefined,
+    plantFrom: undefined,
+    skipFrom: undefined,
+    skipTopics: undefined,
+    force: false,
+    error: undefined,
+    ...over,
+  });
+  const cfg = validConfig({});
+
+  it("plant mode ok when the folder exists", () => {
+    expect(preflight(cfg, "prepare", rec({ plantFrom: "/scen/x" }), () => true)).toEqual({ ok: true });
+  });
+
+  it("plant folder missing → refuse", () => {
+    expect(preflight(cfg, "prepare", rec({ plantFrom: "/scen/x" }), () => false).ok).toBe(false);
+  });
+
+  it("plant + idea (two modes) → refuse", () => {
+    const r = preflight(cfg, "prepare", rec({ plantFrom: "/scen/x", idea: "a game" }), () => true);
+    expect(r.ok).toBe(false);
+  });
+
+  it("plant + skip-topics → refuse (skip belongs to --from)", () => {
+    const r = preflight(cfg, "prepare", rec({ plantFrom: "/scen/x", skipTopics: ["change-mind"] }), () => true);
+    expect(r.ok).toBe(false);
+  });
+
+  it("skip mode ok when folder exists + ids given", () => {
+    const r = preflight(cfg, "prepare", rec({ skipFrom: "/scen/x", skipTopics: ["change-mind"] }), () => true);
+    expect(r).toEqual({ ok: true });
+  });
+
+  it("--from without --skip-topics → refuse", () => {
+    expect(preflight(cfg, "prepare", rec({ skipFrom: "/scen/x" }), () => true).ok).toBe(false);
+  });
+
+  it("--skip-topics without --from → refuse", () => {
+    expect(preflight(cfg, "prepare", rec({ skipTopics: ["change-mind"] }), () => true).ok).toBe(false);
+  });
+
+  it("skip folder missing → refuse", () => {
+    const r = preflight(cfg, "prepare", rec({ skipFrom: "/scen/x", skipTopics: ["change-mind"] }), () => false);
+    expect(r.ok).toBe(false);
   });
 });

@@ -3,11 +3,11 @@
 
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { executeRun, loadManifestFile, resolveScenarioLayout } from "../../src/commands/run-shared.js";
+import { executeRun, guardPreflight, loadManifestFile, resolveScenarioLayout } from "../../src/commands/run-shared.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { getActiveWidget, setActiveWidget } from "../../src/widget/active-widget.js";
-import { fakeCommandCtx } from "./helpers.js";
+import { fakeCommandCtx, fakeGuardedCtx } from "./helpers.js";
 
 const S1 = join("root", "scenarios", "s1");
 const S1_REPO = join(S1, "repo");
@@ -185,5 +185,104 @@ describe("executeRun", () => {
     expect(notifies.some((n) => n.msg.includes("run failed") && n.msg.includes("config resolution blew up"))).toBe(
       true,
     );
+  });
+});
+
+describe("executeRun — stale-ctx safety (guarded getters)", () => {
+  it("captures ui EAGERLY: notifies still work after the run's switchSessions invalidate the command ctx", async () => {
+    // Models pi: switchSession → runner.invalidate → the old ctx's guarded getters
+    // (ui/mode/hasUI) throw "stale". The run always switchSessions (Phase-1 loads each
+    // arm), so every post-run notify MUST go through the eagerly-captured ui object.
+    const { ctx, invalidate, notifies } = fakeGuardedCtx();
+    const config = { armsEnabled: ["A1"] } as unknown as BenchConfig;
+    const result = await executeRun({
+      ctx,
+      config,
+      scenarioRepo: "/repo",
+      manifest: MANIFEST,
+      startRun: async (deps) => {
+        invalidate(); // the first switchSession happens inside the run
+        deps.notify?.("stopped mid-run (arm A3): judge model unavailable"); // stop-path notify
+        return {
+          kind: "done",
+          runId: "2026-01-01-1",
+          cfgId: "cfg-x",
+          resultsPath: "/runs/r1/results.json",
+          reportPath: "/runs/r1/report.md",
+        };
+      },
+    });
+    expect(result.kind).toBe("done");
+    expect(notifies.some((n) => n.msg.includes("judge model unavailable") && n.level === "warning")).toBe(true);
+    expect(notifies.some((n) => n.msg.includes("done") && n.level === "info")).toBe(true);
+  });
+
+  it("the unexpected-error catch notifies via the eagerly-captured ui (not the stale ctx)", async () => {
+    const { ctx, invalidate, notifies } = fakeGuardedCtx();
+    const config = { armsEnabled: ["A1"] } as unknown as BenchConfig;
+    await expect(
+      executeRun({
+        ctx,
+        config,
+        scenarioRepo: "/repo",
+        manifest: MANIFEST,
+        startRun: async () => {
+          invalidate();
+          throw new Error("git fault mid-run");
+        },
+      }),
+    ).rejects.toThrow(/git fault/);
+    expect(notifies.some((n) => n.msg.includes("run failed") && n.msg.includes("git fault"))).toBe(true);
+  });
+});
+
+describe("guardPreflight — concurrent-run refusal", () => {
+  it("refuses while a bench run is in-flight (one run drives the one main pi session)", async () => {
+    const { setRunState } = await import("../../src/orchestrate/run-state.js");
+    setRunState({
+      runId: "2026-08-14-1",
+      date: "2026-08-14",
+      id: 1,
+      cfgId: "cfg-x",
+      scenarioRepo: "/repo/s",
+      phase: "phase-2",
+      currentArm: "A3",
+      currentAttempt: 2,
+      lastStopReason: null,
+    });
+    const { ctx, notifies } = fakeCommandCtx();
+    const ok = guardPreflight(
+      ctx as unknown as Parameters<typeof guardPreflight>[0],
+      "run-scenario",
+      { value: "/some/folder" },
+      () => true,
+    );
+    expect(ok).toBe(false);
+    expect(notifies.some((n) => n.msg.includes("already active") && n.msg.includes("/bench-compact:abort"))).toBe(true);
+  });
+
+  it("allows a follow-up once the prior run recorded a stop (not in-flight)", async () => {
+    const { setRunState, updateRunState } = await import("../../src/orchestrate/run-state.js");
+    setRunState({
+      runId: "2026-08-14-1",
+      date: "2026-08-14",
+      id: 1,
+      cfgId: "cfg-x",
+      scenarioRepo: "/repo/s",
+      phase: "phase-2",
+      currentArm: null,
+      currentAttempt: null,
+      lastStopReason: null,
+    });
+    updateRunState({ lastStopReason: "compaction cancelled" });
+    const { ctx, notifies } = fakeCommandCtx();
+    const ok = guardPreflight(
+      ctx as unknown as Parameters<typeof guardPreflight>[0],
+      "run-scenario",
+      { value: "/some/folder" },
+      () => true,
+    );
+    expect(ok).toBe(true);
+    expect(notifies).toHaveLength(0);
   });
 });

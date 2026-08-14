@@ -6,7 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
-import { type BuildSeams, buildBackup, SurfaceConditionsError } from "../../src/production/build.js";
+import {
+  type BuildSeams,
+  buildBackup,
+  SurfaceConditionsError,
+  validateAuthoredManifest,
+} from "../../src/production/build.js";
+import { CONDITION_TOPICS } from "../../src/simulator/condition-topics.js";
 
 /** A manifest with all 4 condition types citing the given entry-ids (all in-span when < e4).
  *  Conditions use search-terms present in every backup entry's content (see writeBackup)
@@ -228,6 +234,97 @@ describe("buildBackup", () => {
         seams,
       });
       expect(result.manifest.recallFacts.length).toBe(1); // proceeded on 2nd attempt
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("buildBackup — plant-and-continue resume", () => {
+  it("resume restarts the loop at the surfaced attempt + converges when landed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-build-resume-"));
+    try {
+      const backup = writeBackup(dir, 5);
+      const attempts: number[] = [];
+      const seams: BuildSeams = {
+        async driveAndCapture(attempt) {
+          attempts.push(attempt);
+          return { backupPath: backup.path, backupEntries: backup.entries };
+        },
+        async trialCompact() {
+          return { firstKeptEntryId: "e4", summary: "cut at e4" };
+        },
+        async author() {
+          return manifestWith("e1", "e2", "e3", "e3"); // all landed
+        },
+      };
+      await buildBackup({
+        scenario: "game",
+        compactionBoundary: 140000,
+        preSliceDir: dir,
+        seams,
+        resume: { attempt: 2 },
+      });
+      expect(attempts).toEqual([2]); // resumed straight at 2, landed → done
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resume attempt at/after maxAttempts → clear non-convergence error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-build-resume2-"));
+    try {
+      const backup = writeBackup(dir, 5);
+      const seams: BuildSeams = {
+        async driveAndCapture() {
+          return { backupPath: backup.path, backupEntries: backup.entries };
+        },
+        async trialCompact() {
+          return { firstKeptEntryId: "e4", summary: "cut" };
+        },
+        async author() {
+          return manifestWith("e1", "e2", "e3", "e3");
+        },
+      };
+      await expect(
+        buildBackup({
+          scenario: "game",
+          compactionBoundary: 140000,
+          preSliceDir: dir,
+          seams,
+          resume: { attempt: 5 },
+          maxAttempts: 5,
+        }),
+      ).rejects.toThrow(/did not converge/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("validateAuthoredManifest — topics subset (skip-and-proceed)", () => {
+  it("dropping essential topics lifts their essential-list requirement", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-build-skip-"));
+    try {
+      const backup = writeBackup(dir, 3);
+      // Manifest with EMPTY recallFacts (essential by default → validation failure).
+      const manifest = { ...manifestWith("e1", "e2", "e3", "e3"), recallFacts: [] };
+      const preSliced = {
+        entryIds: ["e1", "e2", "e3"],
+        entryTextById: new Map([
+          ["e1", "decision work mind question a b"],
+          ["e2", "decision work mind question a b"],
+          ["e3", "decision work mind question a b"],
+        ]),
+      };
+      expect(() =>
+        validateAuthoredManifest(manifest as unknown as ScenarioManifest, preSliced, backup.path, null),
+      ).toThrow(/recallFacts/i);
+      // Dropping the recallFact topic (skip recovery) lifts the requirement → passes.
+      const withoutRecall = CONDITION_TOPICS.filter((t) => t.metricAxis !== "recallFact");
+      expect(() =>
+        validateAuthoredManifest(manifest as unknown as ScenarioManifest, preSliced, backup.path, withoutRecall),
+      ).not.toThrow();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

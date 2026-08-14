@@ -15,16 +15,29 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
+import { isRunInFlight } from "../orchestrate/run-state.js";
+import { SurfaceConditionsError } from "../production/build.js";
+import { LANDING_FILE, type LandingState, readLandingState } from "../production/landing-state.js";
 import { buildLiveSeams } from "../production/live-seams.js";
 import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
-import { benchRoot, scenarioDir, scenarioManifest, scenarioRepo, scenarioSessionsDir } from "../storage/paths.js";
+import { buildPlantInstruction } from "../simulator/condition-topics.js";
+import { benchRoot, scenarioDir } from "../storage/paths.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, NO_DETAIL, WidgetController } from "../widget/tracker.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
 import { preflight } from "./validate.js";
 
 /** Compute a deterministic scenario id from the parsed args. */
-export function computeScenarioId(parsed: { idea?: string; fromSession?: string }): string {
+export function computeScenarioId(parsed: {
+  idea?: string;
+  fromSession?: string;
+  plantFrom?: string;
+  skipFrom?: string;
+}): string {
+  if (parsed.plantFrom ?? parsed.skipFrom) {
+    // recovery modes: the scenario folder of the surfaced prepare (its basename).
+    return basename(parsed.plantFrom ?? parsed.skipFrom ?? "");
+  }
   if (parsed.fromSession) {
     // extract: derive from the session file basename (strip extension).
     return basename(parsed.fromSession).replace(/\.[^.]+$/, "");
@@ -75,8 +88,13 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       hasUI?: boolean;
       ui?: { notify: (m: string, l: string) => void };
     };
+    // Capture the UI surface EAGERLY: prepare's build/extract work switchSessions
+    // (driveAndCapture, trialCompact, author), which invalidates the command ctx's
+    // guarded getters — a lazy ctx.ui read at notify time would throw "stale".
+    // The uiContext OBJECT itself is host-level + stays live across session switches.
+    const ui = ctxTyped?.ui;
     const notify = (msg: string, level: "info" | "warning" | "error"): void => {
-      ctxTyped?.ui?.notify(msg, level);
+      ui?.notify(msg, level);
     };
 
     const parsed = parsePrepareArgs(args);
@@ -87,6 +105,15 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
     const check = preflight(getBenchConfig(), "prepare", parsed, existsSync);
     if (!check.ok) {
       notify(check.reason, "warning");
+      return;
+    }
+    // Same concurrency rule as the run commands: prepare's drive/extract switchSessions
+    // the ONE main pi session — refuse while a bench run is in-flight.
+    if (isRunInFlight()) {
+      notify(
+        "a bench run is already active — /bench-compact:status shows it; /bench-compact:abort stops it",
+        "warning",
+      );
       return;
     }
 
@@ -106,10 +133,37 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       notify(`prepared scenario ${scenarioId}: ${result.repoPath}`, "info");
     } catch (err) {
       widget.setStatus("stopped", "/bench-compact:prepare-scenario");
+      if (err instanceof SurfaceConditionsError) {
+        const folder = scenarioDir(benchRoot(getBenchConfig().outputDir), scenarioId);
+        notify(surfaceConditionsMessage(err, folder), "error");
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       notify(`prepare failed: ${msg}`, "error");
     }
   };
+}
+
+/** The recovery-notify for a surfaced prepare: names the missing topics + the three
+ *  options (plant + continue / start over / skip safeToSkip only). */
+export function surfaceConditionsMessage(err: SurfaceConditionsError, scenarioFolder: string): string {
+  const labels = err.action.missing.map((t) => t.label).join(", ");
+  const safeLabels = err.action.missing
+    .filter((t) => t.tag === "safeToSkip")
+    .map((t) => t.label)
+    .join(", ");
+  const safeIds = err.action.missing
+    .filter((t) => t.tag === "safeToSkip")
+    .map((t) => t.id)
+    .join(",");
+  const opening = err.action.skipOffered
+    ? `prepare stopped — only safe-to-skip topics are missing: ${labels}.`
+    : `prepare stopped — essential condition topics did not land in the compacted-away span: ${labels}.`;
+  const skipClause =
+    safeIds.length > 0
+      ? `(c) skip — /bench-compact:prepare-scenario --skip-topics ${safeIds} --from ${scenarioFolder} (safe-to-skip only: ${safeLabels}).`
+      : "(c) skip — not available (no safe-to-skip topics among the missing).";
+  return `${opening} Options: (a) plant + continue — /bench-compact:prepare-scenario --plant ${scenarioFolder}; (b) start over — re-run /bench-compact:prepare-scenario <idea>; ${skipClause}`;
 }
 
 /** The default buildDeps for registerBenchCommands — computes paths from the bench
@@ -119,17 +173,25 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
 export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scenarioId: string): PrepareDeps {
   const config = getBenchConfig();
   const root = benchRoot(config.outputDir);
-  const repo = scenarioRepo(root, scenarioId);
-  const sessionsDir = scenarioSessionsDir(root, scenarioId);
-  const manifestPath = scenarioManifest(root, scenarioId);
-  const preSliceDir = join(scenarioDir(root, scenarioId), PRE_SLICE_DIR_NAME);
+  // Recovery modes (--plant <folder> / --from <folder>) target an EXISTING scenario
+  // folder written by the surfaced prepare — derive every path from that folder (same
+  // layout the fresh flow created). Fresh modes derive from benchRoot + scenarioId.
+  const recoveryFolder = parsed.plantFrom ?? parsed.skipFrom;
+  const scenarioFolder = recoveryFolder ?? scenarioDir(root, scenarioId);
+  const repo = join(scenarioFolder, "repo");
+  const sessionsDir = join(scenarioFolder, "sessions");
+  const manifestPath = join(scenarioFolder, "manifest.json");
+  const preSliceDir = join(scenarioFolder, PRE_SLICE_DIR_NAME);
   mkdirSync(repo, { recursive: true });
   mkdirSync(sessionsDir, { recursive: true });
   mkdirSync(preSliceDir, { recursive: true });
 
   const cmdCtx = ctx as ExtensionCommandContext;
   const compactionPlan = parsed.fromSession !== undefined ? EXTRACT_PLAN : BUILD_PLAN;
-  const scenarioDescription = parsed.idea ?? scenarioId;
+  const plantState =
+    parsed.plantFrom !== undefined ? readLandingState(join(parsed.plantFrom, LANDING_FILE)) : undefined;
+  const skipState = parsed.skipFrom !== undefined ? readLandingState(join(parsed.skipFrom, LANDING_FILE)) : undefined;
+  const scenarioDescription = plantState?.scenario ?? parsed.idea ?? scenarioId;
   // The handler sets the active widget before buildDeps; the seams read it for build/extract ctx/tok.
   const widget = getActiveWidget();
   const seams = buildLiveSeams({
@@ -158,7 +220,20 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
           extractOutputPath: join(preSliceDir, EXTRACT_BACKUP_NAME),
           extractCwd: process.cwd(),
         }
-      : { scenario: parsed.idea }),
+      : plantState !== undefined
+        ? {
+            scenario: plantState.scenario,
+            resume: {
+              attempt: plantState.attempt,
+              plantInstruction: buildPlantInstruction(plantState.missingTopics.map((t) => t.id)),
+            },
+          }
+        : parsed.skipFrom !== undefined
+          ? {
+              scenario: skipState?.scenario,
+              skipRecovery: { topics: parsed.skipTopics ?? [], state: skipState as LandingState },
+            }
+          : { scenario: parsed.idea }),
   };
   return deps;
 }
