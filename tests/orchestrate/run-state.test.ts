@@ -6,8 +6,10 @@ import {
   abortActiveRun,
   clearRunState,
   getRunState,
+  isPrepareInFlight,
   isRunInFlight,
   setActiveRunAbort,
+  setPrepareInFlight,
   setRunState,
   statusString,
   updateRunState,
@@ -220,5 +222,23 @@ describe("isRunInFlight", () => {
     setRunState(liveState);
     clearRunState();
     expect(isRunInFlight()).toBe(false);
+  });
+});
+
+describe("prepare-in-flight marker", () => {
+  it("false by default; set/clear round-trips on globalThis", () => {
+    setPrepareInFlight(false);
+    expect(isPrepareInFlight()).toBe(false);
+    setPrepareInFlight(true);
+    expect(isPrepareInFlight()).toBe(true);
+    setPrepareInFlight(false);
+    expect(isPrepareInFlight()).toBe(false);
+  });
+
+  it("clear removes the key entirely (no stale true after /reload-style reads)", () => {
+    setPrepareInFlight(true);
+    setPrepareInFlight(false);
+    const g = globalThis as Record<string, unknown>;
+    expect(g.__benchCompactPrepareInFlight).toBeUndefined();
   });
 });

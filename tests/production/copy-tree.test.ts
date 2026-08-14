@@ -116,6 +116,27 @@ describe("copyProjectTree — ignore rules + secret denylist (judge-readable rep
     }
   });
 
+  it("git listing: skips submodule directories + deleted-but-staged entries without aborting", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-copy-gitodd-"));
+    try {
+      const src = join(dir, "codebase");
+      mkdirSync(src, { recursive: true });
+      writeFileSync(join(src, "main.ts"), "x");
+      mkdirSync(join(src, "vendor", "submod"), { recursive: true }); // submodule workdir (a directory)
+      // "staged-but-deleted.ts" is listed by git but absent on disk
+      const dest = join(dir, "repo");
+      const skipped = copyProjectTree(src, dest, {
+        git: () => "main.ts\u0000vendor/submod\u0000staged-but-deleted.ts\u0000",
+      });
+      expect(existsSync(join(dest, "main.ts"))).toBe(true);
+      expect(existsSync(join(dest, "vendor", "submod"))).toBe(false); // dir entry skipped
+      expect(existsSync(join(dest, "staged-but-deleted.ts"))).toBe(false); // ENOENT skipped
+      expect(skipped).toEqual([]); // neither is secret-like — just non-plain-file entries
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("non-git source: recursive fallback skips + reports nested secret files", () => {
     const dir = mkdtempSync(join(tmpdir(), "bench-copy-nogit-"));
     try {
@@ -137,6 +158,11 @@ describe("copyProjectTree — ignore rules + secret denylist (judge-readable rep
   });
 
   it("isSecretBasename matches the denylist families (dotenv/keys/credentials)", () => {
+    expect(isSecretBasename(".envrc")).toBe(true); // direnv — frequently holds real secrets
+    expect(isSecretBasename(".env.example")).toBe(false); // committed template
+    expect(isSecretBasename(".env.sample")).toBe(false);
+    expect(isSecretBasename(".env.template")).toBe(false);
+    expect(isSecretBasename(".env.local")).toBe(true); // real dotenv still denied
     expect(isSecretBasename(".env")).toBe(true);
     expect(isSecretBasename(".env.production")).toBe(true);
     expect(isSecretBasename(".npmrc")).toBe(true);

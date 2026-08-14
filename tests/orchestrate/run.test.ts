@@ -347,7 +347,7 @@ describe("startRun — Phase-1 stop-and-surface", () => {
     });
     const deps = makeDeps({ arms: ["A1"], root, phase1 });
     await expect(startRun(deps)).rejects.toThrow("unexpected boom");
-    // The unexpected-error exit still records the stop (state no longer looks live —
+    // The unexpected-error exit still records the stop (the state reads as stopped —
     // /bench-compact:status shows stopped, + the concurrent-run guard won't refuse).
     expect(getRunState()?.lastStopReason).toContain("unexpected error: unexpected boom");
     expect(getRunState()?.lastStopReason).toContain("unexpected boom");

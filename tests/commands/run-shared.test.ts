@@ -66,8 +66,12 @@ describe("resolveScenarioLayout", () => {
 describe("loadManifestFile", () => {
   const VALID = {
     id: "scen-1",
-    recallFacts: [{ fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
-    doneOps: [{ description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] }],
+    description: "a test scenario",
+    compactionBoundary: { phaseATokenBudget: 140000, plan: "build" },
+    recallFacts: [{ id: "rf-1", fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
+    doneOps: [
+      { id: "op-1", description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] },
+    ],
     supersessions: [],
     abstentions: [],
     probes: [{ question: "where are scores stored?", accept: ["~/.scores.json"], targets: ["e1"] }],
@@ -102,6 +106,34 @@ describe("loadManifestFile", () => {
         probes: [{ question: "q?", accept: ["a"], correctRefusal: true, targets: ["e1"] }],
       });
     expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/exactly one of accept or correctRefusal/);
+  });
+
+  it("refuses a manifest whose supersessions key is missing (scoring flatMaps it)", () => {
+    const { supersessions, ...noSup } = { ...VALID, supersessions: [] };
+    expect(supersessions).toEqual([]);
+    const read = (): string => JSON.stringify(noSup);
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/supersessions/);
+  });
+
+  it("refuses a manifest without compactionBoundary.plan (judge prompts read it)", () => {
+    const read = (): string => JSON.stringify({ ...VALID, compactionBoundary: {} });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/compactionBoundary/);
+  });
+
+  it("refuses a recallFacts item missing accept (the C2 judge joins it)", () => {
+    const read = (): string => JSON.stringify({ ...VALID, recallFacts: [{ id: "rf-1", fact: "f", entryIds: ["e1"] }] });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/recallFacts item/);
+  });
+
+  it("refuses a doneOps item missing artifact", () => {
+    const read = (): string =>
+      JSON.stringify({ ...VALID, doneOps: [{ id: "op-1", description: "d", entryIds: ["e2"] }] });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/doneOps item/);
+  });
+
+  it("refuses non-string probe targets (silently mis-routes the E5/E8 axis)", () => {
+    const read = (): string => JSON.stringify({ ...VALID, probes: [{ question: "q?", accept: ["a"], targets: [42] }] });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/targets/);
   });
 
   it("refuses a probe with empty targets", () => {
@@ -293,6 +325,24 @@ describe("guardPreflight — concurrent-run refusal", () => {
     );
     expect(ok).toBe(false);
     expect(notifies.some((n) => n.msg.includes("already active") && n.msg.includes("/bench-compact:abort"))).toBe(true);
+  });
+
+  it("refuses while a bench PREPARE is in-flight (the run-state is not set yet during prepare)", async () => {
+    const { setPrepareInFlight } = await import("../../src/orchestrate/run-state.js");
+    setPrepareInFlight(true);
+    try {
+      const { ctx, notifies } = fakeCommandCtx();
+      const ok = guardPreflight(
+        ctx as unknown as Parameters<typeof guardPreflight>[0],
+        "run-scenario",
+        { value: "/some/folder" },
+        () => true,
+      );
+      expect(ok).toBe(false);
+      expect(notifies.some((n) => n.msg.includes("prepare is already active"))).toBe(true);
+    } finally {
+      setPrepareInFlight(false);
+    }
   });
 
   it("allows a follow-up once the prior run recorded a stop (not in-flight)", async () => {

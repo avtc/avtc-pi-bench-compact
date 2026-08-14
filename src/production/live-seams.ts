@@ -536,7 +536,7 @@ export interface BuildLiveSeamsArgs {
  *  memory-proxy getters. Each seam threads the fresh ctx into the holder so the next
  *  seam's `switchSession` starts from a valid ctx (every switchSession invalidates the
  *  prior ctx). Extract mode reuses only `trialCompact` + `author` (driveAndCapture unused). */
-export function buildLiveSeams(args: BuildLiveSeamsArgs): BuildSeams {
+export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   const holder: CtxHolder = { current: args.cmdCtx };
   const scenarioCtx: ScenarioContext = {
     id: args.scenarioId,
@@ -583,5 +583,17 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): BuildSeams {
     signal: args.signal,
     widget: args.widget,
   });
-  return { driveAndCapture, trialCompact, author, findTailContent };
+  return { driveAndCapture, trialCompact, author, findTailContent, holder };
+}
+
+/** {@link buildLiveSeams}'s output: the four seams + the shared ctx holder (whose
+ *  `.current` is the FINAL fresh ctx after the seams ran — thread it to whatever
+ *  drives sessions next; the original command ctx is stale by then). */
+export interface LiveSeamsBundle {
+  readonly driveAndCapture: BuildSeams["driveAndCapture"];
+  readonly trialCompact: BuildSeams["trialCompact"];
+  readonly author: BuildSeams["author"];
+  readonly findTailContent: BuildSeams["findTailContent"];
+  /** The shared ctx holder — `.current` ends at the last switchSession's fresh ctx. */
+  readonly holder: CtxHolder;
 }

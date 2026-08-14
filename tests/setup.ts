@@ -46,7 +46,7 @@ beforeEach(() => {
   // configureArm (writeArmConfig) sets three managed env keys; under isolate:false
   // they persist across test files (the same cross-file hazard the globalThis
   // resets above address). Clear them centrally so no test inherits another's arm
-  // config — e.g. arms/config.test.ts (asserts these undefined) is now order-safe.
+  // config — e.g. arms/config.test.ts (asserts these undefined) is order-safe.
   clearArmEnv();
 });
 

@@ -46,15 +46,67 @@ export function manifestStructureError(manifest: unknown): string | null {
   if (
     typeof taskObjective !== "object" ||
     taskObjective === null ||
-    typeof (taskObjective as Record<string, unknown>).description !== "string" ||
-    (taskObjective as Record<string, unknown>).description === ""
+    !nonEmptyString((taskObjective as Record<string, unknown>).description)
   ) {
     return "taskObjective.description missing or empty";
+  }
+
+  const boundary = m.compactionBoundary;
+  if (
+    typeof boundary !== "object" ||
+    boundary === null ||
+    !nonEmptyString((boundary as Record<string, unknown>).plan) ||
+    typeof (boundary as Record<string, unknown>).phaseATokenBudget !== "number"
+  ) {
+    return "compactionBoundary.plan (non-empty string) + phaseATokenBudget (number) required";
+  }
+
+  if (!nonEmptyString(m.id) || !nonEmptyString(m.description)) {
+    return "id + description must be non-empty strings";
   }
 
   for (const list of ["recallFacts", "doneOps"] as const) {
     if (!Array.isArray(m[list]) || (m[list] as unknown[]).length === 0) {
       return `condition list "${list}" missing or empty`;
+    }
+  }
+  for (const list of ["supersessions", "abstentions"] as const) {
+    if (!Array.isArray(m[list])) {
+      return `condition list "${list}" missing (must be an array)`;
+    }
+  }
+
+  const recallFacts = m.recallFacts as unknown[];
+  for (const rf of recallFacts) {
+    const c = fieldsOf(rf);
+    if (
+      c === null ||
+      !nonEmptyString(c.id) ||
+      !nonEmptyString(c.fact) ||
+      !nonEmptyStringArray(c.accept) ||
+      !nonEmptyStringArray(c.entryIds)
+    ) {
+      return "recallFacts item: id/fact (strings) + accept/entryIds (non-empty string arrays) required";
+    }
+  }
+  const doneOps = m.doneOps as unknown[];
+  for (const op of doneOps) {
+    const c = fieldsOf(op);
+    if (
+      c === null ||
+      !nonEmptyString(c.id) ||
+      !nonEmptyString(c.description) ||
+      !nonEmptyString(c.artifact) ||
+      !nonEmptyStringArray(c.entryIds)
+    ) {
+      return "doneOps item: id/description/artifact (strings) + entryIds (non-empty string array) required";
+    }
+  }
+  const supersessions = m.supersessions as unknown[];
+  for (const sup of supersessions) {
+    const c = fieldsOf(sup);
+    if (c === null || !nonEmptyStringArray(c.entryIds)) {
+      return "supersessions item: entryIds (non-empty string array) required";
     }
   }
 
@@ -67,7 +119,7 @@ export function manifestStructureError(manifest: unknown): string | null {
       return "probe is not an object";
     }
     const q = (probe as Record<string, unknown>).question;
-    if (typeof q !== "string" || q === "") {
+    if (!nonEmptyString(q)) {
       return "probe.question missing or empty";
     }
     const accept = (probe as Record<string, unknown>).accept;
@@ -78,11 +130,23 @@ export function manifestStructureError(manifest: unknown): string | null {
       return `probe "${q}": must have exactly one of accept or correctRefusal`;
     }
     const targets = (probe as Record<string, unknown>).targets;
-    if (!Array.isArray(targets) || targets.length === 0) {
+    if (!nonEmptyStringArray(targets)) {
       return `probe "${q}": targets missing or empty`;
     }
   }
   return null;
+}
+
+function nonEmptyString(v: unknown): boolean {
+  return typeof v === "string" && v !== "";
+}
+
+function nonEmptyStringArray(v: unknown): boolean {
+  return Array.isArray(v) && v.length > 0 && v.every((el) => typeof el === "string" && el !== "");
+}
+
+function fieldsOf(v: unknown): Record<string, unknown> | null {
+  return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 }
 
 interface CitedCondition {

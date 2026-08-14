@@ -22,7 +22,8 @@
 // Returns the list of SKIPPED secret-like files (relative paths) so the caller can surface them.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import type { Stats } from "node:fs";
+import { copyFileSync, lstatSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 /** The root relative-path prefix for the recursive walk (no parent segment). */
@@ -31,16 +32,23 @@ const ROOT_PREFIX = "";
 /** Structural directory excludes (never copied). */
 const EXCLUDE = new Set([".git", "node_modules"]);
 
+/** Committed-by-convention dotenv TEMPLATE suffixes — documented examples, not
+ *  secrets; keeping them preserves the project's env-var documentation in the copy. */
+const TEMPLATE_SUFFIX = /\.(example|sample|template|dist)$/i;
+
 /** Secret-basename denylist (checked case-insensitively against every basename):
- *  dotenv family (.env, .env.local, …) + .npmrc; key/certificate files; credential /
- *  service-account / SSH-private-key names. Heuristic on purpose — reserving a filename
- *  pattern is cheaper than exfiltrating one secret to a cloud judge. */
-const SECRET_DOTFILE = /^\.(env|npmrc)(\.|$)/i;
+ *  dotenv family (.env, .env.local, .envrc, …) + .npmrc; key/certificate files;
+ *  credential / service-account / SSH-private-key names. Heuristic on purpose —
+ *  reserving a filename pattern is cheaper than exfiltrating one secret to a cloud
+ *  judge. Template suffixed (.env.example …) dotfiles are allowed through. */
+const SECRET_DOTFILE = /^\.(env|envrc|npmrc)(\.|$)/i;
 const SECRET_SUFFIX = /\.(pem|key|p12|pfx)$/i;
 const SECRET_SUBSTRING = /(credential|service[-_]?account|id_rsa|id_ed25519)/i;
 
-/** Is this basename a secret-like file that must never be copied into the scenario repo? */
+/** Is this basename a secret-like file that must never be copied into the scenario
+ *  repo? Template-suffixed dotfiles (.env.example) are documentation, not secrets. */
 export function isSecretBasename(base: string): boolean {
+  if (TEMPLATE_SUFFIX.test(base)) return false;
   return SECRET_DOTFILE.test(base) || SECRET_SUFFIX.test(base) || SECRET_SUBSTRING.test(base);
 }
 
@@ -87,9 +95,21 @@ export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions
         skipped.push(file);
         continue;
       }
+      const from = path.join(src, file);
       const target = path.join(dest, file);
+      // `ls-files` lists index entries, not the filesystem: submodule paths (mode
+      // 160000) are directories on disk (copyFileSync would throw EISDIR) and a
+      // file deleted from the worktree but still staged would throw ENOENT — skip
+      // both instead of aborting the whole extract prepare.
+      let st: Stats | null = null;
+      try {
+        st = lstatSync(from);
+      } catch {
+        continue; // not on disk (deleted-but-staged) — nothing to copy
+      }
+      if (!st.isFile() && !st.isSymbolicLink()) continue; // submodule/directory entry
       mkdirSync(path.dirname(target), { recursive: true });
-      copyFileSync(path.join(src, file), target);
+      copyFileSync(from, target);
     }
     return skipped;
   }

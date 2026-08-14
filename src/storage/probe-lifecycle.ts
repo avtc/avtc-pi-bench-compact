@@ -71,8 +71,8 @@ export function addedSessionLines(baseJsonl: string, probeJsonl: string): string
  *
  * The session transcript is compared by reading `baseSessionFile` + `probeSessionFile` directly
  * (the transcript lives outside the repo, in the per-branch sessions store). The git diff
- * (`diffNameOnly`) still guards project-file changes — session.jsonl is no longer tracked, so it
- * never appears in the git diff (the `!== "session.jsonl"` filter is defensive).
+ * (`diffNameOnly`) guards project-file changes; the transcript never appears in it (the
+ * `!== "session.jsonl"` filter is defensive).
  */
 export function isQaOnlyBranch(
   repo: string,

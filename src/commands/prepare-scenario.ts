@@ -15,7 +15,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
-import { isRunInFlight } from "../orchestrate/run-state.js";
+import { isPrepareInFlight, isRunInFlight, setPrepareInFlight } from "../orchestrate/run-state.js";
 import { SurfaceConditionsError } from "../production/build.js";
 import { LANDING_FILE, type LandingState, readLandingState } from "../production/landing-state.js";
 import { buildLiveSeams } from "../production/live-seams.js";
@@ -108,12 +108,17 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       return;
     }
     // Same concurrency rule as the run commands: prepare's drive/extract switchSessions
-    // the ONE main pi session — refuse while a bench run is in-flight.
+    // the ONE main pi session — refuse while a bench run OR another prepare is
+    // in-flight (interleaved switchSessions + git would corrupt both).
     if (isRunInFlight()) {
       notify(
         "a bench run is already active — /bench-compact:status shows it; /bench-compact:abort stops it",
         "warning",
       );
+      return;
+    }
+    if (isPrepareInFlight()) {
+      notify("a bench prepare is already active — /bench-compact:abort clears a stuck guard", "warning");
       return;
     }
 
@@ -126,6 +131,9 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
     widget.show();
 
     const scenarioId = computeScenarioId(parsed);
+    // Guard the WHOLE prepare window (the run-state only appears later, inside
+    // startRun): every exit path clears the flag — surface, failure, success.
+    setPrepareInFlight(true);
     try {
       const deps = opts.buildDeps(ctx, parsed, scenarioId);
       const result = await prepare(deps);
@@ -140,6 +148,8 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       }
       const msg = err instanceof Error ? err.message : String(err);
       notify(`prepare failed: ${msg}`, "error");
+    } finally {
+      setPrepareInFlight(false);
     }
   };
 }
@@ -170,6 +180,10 @@ export function surfaceConditionsMessage(err: SurfaceConditionsError, scenarioFo
  *  root + assembles the live BuildSeams (driveAndCapture via SimulatorDriver,
  *  trialCompact via ctx.compact, author via runAuthoringAgent) bound to the command
  *  ctx. Extract mode reuses trialCompact + author (driveAndCapture unused). */
+/** The plant-resume restarts one attempt PAST the surfaced one (pacing must
+ *  see headroom above the usage the surfaced attempt already reached). */
+const RESUME_ATTEMPT_OFFSET = 1;
+
 export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scenarioId: string): PrepareDeps {
   const config = getBenchConfig();
   const root = benchRoot(config.outputDir);
@@ -194,7 +208,7 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
   const scenarioDescription = plantState?.scenario ?? parsed.idea ?? scenarioId;
   // The handler sets the active widget before buildDeps; the seams read it for build/extract ctx/tok.
   const widget = getActiveWidget();
-  const seams = buildLiveSeams({
+  const { holder, ...seams } = buildLiveSeams({
     cmdCtx,
     config,
     repoPath: repo,
@@ -213,6 +227,7 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
     manifestPath,
     preSliceDir,
     seams,
+    liveCtx: holder,
     force: parsed.force,
     ...(parsed.fromSession !== undefined
       ? {
@@ -224,7 +239,12 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
         ? {
             scenario: plantState.scenario,
             resume: {
-              attempt: plantState.attempt,
+              // ONE PAST the surfaced attempt: the surfaced drive stopped because the
+              // session's usage crossed attempt N's pacing target — restarting at N
+              // would pace-stop immediately (before the plant instruction is ever
+              // consulted); N+1 grows the target one continue-step above the reached
+              // usage, so the first resumed cycle continues + plants.
+              attempt: plantState.attempt + RESUME_ATTEMPT_OFFSET,
               plantInstruction: buildPlantInstruction(plantState.missingTopics.map((t) => t.id)),
             },
           }

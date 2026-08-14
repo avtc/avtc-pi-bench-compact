@@ -41,8 +41,10 @@ export interface BuildSeams {
 /** Resume inputs for the plant-and-continue recovery (`--plant`): continue the
  *  FAILED build's loop from a later attempt, steering the missing topics in. */
 export interface BuildResume {
-  /** The attempt the surfaced build ended on (the loop restarts here → the pacing
-   *  target grows by one continue-step so the planted content slides before the cut). */
+  /** The attempt the resumed loop restarts AT. Callers pass the SURFACED attempt + 1:
+   *  restarting at the surfaced attempt itself would pace-stop immediately (the
+   *  session's usage already crossed that attempt's target); +1 grows the target one
+   *  continue-step so the first resumed cycle continues + injects the plant text. */
   readonly attempt: number;
   /** The plant steering text (the resumed drive's FIRST harness instruction). */
   readonly plantInstruction?: string;
@@ -69,7 +71,7 @@ export class SurfaceConditionsError extends Error {
   readonly action: Extract<LandingAction, { kind: "surface" }>;
   /** The trial compaction's cut point at the surfaced attempt. */
   readonly firstKeptEntryId: string;
-  /** The build attempt that surfaced (the --plant resume continues from here). */
+  /** The build attempt that surfaced (the --plant resume restarts one past it). */
   readonly attempt: number;
   /** The last authored manifest (--skip re-validates + freezes it with topics dropped). */
   readonly manifest: ScenarioManifest;
@@ -144,9 +146,15 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
     const manifest = await deps.seams.author(preSliced.jsonlPath);
 
     // Tail detection: which topics' content is in the kept tail (separate from the
-    // manifest's citations, since the author only saw the span). Default = none.
+    // manifest's citations, since the author only saw the span). Only topics whose
+    // manifest condition-list is EMPTY can be tail-rescued — when the author produced
+    // conditions for every topic (the common case) the call is skipped entirely
+    // (a model resolve + stage round + timeout for a set nobody would read).
+    const topicsWithoutConditions = CONDITION_TOPICS.filter(
+      (t) => (manifest[`${t.metricAxis}s` as keyof ScenarioManifest] as readonly unknown[]).length === 0,
+    );
     const tailContent =
-      deps.seams.findTailContent !== undefined
+      deps.seams.findTailContent !== undefined && topicsWithoutConditions.length > 0
         ? await deps.seams.findTailContent(backupPath, firstKeptEntryId)
         : new Set<string>();
 

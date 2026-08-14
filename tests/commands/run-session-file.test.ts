@@ -9,8 +9,12 @@ import { fakeCommandCtx } from "./helpers.js";
 
 const VALID_MANIFEST = {
   id: "scen-1",
-  recallFacts: [{ fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
-  doneOps: [{ description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] }],
+  description: "a test scenario",
+  compactionBoundary: { phaseATokenBudget: 140000, plan: "build" },
+  recallFacts: [{ id: "rf-1", fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
+  doneOps: [
+    { id: "op-1", description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] },
+  ],
   supersessions: [],
   abstentions: [],
   probes: [{ question: "where are scores stored?", accept: ["~/.scores.json"], targets: ["e1"] }],

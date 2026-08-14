@@ -20,7 +20,7 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import { manifestStructureError } from "../manifest/validate.js";
 import type { RunResult, StartRunDeps } from "../orchestrate/run.js";
 import { startRun as startRunImpl } from "../orchestrate/run.js";
-import { isRunInFlight } from "../orchestrate/run-state.js";
+import { isPrepareInFlight, isRunInFlight, setPrepareInFlight } from "../orchestrate/run-state.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { setActiveWidget } from "../widget/active-widget.js";
@@ -147,15 +147,23 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
 
   let repoPath: string;
   let manifestPath: string;
+  let liveCtx: { readonly current: unknown } | undefined;
+  // Guard the prepare window (same rule as the prepare handler): the run-state only
+  // appears later, inside startRun — the flag is cleared BEFORE executeRun hands
+  // over (startRun sets the run-state immediately after).
+  setPrepareInFlight(true);
   try {
     const deps = opts.buildDeps(opts.ctx, opts.parsed, scenarioId);
     const result = await (opts.prepareScenario ?? prepareScenarioImpl)(deps);
     repoPath = result.repoPath;
     manifestPath = result.manifestPath;
+    liveCtx = result.liveCtx;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     notify(`prepare failed: ${msg}`, "error");
     return;
+  } finally {
+    setPrepareInFlight(false);
   }
 
   let manifest: ScenarioManifest;
@@ -167,8 +175,14 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
     return;
   }
 
+  // Prepare's switchSessions invalidated the ORIGINAL command ctx — hand executeRun
+  // the prepare holder's FINAL fresh ctx (mode/hasUI/ui read at executeRun entry are
+  // valid on it, and Phase-1's first switchSession needs a live ctx). Falls back to
+  // the command ctx when no build seam ran (pure extract/skip + test fakes — no
+  // switchSession happened, so it is still live).
+  const runCtx = (liveCtx?.current ?? opts.ctx) as RunHandlerContext;
   await (opts.executeRun ?? executeRun)({
-    ctx: opts.ctx,
+    ctx: runCtx,
     config: opts.config,
     scenarioRepo: repoPath,
     manifest,
@@ -246,6 +260,10 @@ export function guardPreflight(
       "a bench run is already active — /bench-compact:status shows it; /bench-compact:abort stops it",
       "warning",
     );
+    return false;
+  }
+  if (isPrepareInFlight()) {
+    notifyOf(ctx)("a bench prepare is already active — /bench-compact:abort clears a stuck guard", "warning");
     return false;
   }
   return true;

@@ -4,7 +4,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import {
   type BuildSeams,
@@ -325,6 +325,68 @@ describe("validateAuthoredManifest — topics subset (skip-and-proceed)", () => 
       expect(() =>
         validateAuthoredManifest(manifest as unknown as ScenarioManifest, preSliced, backup.path, withoutRecall),
       ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("buildBackup — tail-check gating", () => {
+  it("skips the tail-check call when every topic has conditions (all lists populated)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-tailskip-"));
+    try {
+      const backup = writeBackup(dir, 5);
+      const findTailContent = vi.fn().mockResolvedValue(new Set<string>());
+      await buildBackup({
+        scenario: "tycoon",
+        compactionBoundary: 140000,
+        preSliceDir: dir,
+        seams: {
+          async driveAndCapture() {
+            return { backupPath: backup.path, backupEntries: backup.entries };
+          },
+          async trialCompact() {
+            return { firstKeptEntryId: "e4", summary: "cut" };
+          },
+          async author() {
+            return manifestWith("e1", "e2", "e3", "e3");
+          },
+          findTailContent,
+        },
+      });
+      expect(findTailContent).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("calls the tail-check when some topic's condition list is empty", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-tailcall-"));
+    try {
+      const backup = writeBackup(dir, 5);
+      const findTailContent = vi.fn().mockResolvedValue(new Set<string>());
+      // abstentions empty → open-question topic has no conditions → the tail check
+      // must run (it may rescue the topic from the tail); here it finds nothing → surface.
+      await expect(
+        buildBackup({
+          scenario: "tycoon",
+          compactionBoundary: 140000,
+          preSliceDir: dir,
+          seams: {
+            async driveAndCapture() {
+              return { backupPath: backup.path, backupEntries: backup.entries };
+            },
+            async trialCompact() {
+              return { firstKeptEntryId: "e4", summary: "cut" };
+            },
+            async author() {
+              return { ...manifestWith("e1", "e2", "e3", "e3"), abstentions: [] };
+            },
+            findTailContent,
+          },
+        }),
+      ).rejects.toThrow(SurfaceConditionsError);
+      expect(findTailContent).toHaveBeenCalledOnce();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

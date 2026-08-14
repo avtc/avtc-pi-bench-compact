@@ -12,6 +12,7 @@ import {
 } from "../../src/commands/prepare-scenario.js";
 import { SurfaceConditionsError } from "../../src/production/build.js";
 import type { PrepareDeps } from "../../src/production/prepare.js";
+import { fakeCommandCtx } from "./helpers.js";
 
 describe("computeScenarioId", () => {
   it("hashes the idea deterministically (build mode)", () => {
@@ -298,5 +299,47 @@ describe("computeScenarioId — recovery modes", () => {
         skipFrom: "/root/scenarios/xyz",
       }),
     ).toBe("xyz");
+  });
+});
+
+describe("prepare in-flight guard", () => {
+  it("refuses a second prepare while one is active (no buildDeps call)", async () => {
+    const { setPrepareInFlight } = await import("../../src/orchestrate/run-state.js");
+    setPrepareInFlight(true);
+    try {
+      const { ctx, notifies } = fakeCommandCtx();
+      const buildDeps = vi.fn();
+      const prepareScenario = vi.fn();
+      const handler = makePrepareScenarioHandler({ buildDeps, prepareScenario });
+      await handler("some idea", ctx);
+      expect(buildDeps).not.toHaveBeenCalled();
+      expect(prepareScenario).not.toHaveBeenCalled();
+      expect(notifies.some((n) => n.level === "warning" && n.msg.includes("prepare is already active"))).toBe(true);
+    } finally {
+      setPrepareInFlight(false);
+    }
+  });
+
+  it("clears the flag on SurfaceConditionsError (finally runs on every exit)", async () => {
+    const { isPrepareInFlight } = await import("../../src/orchestrate/run-state.js");
+    const { ctx } = fakeCommandCtx();
+    const prepareScenario = vi.fn().mockRejectedValue(
+      new SurfaceConditionsError(
+        {
+          kind: "surface",
+          skipOffered: true,
+          missing: [
+            { id: "open-question", label: "Open question", tag: "safeToSkip", hint: "h", metricAxis: "abstention" },
+          ],
+        },
+        { firstKeptEntryId: "e4", attempt: 1, manifest: {} as unknown as SurfaceConditionsError["manifest"] },
+      ),
+    );
+    const handler = makePrepareScenarioHandler({
+      buildDeps: vi.fn().mockReturnValue({} as PrepareDeps),
+      prepareScenario,
+    });
+    await handler("some idea", ctx);
+    expect(isPrepareInFlight()).toBe(false);
   });
 });

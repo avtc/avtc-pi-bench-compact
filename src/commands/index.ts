@@ -12,7 +12,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
-import { abortActiveRun, getRunState, statusString } from "../orchestrate/run-state.js";
+import {
+  abortActiveRun,
+  getRunState,
+  isPrepareInFlight,
+  setPrepareInFlight,
+  statusString,
+} from "../orchestrate/run-state.js";
 import { hideActiveWidget } from "../widget/active-widget.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { registerResultsCommand } from "./results.js";
@@ -55,8 +61,19 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     description: "Stop the run cleanly (fires the run's abort signal + tears down the progress widget).",
     handler: async (_args, ctx) => {
       const wasRunning = abortActiveRun();
+      // Wedge recovery: a prepare that died between set + finally leaves the guard
+      // stuck (no finally ran) — abort is the operator's recovery lever. A LIVE
+      // prepare keeps running (its own finally re-clears later); the operator chose
+      // to unblock the next command explicitly.
+      const wasPreparing = isPrepareInFlight();
+      setPrepareInFlight(false);
       hideActiveWidget();
-      ctx.ui.notify(wasRunning ? "aborted — run stopping" : "aborted (no active run)", "info");
+      const msg = wasRunning
+        ? "aborted — run stopping"
+        : wasPreparing
+          ? "aborted — prepare guard cleared (a live prepare still finishes on its own)"
+          : "aborted (no active run)";
+      ctx.ui.notify(msg, "info");
     },
   });
 

@@ -48,6 +48,14 @@ export function parsePrepareArgs(args: string): PrepareArgs {
     return { value: next, next: i + 1 };
   };
 
+  /** `--flag=value` inline form (empty value = error, mirroring readValue). Returns
+   *  the same shape — `next` is `i` (the value was inline; no extra token consumed). */
+  const eqValue = (flagEq: string, tok: string, i: number): { value: string; next: number } | { error: string } => {
+    const val = tok.slice(flagEq.length);
+    if (val.length === 0) return { error: `${flagEq} requires a non-empty value` };
+    return { value: val, next: i };
+  };
+
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok === "--from-session") {
@@ -58,16 +66,16 @@ export function parsePrepareArgs(args: string): PrepareArgs {
       }
       fromSession = r.value;
       i = r.next;
-    } else if (tok === "--plant") {
-      const r = readValue(tok, i);
+    } else if (tok === "--plant" || tok.startsWith(PLANT_EQ)) {
+      const r = tok.startsWith(PLANT_EQ) ? eqValue(PLANT_EQ, tok, i) : readValue(tok, i);
       if ("error" in r) {
         error = r.error;
         break;
       }
       plantFrom = r.value;
       i = r.next;
-    } else if (tok === "--from") {
-      const r = readValue(tok, i);
+    } else if (tok === "--from" || tok.startsWith(FROM_EQ)) {
+      const r = tok.startsWith(FROM_EQ) ? eqValue(FROM_EQ, tok, i) : readValue(tok, i);
       if ("error" in r) {
         error = r.error;
         break;
@@ -100,13 +108,18 @@ export function parsePrepareArgs(args: string): PrepareArgs {
       skipTopics = pieces;
     } else if (tok === "--force") {
       force = true;
-    } else if (tok.startsWith("--from-session=")) {
-      const val = tok.slice("--from-session=".length);
-      if (val.length === 0) {
-        error = "--from-session= requires a non-empty session file path";
+    } else if (tok.startsWith(FROM_SESSION_EQ)) {
+      const r = eqValue(FROM_SESSION_EQ, tok, i);
+      if ("error" in r) {
+        error = r.error;
         break;
       }
-      fromSession = val;
+      fromSession = r.value;
+    } else if (tok.startsWith("--")) {
+      // An unrecognized --token is a mistyped/misused flag, not idea text — say so
+      // instead of silently driving a garbage scenario titled "--forc".
+      error = `unknown flag "${tok}"`;
+      break;
     } else {
       positionals.push(tok);
     }
@@ -137,9 +150,12 @@ export interface ResultsArgs {
 
 const VALID_ARMS = new Set<string>(ARM_IDS);
 
-/** The skip-recovery flag names (hoisted so the arg-parsing lines stay string-free). */
+/** The recovery/option flag names (hoisted so the arg-parsing lines stay string-free). */
 const SKIP_TOPICS_FLAG = "--skip-topics";
 const SKIP_TOPICS_EQ = "--skip-topics=";
+const PLANT_EQ = "--plant=";
+const FROM_EQ = "--from=";
+const FROM_SESSION_EQ = "--from-session=";
 
 /** Split raw args into non-empty whitespace tokens (shared by the parsers). */
 function tokenize(args: string): string[] {

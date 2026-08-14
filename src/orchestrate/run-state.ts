@@ -116,6 +116,25 @@ export function isRunInFlight(): boolean {
   return s !== null && s.lastStopReason === null;
 }
 
+const PREPARE_KEY = "__benchCompactPrepareInFlight";
+
+/** Mark the prepare window in-flight (the run-state is only set later, inside
+ *  `startRun` — but a prepare ALSO drives the ONE main pi session for potentially
+ *  hours: build drive + trial + authoring). Callers MUST clear it in a `finally`.
+ *  Lives on globalThis like the run-state (survives `/reload`). */
+export function setPrepareInFlight(inFlight: boolean): void {
+  const g = globalThis as Record<string, unknown>;
+  if (inFlight) g[PREPARE_KEY] = true;
+  else delete g[PREPARE_KEY];
+}
+
+/** True while a prepare-scenario / shorthand prepare window is active. While set,
+ *  NO other bench command may run (same concurrency rule as {@link isRunInFlight}
+ *  — interleaved switchSessions + git would corrupt both). */
+export function isPrepareInFlight(): boolean {
+  return ((globalThis as Record<string, unknown>)[PREPARE_KEY] ?? false) === true;
+}
+
 /** A one-line status for `/bench-compact:status` + the widget. */
 export function statusString(): string {
   const s = readGlobal();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -9,6 +9,7 @@ import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { describe, expect, it } from "vitest";
 import type { MemoryProxies } from "../../src/arms/proxies.js";
 import { defaultBuildPrepareDeps } from "../../src/commands/prepare-scenario.js";
+import { LANDING_FILE, type LandingState, writeLandingState } from "../../src/production/landing-state.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 
 /** A capturing WidgetPort: records startPhase calls. */
@@ -566,6 +567,51 @@ describe("defaultBuildPrepareDeps", () => {
       expect(deps.force).toBe(false);
     } finally {
       _setHandleForTest(null);
+    }
+  });
+
+  it("--plant resume derives from landing.json and restarts ONE PAST the surfaced attempt", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "bench-plant-"));
+    const scenarioFolder = join(tmpRoot, "scenarios", "surfaced");
+    mkdirSync(scenarioFolder, { recursive: true });
+    writeLandingState(join(scenarioFolder, LANDING_FILE), {
+      missingTopics: [
+        { id: "change-mind", label: "Changed mind", tag: "safeToSkip" },
+        { id: "key-decision", label: "Key decision", tag: "essential" },
+      ],
+      skipOffered: false,
+      buildSessionPath: join(scenarioFolder, "pre-slice", "build.jsonl"),
+      firstKeptEntryId: "e42",
+      attempt: 2,
+      scenario: "build a tycoon game",
+      manifest: {} as unknown as LandingState["manifest"],
+    });
+    _setHandleForTest({
+      getSettings: () => ({ outputDir: tmpRoot, compactionBoundary: 50000 }),
+    } as unknown as SettingsHandle);
+    try {
+      const deps = defaultBuildPrepareDeps(
+        fakeCmdCtx,
+        {
+          idea: undefined,
+          fromSession: undefined,
+          plantFrom: scenarioFolder,
+          skipFrom: undefined,
+          skipTopics: undefined,
+          force: false,
+          error: undefined,
+        },
+        "surfaced",
+      );
+      // the +1 is the fix: restarting AT attempt 2 would pace-stop immediately
+      // (usage already crossed attempt 2's target); 3 grows the target one step.
+      expect(deps.resume?.attempt).toBe(3);
+      expect(deps.resume?.plantInstruction).toContain("Changed mind");
+      expect(deps.resume?.plantInstruction).toContain("Key decision");
+      expect(deps.scenario).toBe("build a tycoon game");
+    } finally {
+      _setHandleForTest(null);
+      rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 

@@ -68,6 +68,10 @@ export interface PrepareDeps {
   readonly copyProjectFiles?: (sourceCwd: string, repoPath: string, opts: CopyTreeOptions | null) => string[];
   /** Allow re-freezing an existing main. */
   readonly force?: boolean;
+  /** The build seams' shared ctx holder — after prepare, `.current` is the FINAL
+   *  fresh ctx (the command ctx is stale post-switch). Callers that continue with
+   *  session work (the run shorthands' executeRun handoff) must use it. */
+  readonly liveCtx?: { readonly current: unknown };
 }
 
 /** Validate deps: exactly one mode selected; extract has its output path; + contamination
@@ -100,7 +104,16 @@ function validateDeps(deps: PrepareDeps): void {
  * Orchestrate prepare-scenario: build/extract → (trial → pre-slice → author) → freeze.
  * Returns the frozen repo + manifest paths.
  */
-export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: string; manifestPath: string }> {
+export interface PrepareScenarioResult {
+  readonly repoPath: string;
+  readonly manifestPath: string;
+  /** The final fresh ctx when build-mode seams ran (absent for pure-extract/skip
+   *  flows + test fakes — fall back to the command ctx, which stays live when no
+   *  switchSession happened). */
+  readonly liveCtx?: { readonly current: unknown };
+}
+
+export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenarioResult> {
   validateDeps(deps);
 
   let backupPath: string;
@@ -197,7 +210,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: st
     }
   }
 
-  return freezeScenario({
+  const frozen = freezeScenario({
     repoPath: deps.repoPath,
     sessionsDir: deps.sessionsDir,
     backupPath,
@@ -205,4 +218,5 @@ export async function prepareScenario(deps: PrepareDeps): Promise<{ repoPath: st
     manifestPath: deps.manifestPath,
     force: deps.force,
   });
+  return { ...frozen, liveCtx: deps.liveCtx };
 }

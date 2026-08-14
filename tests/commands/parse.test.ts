@@ -170,3 +170,34 @@ describe("parsePrepareArgs — recovery flags (--plant / --skip-topics / --from)
     expect(parsePrepareArgs("--from").error).toMatch(/--from requires a value/);
   });
 });
+
+describe("parsePrepareArgs — eq-forms + unknown flags", () => {
+  it("accepts --plant=<folder> (inline eq-form)", () => {
+    const r = parsePrepareArgs("--plant=/scen/abc");
+    expect(r.error).toBeUndefined();
+    expect(r.plantFrom).toBe("/scen/abc");
+  });
+
+  it("accepts --from=<folder> (inline eq-form)", () => {
+    const r = parsePrepareArgs("--skip-topics change-mind --from=/scen/abc");
+    expect(r.error).toBeUndefined();
+    expect(r.skipFrom).toBe("/scen/abc");
+    expect(r.skipTopics).toEqual(["change-mind"]);
+  });
+
+  it("rejects an empty eq value", () => {
+    expect(parsePrepareArgs("--plant=").error).toContain("--plant=");
+    expect(parsePrepareArgs("--from=").error).toContain("--from=");
+  });
+
+  it("rejects an unknown --flag instead of silently making it the idea", () => {
+    const r = parsePrepareArgs("my tycoon idea --forc");
+    expect(r.error).toContain('unknown flag "--forc"');
+    expect(r.idea).not.toContain("--forc"); // the flag never becomes idea text
+  });
+
+  it("rejects a lone unknown flag token", () => {
+    const r = parsePrepareArgs("--idea=x");
+    expect(r.error).toContain("unknown flag");
+  });
+});
