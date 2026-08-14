@@ -15,8 +15,8 @@ import {
 import { CONDITION_TOPICS } from "../../src/simulator/condition-topics.js";
 
 /** A manifest with all 4 condition types citing the given entry-ids (all in-span when < e4).
- *  Conditions use search-terms present in every backup entry's content (see writeBackup)
- *  so the cited-content-present check passes. Includes one probe per recallable condition. */
+ * Conditions use search-terms present in every backup entry's content (see writeBackup)
+ * so the cited-content-present check passes. Includes one probe per recallable condition. */
 function manifestWith(rfId: string, doId: string, ssId: string, abId: string): ScenarioManifest {
   return {
     id: "t",
@@ -38,8 +38,8 @@ function manifestWith(rfId: string, doId: string, ssId: string, abId: string): S
 }
 
 /** Write a backup JSONL with entries e1..eN; return path + entries.
- *  Each entry's content contains all condition search-terms (decision/work/mind/question/a/b)
- *  so the cited-content-present check passes for any citation. */
+ * Each entry's content contains all condition search-terms (decision/work/mind/question/a/b)
+ * so the cited-content-present check passes for any citation. */
 function writeBackup(dir: string, n: number): { path: string; entries: { id: string }[] } {
   const path = join(dir, `backup-${n}.jsonl`);
   const entries = [{ id: "s1" }, ...Array.from({ length: n }, (_, i) => ({ id: `e${i + 1}` }))];

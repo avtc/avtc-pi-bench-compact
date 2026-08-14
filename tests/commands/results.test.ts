@@ -88,6 +88,18 @@ describe("runResultsCommand", () => {
     expect(outcome.report).toContain("run2·A3");
   });
 
+  it("reportFile: full single-run → canonical report.md; subset + comparison get their own siblings", () => {
+    const arms = { A1: { tool: "bare-pi" }, A3: { tool: "memkeeper-builder" } };
+    const single = runResultsCommand("run1", { loadResultJson: () => mkResult("run1", arms) });
+    expect(single.reportFile).toBe("report.md");
+    const subset = runResultsCommand("run1:A1,A3", { loadResultJson: () => mkResult("run1", arms) });
+    expect(subset.reportFile).toBe("report-arms.md");
+    const cmp = runResultsCommand("run1 run2", {
+      loadResultJson: (id) => mkResult(id, arms),
+    });
+    expect(cmp.reportFile).toBe("report-compare.md");
+  });
+
   it("arm-subset on a single run filters the report to the selected arms (A1 deselected → no ΔvsA1)", () => {
     const outcome = runResultsCommand(
       "run1:A3",

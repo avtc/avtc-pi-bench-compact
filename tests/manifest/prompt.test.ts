@@ -11,9 +11,9 @@ import { AUTHORING_SYSTEM_PROMPT } from "../../src/manifest/prompt.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const canonicalFixture = readFileSync(join(here, "fixtures/section-4.18-prompt.txt"), "utf8").trimEnd();
 
-describe("AUTHORING_SYSTEM_PROMPT (§4.18 byte-compare against frozen fixture)", () => {
-  it("matches the canonical §4.18 prompt byte-for-byte (catches any drift)", () => {
-    // If this fails, prompt.ts drifted from the frozen §4.18 fixture — update the
+describe("AUTHORING_SYSTEM_PROMPT (byte-compare against frozen fixture)", () => {
+  it("matches the canonical prompt byte-for-byte (catches any drift)", () => {
+    // If this fails, prompt.ts drifted from the frozen fixture — update the
     // fixture CONSCIOUSLY (it is the source of truth for the verbatim prompt).
     expect(AUTHORING_SYSTEM_PROMPT).toBe(canonicalFixture);
   });
@@ -21,7 +21,7 @@ describe("AUTHORING_SYSTEM_PROMPT (§4.18 byte-compare against frozen fixture)",
 
 describe("buildAuthoringSystemPrompt", () => {
   it("substitutes the <PATH> placeholder with the JSONL path (including $-bearing paths)", () => {
-    // R1-4: a path containing $ must not be mangled by String.replace's special $ patterns.
+    // : a path containing $ must not be mangled by String.replace's special $ patterns.
     const p = buildAuthoringSystemPrompt({ preSlicedJsonlPath: "/tmp/$HOME/sliced.jsonl" });
     expect(p).toContain("/tmp/$HOME/sliced.jsonl");
     expect(p).not.toContain("<PATH>");
@@ -38,7 +38,7 @@ describe("buildAuthoringSystemPrompt", () => {
   });
 
   it("does NOT append knownConditions data when absent (extract mode)", () => {
-    // R1-6: assert the appended anchor marker is ABSENT (not a tautological self-compare).
+    // : assert the appended anchor marker is ABSENT (not a tautological self-compare).
     const p = buildAuthoringSystemPrompt({ preSlicedJsonlPath: "/tmp/x.jsonl" });
     expect(p).not.toMatch(/use as anchors/i);
     expect(p).not.toMatch(/the session was designed to contain these/i);

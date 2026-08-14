@@ -35,6 +35,10 @@ export interface ResultsOutcome {
   readonly report: string | undefined;
   readonly error: string | undefined;
   readonly runIds: readonly string[];
+  /** Which file this rendering belongs in — the canonical run report is only ever
+   * a full single-run rendering; subset + comparison renderings get their own
+   * siblings so re-rendering never clobbers the frozen artifact. */
+  readonly reportFile: "report.md" | "report-arms.md" | "report-compare.md";
 }
 
 /**
@@ -44,9 +48,16 @@ export interface ResultsOutcome {
  */
 export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOutcome {
   const parsed = parseResultsArgs(args);
-  if (parsed.error !== undefined) return { report: undefined, error: parsed.error, runIds: [] };
+  if (parsed.error !== undefined)
+    return { report: undefined, error: parsed.error, runIds: [], reportFile: "report.md" };
   const refs = parsed.runs;
-  if (refs.length === 0) return { report: undefined, error: "results requires at least one runId", runIds: [] };
+  if (refs.length === 0)
+    return {
+      report: undefined,
+      error: "results requires at least one runId",
+      runIds: [],
+      reportFile: "report.md",
+    };
   const runIds = refs.map((r) => r.runId);
 
   // Load every referenced run's result-JSON (fail fast on the first missing one).
@@ -58,20 +69,22 @@ export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOut
         report: undefined,
         error: `run results not found for "${ref.runId}" (expected results.json under runs/${ref.runId}/)`,
         runIds,
+        reportFile: "report.md",
       };
     }
     loaded.push(result);
   }
 
   if (loaded.length === 1) {
+    const subset = refs[0].arms !== undefined;
     const report = renderHeadline(filterResultArms(loaded[0], refs[0].arms));
-    return { report, error: undefined, runIds };
+    return { report, error: undefined, runIds, reportFile: subset ? "report-arms.md" : "report.md" };
   }
   const report = renderComparison(
     loaded,
     refs.map((r) => ({ runId: r.runId, arms: r.arms })),
   );
-  return { report, error: undefined, runIds };
+  return { report, error: undefined, runIds, reportFile: "report-compare.md" };
 }
 
 /**
@@ -116,11 +129,14 @@ export function registerResultsCommand(pi: ExtensionAPI): void {
         ctx.ui.notify(outcome.error, "warning");
         return;
       }
-      // Write the rendered report next to the (first) run's results.json + notify the path.
+      // Write the rendering next to the (first) run's results.json + notify the
+      // path. A FULL single-run rendering regenerates the canonical report.md;
+      // subset + comparison renderings go to their own siblings — the run's frozen
+      // canonical report is never clobbered by a filtered or derived variant.
       const firstRunId = outcome.runIds[0] ?? "unknown";
       const dir = runDir(root, firstRunId);
       mkdirSync(dir, { recursive: true });
-      const file = path.join(dir, "report.md");
+      const file = path.join(dir, outcome.reportFile);
       writeFileSync(file, `${outcome.report}\n`, "utf8");
       ctx.ui.notify(`report written: ${file}`, "info");
     },

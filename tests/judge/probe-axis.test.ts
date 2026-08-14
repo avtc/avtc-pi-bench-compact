@@ -6,9 +6,9 @@ import { axisForProbe } from "../../src/judge/probe-axis.js";
 import type { Probe, ScenarioManifest } from "../../src/manifest/schema.js";
 
 /** Build a manifest where each condition id maps to a distinct ENTRY id (`e-<id>`).
- *  Per the schema, a probe's `targets` are ENTRY ids (the target's `entryIds`), so
- *  probes must reference `e-<id>` — NOT the condition id. This is what masks the
- *  axisForProbe regression (comparing entry-id targets against condition `s.id`). */
+ * Per the schema, a probe's `targets` are ENTRY ids (the target's `entryIds`), so
+ * probes must reference `e-<id>` — NOT the condition id. This is what masks the
+ * axisForProbe regression (comparing entry-id targets against condition `s.id`). */
 function manifestWith({
   recallFacts,
   supersessions,

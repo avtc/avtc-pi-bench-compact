@@ -20,7 +20,7 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import { manifestStructureError } from "../manifest/validate.js";
 import type { RunResult, StartRunDeps } from "../orchestrate/run.js";
 import { startRun as startRunImpl } from "../orchestrate/run.js";
-import { isPrepareInFlight, isRunInFlight, setPrepareInFlight } from "../orchestrate/run-state.js";
+import { beginPrepare, endPrepare, isPrepareInFlight, isRunInFlight } from "../orchestrate/run-state.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { setActiveWidget } from "../widget/active-widget.js";
@@ -150,8 +150,9 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
   let liveCtx: { readonly current: unknown } | undefined;
   // Guard the prepare window (same rule as the prepare handler): the run-state only
   // appears later, inside startRun — the flag is cleared BEFORE executeRun hands
-  // over (startRun sets the run-state immediately after).
-  setPrepareInFlight(true);
+  // over (startRun sets the run-state immediately after). The window registers a
+  // real abort controller (/bench-compact:abort stops a live prepare).
+  beginPrepare();
   try {
     const deps = opts.buildDeps(opts.ctx, opts.parsed, scenarioId);
     const result = await (opts.prepareScenario ?? prepareScenarioImpl)(deps);
@@ -163,7 +164,7 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
     notify(`prepare failed: ${msg}`, "error");
     return;
   } finally {
-    setPrepareInFlight(false);
+    endPrepare();
   }
 
   let manifest: ScenarioManifest;

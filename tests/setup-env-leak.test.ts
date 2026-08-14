@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// Regression (review-5 R5-2): under isolate:false, process.env is shared across
+// Regression (review-5): under isolate:false, process.env is shared across
 // every test file in one worker. The global beforeEach (tests/setup.ts →
 // clearArmEnv) must clear the three managed arm-config env keys between EVERY
 // test so no file inherits another's configureArm → writeArmConfig writes.
@@ -23,5 +23,27 @@ describe("arm-env leak guard (global beforeEach clears configureArm env between 
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
     expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+  });
+});
+
+describe("globalThis bench-slot leak guard (global beforeEach clears every __benchCompact* slot)", () => {
+  it("test 1: writes all six bench globalThis slots", () => {
+    const g = globalThis as Record<string, unknown>;
+    g.__benchCompactRunState = { stale: true };
+    g.__benchCompactMemoryProxies = { stale: true };
+    g.__benchCompactActiveWidget = { stale: true };
+    g.__benchCompactPrepareInFlight = true;
+    g.__benchCompactPrepareAbort = new AbortController();
+    g.__benchCompactPi = { stale: true };
+  });
+
+  it("test 2: sees every slot cleared (no cross-file singleton leaks under isolate:false)", () => {
+    const g = globalThis as Record<string, unknown>;
+    expect(g.__benchCompactRunState).toBeUndefined();
+    expect(g.__benchCompactMemoryProxies).toBeUndefined();
+    expect(g.__benchCompactActiveWidget).toBeUndefined();
+    expect(g.__benchCompactPrepareInFlight).toBeUndefined();
+    expect(g.__benchCompactPrepareAbort).toBeUndefined();
+    expect(g.__benchCompactPi).toBeUndefined();
   });
 });

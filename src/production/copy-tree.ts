@@ -22,7 +22,6 @@
 // Returns the list of SKIPPED secret-like files (relative paths) so the caller can surface them.
 
 import { execFileSync } from "node:child_process";
-import type { Stats } from "node:fs";
 import { copyFileSync, lstatSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 
@@ -63,6 +62,13 @@ export type GitRunner = (cwd: string, args: string[]) => string;
 export interface CopyTreeOptions {
   /** Git runner (default: execFileSync). Throw = fall back to the recursive copy. */
   readonly git?: GitRunner;
+  /** File-stat reader for git-listed entries (default: lstatSync). Test seam —
+   *  fakes can report a symlink without the platform symlink privilege. */
+  readonly lstat?: (p: string) => { isFile(): boolean; isSymbolicLink(): boolean };
+  /** Directory reader for the recursive fallback (default: readdirSync). Test seam. */
+  readonly readdir?: (
+    p: string,
+  ) => ReadonlyArray<{ name: string; isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }>;
 }
 
 /** Copy the project tree from `src` to `dest`, honoring the source's ignore rules + the
@@ -70,6 +76,8 @@ export interface CopyTreeOptions {
  *  `dest` is inside `src` (would recurse into itself). */
 export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions | null): string[] {
   const git = opts?.git ?? defaultGit;
+  const lstat = opts?.lstat ?? ((p: string) => lstatSync(p));
+  const readdir = opts?.readdir ?? ((p: string) => readdirSync(p, { withFileTypes: true }));
   const rel = path.relative(src, dest);
   if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) {
     throw new Error(`copyProjectTree: dest "${dest}" is inside src "${src}" (would recurse into itself)`);
@@ -101,9 +109,9 @@ export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions
       // 160000) are directories on disk (copyFileSync would throw EISDIR) and a
       // file deleted from the worktree but still staged would throw ENOENT — skip
       // both instead of aborting the whole extract prepare.
-      let st: Stats | null = null;
+      let st: { isFile(): boolean; isSymbolicLink(): boolean } | null = null;
       try {
-        st = lstatSync(from);
+        st = lstat(from);
       } catch {
         continue; // not on disk (deleted-but-staged) — nothing to copy
       }
@@ -121,7 +129,7 @@ export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions
 
   // Non-git fallback: recursive walk with the same excludes + denylist.
   const walk = (srcDir: string, destDir: string, relPrefix: string): void => {
-    for (const ent of readdirSync(srcDir, { withFileTypes: true })) {
+    for (const ent of readdir(srcDir)) {
       if (EXCLUDE.has(ent.name)) continue;
       const relPath = relPrefix === "" ? ent.name : `${relPrefix}/${ent.name}`;
       if (isSecretBasename(ent.name)) {

@@ -34,7 +34,7 @@ describe("BenchJudgeError (typed judge STOP+surface contract)", () => {
   });
 
   it("every category value is a known JudgeErrorCategory", () => {
-    // Locks the category union: Task 19 switches on these.
+    // Locks the category union: switches on these.
     const categories: JudgeErrorCategory[] = [
       "model-unavailable",
       "timeout",

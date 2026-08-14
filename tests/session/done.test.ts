@@ -21,7 +21,7 @@ describe("awaitAgentSettled", () => {
     await expect(p).rejects.toThrow(/abort/i);
   });
 
-  it("R4-9: rejects with a named AgentSettledAbortedError on signal abort (not a generic Error)", async () => {
+  it("rejects with a named AgentSettledAbortedError on signal abort (not a generic Error)", async () => {
     const { pi } = fakeBus();
     const ac = new AbortController();
     const p = awaitAgentSettled(pi, { signal: ac.signal });
@@ -29,7 +29,7 @@ describe("awaitAgentSettled", () => {
     await expect(p).rejects.toBeInstanceOf(AgentSettledAbortedError);
   });
 
-  it("R4-3: on settle the signal abort listener is removed (no accumulation)", async () => {
+  it("on settle the signal abort listener is removed (no accumulation)", async () => {
     const { pi, emit } = fakeBus();
     const signal = fakeSignal();
     const p = awaitAgentSettled(pi, { signal });

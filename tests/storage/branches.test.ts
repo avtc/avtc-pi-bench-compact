@@ -24,7 +24,7 @@ describe("version-token formatters", () => {
   });
 });
 
-describe("branch naming (§3.14)", () => {
+describe("branch naming", () => {
   const common = { date: "2026-08-10", id: 1, cfgId: "cfg-a3f2c1" };
 
   it("buildArmBaseBranch: arm-{tool}-{ver}", () => {

@@ -29,7 +29,7 @@
     "lint": "biome check .",
     "lint:optional-params": "node scripts/no-optional-params.cjs src/arms src/commands src/config src/judge src/manifest src/metrics src/orchestrate src/production src/runtime src/session src/simulator src/storage src/widget src/log.ts src/index.ts tests/",
     "lint:bare-literals": "node scripts/no-bare-literals.cjs src/ index.ts",
-    "lint:design-refs": "node scripts/no-design-refs.cjs src/ index.ts README.md",
+    "lint:design-refs": "node scripts/no-design-refs.cjs src/ tests/ index.ts README.md",
     "lint:as-never": "node scripts/no-as-never.cjs src/ tests/ index.ts",
     "lint:bundled-imports": "node scripts/no-bundled-extension-imports.cjs src/ index.ts",
     "knip": "knip --production",

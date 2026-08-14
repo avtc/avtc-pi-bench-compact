@@ -59,7 +59,7 @@ describe("writeRunConfig", () => {
   it("contamination: the config path is exactly root/configs/<cfgId>.json, never in a repo", () => {
     const rc = sampleRunConfig({});
     const file = writeRunConfig("cfg-xyz123", rc, root);
-    // exact path (R1-5: strengthen beyond substring checks)
+    // exact path (strengthen beyond substring checks)
     expect(file).toBe(path.join(root, "configs", "cfg-xyz123.json"));
     // strictly under root/configs (does not escape)
     expect(path.relative(path.join(root, "configs"), file)).toBe("cfg-xyz123.json");

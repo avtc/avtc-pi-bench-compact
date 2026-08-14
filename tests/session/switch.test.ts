@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { loadSession } from "../../src/session/switch.js";
 
 /** Fake ExtensionCommandContext whose switchSession invokes the withSession callback
- *  with a fake new ctx (modeling pi's in-place switch + ctx invalidation). */
+ * with a fake new ctx (modeling pi's in-place switch + ctx invalidation). */
 function fakeCmdCtx(opts: { cancelled?: boolean } = {}): {
   cmdCtx: ExtensionCommandContext;
   calls: { path: string; withSession: boolean }[];
@@ -39,7 +39,7 @@ describe("loadSession", () => {
     await expect(loadSession(cmdCtx, "/p.jsonl", async () => "never")).rejects.toThrow(/cancel/i);
   });
 
-  it("R4-5: propagates a throw from the withSession callback", async () => {
+  it("propagates a throw from the withSession callback", async () => {
     const { cmdCtx } = fakeCmdCtx();
     await expect(
       loadSession(cmdCtx, "/p.jsonl", async () => {

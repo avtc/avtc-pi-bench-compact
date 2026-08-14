@@ -15,7 +15,7 @@ import { branchSessionFile } from "../../src/storage/paths.js";
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
 
 /** Every backup entry's content contains all condition search-terms so the cited-content-present
- *  check passes. Terms: decision / work / mind / question / a / b. */
+ * check passes. Terms: decision / work / mind / question / a / b. */
 const ENTRY_CONTENT = "decision work mind question a b";
 
 /** A valid manifest (all 4 conditions + 3 probes) citing the given entry-ids. */
@@ -153,7 +153,7 @@ describe("prepareScenario — extract mode", () => {
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
       const files = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n");
       expect(files).not.toContain("session.jsonl"); // session lives OUTSIDE the repo
-      expect(files).toContain("main.ts"); // project file committed (V2/R1-2 fix)
+      expect(files).toContain("main.ts"); // project file committed (V2/ fix)
       expect(JSON.parse(readFileSync(branchSessionFile(sessionsDir, "main"), "utf8").trim().split("\n")[0]).cwd).toBe(
         repo,
       );
@@ -201,7 +201,7 @@ describe("prepareScenario — extract mode", () => {
   });
 });
 
-describe("prepareScenario — contamination guards (R1-3)", () => {
+describe("prepareScenario — contamination guards", () => {
   it("rejects preSliceDir inside the repo (agent could peek at the sliced ground truth)", async () => {
     const { root, repo, manifestPath } = setup();
     try {

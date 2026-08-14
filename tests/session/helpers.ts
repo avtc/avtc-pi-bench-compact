@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Shared test fakes for the session-primitive tests (compact/done/events/switch).
-// Extracted to kill the copy-paste drift the round-2 review flagged (R2-3).
+// Extracted to kill the copy-paste drift the round-2 review flagged.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /** Shared fake pi agent-event surface: `on` registers (returns void — no removal,
- *  exactly like the real `pi.on`; guard-flag disposal lives in the production
- *  `subscribeAgentEvent` wrapper) + `emit` fires handlers the way the extension
- *  runner does. `listenerCount` introspects an event (registered wrappers — a
- *  disposed listener's wrapper REMAINS registered, mirroring production). */
+ * exactly like the real `pi.on`; guard-flag disposal lives in the production
+ * `subscribeAgentEvent` wrapper) + `emit` fires handlers the way the extension
+ * runner does. `listenerCount` introspects an event (registered wrappers — a
+ * disposed listener's wrapper REMAINS registered, mirroring production). */
 export function fakeBus(): {
   pi: ExtensionAPI;
   emit: (event: string, data: unknown) => void;
@@ -36,8 +36,8 @@ export function fakeBus(): {
 }
 
 /** Shared fake AbortSignal that tracks add/removeEventListener (to assert the signal
- *  listener is removed on settle). `abort(reason?)` mirrors the real API: sets
- *  `aborted`, records `reason`, and fires registered listeners. */
+ * listener is removed on settle). `abort(reason?)` mirrors the real API: sets
+ * `aborted`, records `reason`, and fires registered listeners. */
 export function fakeSignal(): AbortSignal & { listenerCount: () => number; abort: (reason?: unknown) => void } {
   const listeners: Array<() => void> = [];
   const state: { aborted: boolean; reason: unknown } = { aborted: false, reason: undefined };
@@ -57,7 +57,7 @@ export function fakeSignal(): AbortSignal & { listenerCount: () => number; abort
     abort: (reason?: unknown) => {
       state.aborted = true;
       state.reason = reason ?? new Error("aborted");
-      for (const fn of [...listeners]) fn(); // snapshot — matches AbortSignal dispatch (R3-1)
+      for (const fn of [...listeners]) fn(); // snapshot — matches AbortSignal dispatch
     },
   } as unknown as AbortSignal & { listenerCount: () => number; abort: (reason?: unknown) => void };
 }

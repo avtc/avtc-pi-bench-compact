@@ -7,7 +7,7 @@ import { awaitOnce, once, onTurnEnd, readMessageEndUsage, subscribeAgentEvent } 
 import { fakeBus, fakeSignal } from "./helpers.js";
 
 /** Minimal EventBus fake: events.on registers + returns a disposer; emit fires handlers. */
-// NOTE: the shared fakeBus/fakeSignal live in ./helpers.ts (R2-3 dedup).
+// NOTE: the shared fakeBus/fakeSignal live in./helpers.ts (dedup).
 
 describe("readMessageEndUsage", () => {
   it("extracts input/output/cacheRead/cacheWrite/cost/totalTokens from a message_end event", () => {
@@ -164,7 +164,7 @@ describe("awaitOnce", () => {
     expect(resolves).toBe(1); // the settled race did not re-fire
   });
 
-  it("R2-1: if extra throws synchronously, awaitOnce rejects AND guards the event listener off", async () => {
+  it("if extra throws synchronously, awaitOnce rejects AND guards the event listener off", async () => {
     const { pi, emit } = fakeBus();
     const signal = fakeSignal();
     await expect(

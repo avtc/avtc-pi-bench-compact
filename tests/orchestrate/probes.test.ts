@@ -57,8 +57,8 @@ function makeArmBase(arm: string, tool: string, ver: string | undefined): ArmBas
 // --- fake fresh pi + ops -----------------------------------------------------
 
 /** A fake fresh pi: sendUserMessage (the inject seam target) over the agent-event
- *  handler surface (`pi.on`; emit is unused in these tests — the probes drive path
- *  registers no listeners the tests fire). */
+ * handler surface (`pi.on`; emit is unused in these tests — the probes drive path
+ * registers no listeners the tests fire). */
 interface FreshPi {
   pi: ExtensionAPI;
   sendUserMessage: ReturnType<typeof vi.fn>;
@@ -233,7 +233,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
   });
 
   it("threads the fresh ctx from each withSession into the next probe's switchSession", async () => {
-    // CR-R1-1 regression guard (mirrors phase1/phase2): switchSession invalidates the
+    // regression guard (mirrors phase1/phase2): switchSession invalidates the
     // ctx it's called on, so probe 2+ MUST use the fresh ctx threaded from the prior
     // probe's withSession, NOT the stale command-handler ctx.
     const ops = makeFakeProbeOps();
@@ -460,7 +460,7 @@ describe("extractProbeAnswer — last assistant message text off parsed entries"
     expect(extractProbeAnswer(entries)).toBe("the visible answer");
   });
 
-  it("bounds to after the inject — does NOT scan into the compacted-base history (R1-1 contamination regression)", () => {
+  it("bounds to after the inject — does NOT scan into the compacted-base history (contamination regression)", () => {
     // The probe response is tool-call-only (no text); the base has a prior assistant text.
     // The extractor MUST return "" (no clean text answer), NOT the stale base text.
     const entries: SessionEntry[] = [

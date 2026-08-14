@@ -89,7 +89,7 @@ describe("arms/version — resolveToolVersion", () => {
   });
 });
 
-describe("arms/version — DEFAULT resolver git-toplevel guard (R1-1)", () => {
+describe("arms/version — DEFAULT resolver git-toplevel guard", () => {
   // `git rev-parse HEAD` walks UP to the nearest ancestor repo. An npm package nested in a
   // repo must NOT resolve to the parent's hash — gitHead must return null unless the dir IS
   // the git toplevel (so resolveToolVersion falls through to the npm version).

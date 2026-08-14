@@ -72,7 +72,7 @@ describe("freezeScenario", () => {
     }
   });
 
-  it("rewrites the frozen backup header cwd to the repo path (CR-3, both modes)", () => {
+  it("rewrites the frozen backup header cwd to the repo path (, both modes)", () => {
     const { root, repo, sessionsDir, manifestPath } = setup();
     try {
       const backup = backupWith(root, "/original-cwd", "s1");
@@ -142,7 +142,7 @@ describe("freezeScenario", () => {
     }
   });
 
-  it("refuses a backupPath inside the repo (R2-1: the backup is full ground truth — git add -A would commit it)", () => {
+  it("refuses a backupPath inside the repo (: the backup is full ground truth — git add -A would commit it)", () => {
     const { root, repo, sessionsDir } = setup();
     try {
       const badBackup = join(repo, "leaked-backup.jsonl"); // INSIDE repo — peekable via git show

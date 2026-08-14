@@ -44,6 +44,12 @@ const GLOBAL_KEYS = [
   // the prepare-in-flight guard: prepare tests set it in try/finally, but the
   // beforeEach clear makes the invariant structural instead of per-test discipline
   "__benchCompactPrepareInFlight",
+  // the prepare window's abort controller (fired by /bench-compact:abort)
+  "__benchCompactPrepareAbort",
+  // the stashed fresh ExtensionAPI read by getBenchPi (live-seams getPi seam)
+  "__benchCompactPi",
+  // the active run's AbortController (fired by abortActiveRun)
+  "__benchCompactRunAbort",
 ] as const;
 
 // Cleared before EACH test: a test that writes one (via writeGlobal) must never

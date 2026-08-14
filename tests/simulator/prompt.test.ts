@@ -40,7 +40,7 @@ describe("buildSimulatorSystemPrompt", () => {
     expect(prompt).not.toContain("conditionTopics"); // the field name — jargon
   });
 
-  it("does NOT tell the simulator to stop (the harness owns the stop, §4.17)", () => {
+  it("does NOT tell the simulator to stop (the harness owns the stop,)", () => {
     expect(prompt.toLowerCase()).not.toMatch(/stop (at|when|after|now)|stop building|\[stop\]/);
     expect(prompt).not.toMatch(/\b\d{4,}\s*tokens?\b/i); // no raw token-count stop instruction
   });
@@ -50,7 +50,7 @@ describe("buildSimulatorSystemPrompt", () => {
     expect(lower.match(/substantial|long build|keep going|don't rush|don't try to wrap up/)).not.toBeNull();
   });
 
-  it("targetContext below the long-build threshold (< 80000) → 'moderate build' pacing (R2.2)", () => {
+  it("targetContext below the long-build threshold (< 80000) → 'moderate build' pacing", () => {
     const p = buildSimulatorSystemPrompt({ task: TASK, conditionTopics: CONDITION_TOPICS, targetContext: 40_000 });
     expect(p.toLowerCase()).toContain("moderate build");
     expect(p.toLowerCase()).not.toContain("long, substantial build");

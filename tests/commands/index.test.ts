@@ -6,7 +6,13 @@ import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerBenchCommands } from "../../src/commands/index.js";
 import { _setHandleForTest } from "../../src/config/accessor.js";
-import { setActiveRunAbort } from "../../src/orchestrate/run-state.js";
+import {
+  beginPrepare,
+  endPrepare,
+  isPrepareInFlight,
+  setActiveRunAbort,
+  setPrepareInFlight,
+} from "../../src/orchestrate/run-state.js";
 
 interface Captured {
   description?: string;
@@ -69,13 +75,13 @@ describe("registerBenchCommands", () => {
     setActiveRunAbort(null);
   });
 
-  it("registers every §3.13 command (except settings, wired separately)", () => {
+  it("registers every command (except settings, wired separately)", () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     for (const name of ALL_COMMANDS) {
       expect(commands.has(name), `${name} registered`).toBe(true);
     }
-    // settings is NOT registered here (Task 2 owns it)
+    // settings is NOT registered here (owns it)
     expect(commands.has("bench-compact:settings")).toBe(false);
   });
 
@@ -114,7 +120,7 @@ describe("registerBenchCommands", () => {
     expect(sent).toContainEqual({ text: "wait, stop", deliverAs: "steer" });
   });
 
-  it("abort fires the active run's cooperative-abort signal (R0-1)", async () => {
+  it("abort fires the active run's cooperative-abort signal", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const controller = new AbortController();
@@ -125,7 +131,30 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /run stopping/i.test(n.msg))).toBe(true);
   });
 
-  it("abort with no active run notifies 'no active run' without throwing (R0-1)", async () => {
+  it("abort during a LIVE prepare fires its controller but keeps the guard until the prepare exits", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    const signal = beginPrepare();
+    const { ctx, notifies } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx);
+    expect(signal.aborted).toBe(true); // the live prepare genuinely stops
+    expect(isPrepareInFlight()).toBe(true); // concurrency window stays CLOSED
+    expect(notifies.some((n) => /prepare stopping/.test(n.msg))).toBe(true);
+    endPrepare(); // simulate the aborted prepare's finally
+    expect(isPrepareInFlight()).toBe(false);
+  });
+
+  it("abort with a WEDGED prepare guard (no live controller) clears it directly", async () => {
+    const { pi, commands } = fakePi();
+    registerBenchCommands(pi);
+    setPrepareInFlight(true); // stale guard — the prepare died pre-finally
+    const { ctx, notifies } = fakeCtx();
+    await handlerOf(commands, "bench-compact:abort")("", ctx);
+    expect(isPrepareInFlight()).toBe(false);
+    expect(notifies.some((n) => /stale prepare guard cleared/.test(n.msg))).toBe(true);
+  });
+
+  it("abort with no active run notifies 'no active run' without throwing", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
@@ -133,16 +162,16 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /no active run/i.test(n.msg))).toBe(true);
   });
 
-  it("abort is a real minimal handler that notifies without throwing (R1-1)", async () => {
+  it("abort is a real minimal handler that notifies without throwing", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
-    // R2-3: assert message content (sibling handlers all assert content, not just length)
+    // : assert message content (sibling handlers all assert content, not just length)
     expect(notifies.some((n) => /abort/i.test(n.msg))).toBe(true);
   });
 
-  it("run/run-scenario/run-session-file are real handlers (no 'not implemented' stub) (Task 23)", async () => {
+  it("run/run-scenario/run-session-file are real handlers (no 'not implemented' stub)", async () => {
     const { pi, commands } = fakePi();
     registerBenchCommands(pi);
     const { ctx, notifies } = fakeCtx();

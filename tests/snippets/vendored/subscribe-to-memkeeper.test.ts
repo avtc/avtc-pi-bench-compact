@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type MemkeeperReadyApi, subscribeToMemkeeper } from "../../../src/snippets/vendored/subscribe-to-memkeeper.js";
 
 /** Minimal fake pi: captures `on`/`events.on` listeners; `events.on` returns a
- *  real unsub (mirrors pi's shared eventBus); `fire` dispatches all listeners. */
+ * real unsub (mirrors pi's shared eventBus); `fire` dispatches all listeners. */
 interface FakePi {
   _handlers: Map<string, Array<(...args: unknown[]) => void>>;
   on(event: string, handler: (...args: unknown[]) => void): void;

@@ -7,8 +7,8 @@ import { CompactionCancelledError, triggerCompact } from "../../src/session/comp
 import { fakeBus, fakeSignal } from "./helpers.js";
 
 /** Fake pi (events bus, via the shared fakeBus) + ctx (compact). pi.events.on returns a
- *  disposer; emit fires handlers; triggerError invokes the onError captured from
- *  ctx.compact. fakeSignal (for R4-3 listener-cleanup assertions) is shared too. */
+ * disposer; emit fires handlers; triggerError invokes the onError captured from
+ * ctx.compact. fakeSignal (for listener-cleanup assertions) is shared too. */
 function fakeRuntime(): {
   pi: ExtensionAPI;
   ctx: ExtensionContext;
@@ -74,7 +74,7 @@ describe("triggerCompact", () => {
     await expect(promise).rejects.toThrow(/abort/i);
   });
 
-  it("R4-6: a PRE-aborted signal rejects WITHOUT firing ctx.compact (no unwanted session mutation)", async () => {
+  it("a PRE-aborted signal rejects WITHOUT firing ctx.compact (no unwanted session mutation)", async () => {
     const f = fakeRuntime();
     const ac = new AbortController();
     ac.abort(new Error("pre-abort"));
@@ -82,7 +82,7 @@ describe("triggerCompact", () => {
     expect(f.compactCalls).toBe(0); // ctx.compact must NOT have fired
   });
 
-  it("R4-1: a throwing onCompacted does not hang the promise (it still resolves)", async () => {
+  it("a throwing onCompacted does not hang the promise (it still resolves)", async () => {
     const f = fakeRuntime();
     const promise = triggerCompact(f.pi, f.ctx, {
       onCompacted: () => {
@@ -94,7 +94,7 @@ describe("triggerCompact", () => {
     await expect(promise).resolves.toMatchObject({ compactionEntry: entry });
   });
 
-  it("R4-3: on settle the signal abort listener is removed (no accumulation on the run signal)", async () => {
+  it("on settle the signal abort listener is removed (no accumulation on the run signal)", async () => {
     const f = fakeRuntime();
     const signal = fakeSignal();
     const promise = triggerCompact(f.pi, f.ctx, { signal });

@@ -70,7 +70,7 @@ describe("sessions store (scenarioSessionsDir + branchSessionFile)", () => {
   });
 });
 
-describe("path-traversal guard (R1-3: ids cannot escape their subdir)", () => {
+describe("path-traversal guard (: ids cannot escape their subdir)", () => {
   const root = "/tmp/bench";
   it("configPath rejects a cfgId that escapes configs/ into a repo", () => {
     expect(() => configPath(root, "../scenarios/s1/repo/evil")).toThrow(/unsafe cfgId/i);

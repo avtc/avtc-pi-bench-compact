@@ -4,7 +4,7 @@
 import { vi } from "vitest";
 
 /** The minimal command-handler ctx surface the run commands need (mode/hasUI/ui +
- *  switchSession). {@link ExtensionCommandContext} satisfies this structurally. */
+ * switchSession). {@link ExtensionCommandContext} satisfies this structurally. */
 export interface FakeCommandCtx {
   readonly mode: string;
   readonly hasUI: boolean;
@@ -19,7 +19,7 @@ export interface FakeCommandCtx {
 }
 
 /** A capturing fake command ctx: records every notify + stubs switchSession. Shared
- *  by the run/run-scenario/run-session-file/run-shared command tests. */
+ * by the run/run-scenario/run-session-file/run-shared command tests. */
 export function fakeCommandCtx(opts: { mode?: string; hasUI?: boolean } = {}): {
   ctx: FakeCommandCtx;
   notifies: { msg: string; level: string }[];
@@ -42,10 +42,10 @@ export function fakeCommandCtx(opts: { mode?: string; hasUI?: boolean } = {}): {
 }
 
 /** A fake command ctx modeling pi's GUARDED ctx getters: after `invalidate()` (what
- *  switchSession → runner.invalidate does), every getter access (ui/mode/hasUI)
- *  throws "stale" — exactly like runner.js createContext's assertActive guards.
- *  Handlers that capture the UI surface EAGERLY keep working after invalidation;
- *  lazy ctx.ui readers throw (the regression the guard catches). */
+ * switchSession → runner.invalidate does), every getter access (ui/mode/hasUI)
+ * throws "stale" — exactly like runner.js createContext's assertActive guards.
+ * Handlers that capture the UI surface EAGERLY keep working after invalidation;
+ * lazy ctx.ui readers throw (the regression the guard catches). */
 export function fakeGuardedCtx(): {
   ctx: FakeCommandCtx;
   invalidate: () => void;

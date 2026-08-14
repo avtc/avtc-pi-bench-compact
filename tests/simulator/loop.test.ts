@@ -217,7 +217,7 @@ describe("SimulatorDriver", () => {
     expect(onStop.mock.calls[0][0]).toMatchObject({ reason: "error" });
   });
 
-  it("runStage THROWS (LLM/network/rate-limit failure) → stop+surface via onStop, no unhandled rejection (R2.1)", async () => {
+  it("runStage THROWS (LLM/network/rate-limit failure) → stop+surface via onStop, no unhandled rejection", async () => {
     const onStop = vi.fn();
     const seams = makeSeams({
       runStage: async () => {
@@ -300,8 +300,8 @@ describe("SimulatorDriver", () => {
 // --- driveUntilStop (the shared drive loop) ----------------------------------
 
 /** A faithful fake driver: injects (records) on non-stop cycles; on the stopAfter-th
- *  cycle fires the boundary-stop WITHOUT injecting — the real SimulatorDriver's order
- *  (the pacing check precedes the inject). */
+ * cycle fires the boundary-stop WITHOUT injecting — the real SimulatorDriver's order
+ * (the pacing check precedes the inject). */
 function makeFaithfulDriver(stopAfter: number, onStop: () => void) {
   let cycles = 0;
   const injects: number[] = [];
@@ -322,9 +322,9 @@ function makeFaithfulDriver(stopAfter: number, onStop: () => void) {
 
 describe("driveUntilStop — boundary-stop control flow (no hang)", () => {
   /** An awaitSettled faithful to the real awaitAgentSettled: it resolves only after the
-   *  agent was DRIVEN (an inject happened). Called when the last cycle injected nothing,
-   *  it would block forever — model that as a throw so a regression fails loudly instead
-   *  of hanging the suite. */
+   * agent was DRIVEN (an inject happened). Called when the last cycle injected nothing,
+   * it would block forever — model that as a throw so a regression fails loudly instead
+   * of hanging the suite. */
   function makeEventGatedAwaitSettled(injectCount: () => number) {
     let settledFor = 0;
     const calls: number[] = [];

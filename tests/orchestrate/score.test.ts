@@ -279,7 +279,7 @@ import {
 } from "../../src/orchestrate/score.js";
 
 /** A callJudge fake that returns a canned {pass, evidence} JSON per axis. It
- *  extracts the axis from the system prompt (the rubric line "E<n> — "). */
+ * extracts the axis from the system prompt (the rubric line "E<n> — "). */
 function callJudgeByAxis(grades: Partial<Record<MetricId, boolean>>): CallJudge {
   return async (systemPrompt: string) => {
     const match = systemPrompt.match(/E\d+/);
@@ -612,7 +612,7 @@ import type { JsonOutputTool } from "../../src/runtime/tools.js";
 import type { RunConfig } from "../../src/storage/branches.js";
 
 /** A stage seams fake that dispatches on the terminal tool name (report_boundary /
- *  record_grades / write_summary) so ONE fake serves the C2 + trajectory + summarize stages. */
+ * record_grades / write_summary) so ONE fake serves the C2 + trajectory + summarize stages. */
 function multiStageSeams(handlers: Readonly<Record<string, () => unknown>>): JsonToolStageSeams {
   return {
     resolveModel: async () => OK_MODEL,
@@ -797,7 +797,7 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
   });
 });
 
-// --- K-ensemble coverage (R1-3) — majority vote + comparative Borda + checkout race ---
+// --- K-ensemble coverage — majority vote + comparative Borda + checkout race ---
 
 describe("K-judge ensemble (K>1)", () => {
   it("gradeProbeAxesForRun: K=3 majority vote (2 pass + 1 fail -> pass)", async () => {
@@ -855,7 +855,7 @@ describe("K-judge ensemble (K>1)", () => {
     expect(result.E4).toBe(true); // 2 of 3 -> pass
   });
 
-  it("gradeSummaryComparative K=2: ONE checkout per arm (no concurrent-checkout race); each judge's summarize sees the correct branch (R1-2 regression)", async () => {
+  it("gradeSummaryComparative K=2: ONE checkout per arm (no concurrent-checkout race); each judge's summarize sees the correct branch (regression)", async () => {
     const c1 = compaction("c1", "u0", "summary", makeUsage(100, 20), null);
     const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 10)], [c1]);
     let currentBranch = "initial";

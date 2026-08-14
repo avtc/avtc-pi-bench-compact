@@ -13,6 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import { validateBenchConfig } from "../config/validate.js";
 import {
+  abortActivePrepare,
   abortActiveRun,
   getRunState,
   isPrepareInFlight,
@@ -55,24 +56,29 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
 
   // abort: stops the run cleanly + tears down the live-progress widget. Fires the
   // active run's cooperative-abort signal (threaded into the phase loops' awaitSettled),
-  // so the run stops via its existing stop-and-surface path.
+  // so the run stops via its existing stop-and-surface path. A LIVE prepare is
+  // aborted the same way (its finally clears the guard — the concurrency window
+  // stays closed until the prepare has actually exited). Only a WEDGED guard (a
+  // prepare that died between set + finally, no live controller) is cleared directly.
   // `preflight` is not applicable (abort needs no args/config).
   pi.registerCommand("bench-compact:abort", {
     description: "Stop the run cleanly (fires the run's abort signal + tears down the progress widget).",
     handler: async (_args, ctx) => {
       const wasRunning = abortActiveRun();
-      // Wedge recovery: a prepare that died between set + finally leaves the guard
-      // stuck (no finally ran) — abort is the operator's recovery lever. A LIVE
-      // prepare keeps running (its own finally re-clears later); the operator chose
-      // to unblock the next command explicitly.
+      const prepareAborted = abortActivePrepare();
       const wasPreparing = isPrepareInFlight();
-      setPrepareInFlight(false);
+      if (wasPreparing && !prepareAborted) {
+        // No live prepare controller — the guard is stale (wedge recovery).
+        setPrepareInFlight(false);
+      }
       hideActiveWidget();
       const msg = wasRunning
         ? "aborted — run stopping"
-        : wasPreparing
-          ? "aborted — prepare guard cleared (a live prepare still finishes on its own)"
-          : "aborted (no active run)";
+        : prepareAborted
+          ? "aborted — prepare stopping (do NOT start another bench command until it exits; abort again if the guard sticks)"
+          : wasPreparing
+            ? "aborted — stale prepare guard cleared"
+            : "aborted (no active run)";
       ctx.ui.notify(msg, "info");
     },
   });

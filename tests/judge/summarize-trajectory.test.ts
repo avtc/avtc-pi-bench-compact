@@ -150,7 +150,7 @@ describe("summarizeTrajectory", () => {
     expect(prompt).toMatch(/read|grep|find|ls/);
   });
 
-  it("multi-turn self-correction: a rejected (malformed) write_summary call is retried, then captured (R1-4)", async () => {
+  it("multi-turn self-correction: a rejected (malformed) write_summary call is retried, then captured", async () => {
     let executeCalls = 0;
     const seams: TrajectorySummarySeams = {
       resolveModel: async () => OK_MODEL,

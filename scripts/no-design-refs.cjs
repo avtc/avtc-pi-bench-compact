@@ -27,6 +27,12 @@
  *
  * Default = check (exit 1 on any violation). --fix = rewrite in place (strip
  * refs from comments + test names). Exits 0 if clean.
+ *
+ * Scope note: TEST files (under tests/) are scanned with every pattern EXCEPT the
+ * single-letter id class ([ABCEFG]\d) — tests legitimately use the bench's own
+ * code-level identifiers (ArmId values A1-A5, result-JSON metric keys C1-C4/E1-E10,
+ * fixture entry ids e1/e2...) which that pattern cannot tell apart from design-doc
+ * ids. Product docs (docs/*.md) stay outside the lint targets for the same collision.
  */
 
 const fs = require("node:fs");
@@ -95,9 +101,26 @@ const TOKEN_RES = [
   /\bPhase [AB]\b/g,
 ];
 
+// Scope-specific pattern set for TEST files: the single-letter-prefix pattern
+// above ([ABCEFG]\d — acceptance A#/B#, criterion C#, E#, F#, G#) also matches
+// the bench's OWN code-level identifiers that tests legitimately use: ArmId
+// values (A1-A5), result-JSON metric keys (C1-C4, E1-E10), and fixture entry
+// ids (e1, e2...). Tests are scanned with every OTHER pattern (section refs,
+// task/plan refs, review ids, decision ids, historical framing) — the true
+// design-doc/artifact references.
+const TEST_EXCLUDED_PATTERN = /\b[ABCEFG][1-9]\d?\b(?!\s*control\b)/gi;
+
+/** The pattern set for a file: test files drop the ambiguous id-class pattern. */
+function patternsFor(filePath) {
+  const norm = filePath.replace(/\\/g, "/");
+  return norm.includes("/tests/") || norm.startsWith("tests/")
+    ? TOKEN_RES.filter((re) => re.source !== TEST_EXCLUDED_PATTERN.source)
+    : TOKEN_RES;
+}
+
 /** Does `text` contain any ref token? Returns the first match or null. */
 function firstRef(text) {
-  for (const re of TOKEN_RES) {
+  for (const re of patternsFor(currentFile)) {
     re.lastIndex = 0;
     const m = re.exec(text);
     if (m) return m[0];
@@ -318,7 +341,11 @@ function findTestNameStrings(src) {
 // ===========================================================================
 // Check
 // ===========================================================================
+/** The file currently being checked/fixed — scopes {@link patternsFor}. */
+let currentFile = "";
+
 function checkFile(file) {
+  currentFile = file;
   const src = fs.readFileSync(file, "utf8");
   const rel = path.relative(process.cwd(), file).replace(/\\/g, "/");
   const findings = [];
@@ -353,7 +380,7 @@ function stripTokens(text) {
   let prev;
   do {
     prev = text;
-    for (const re of TOKEN_RES) {
+    for (const re of patternsFor(currentFile)) {
       re.lastIndex = 0;
       text = text.replace(re, "");
     }
@@ -410,6 +437,7 @@ function cleanTestName(s) {
 }
 
 function fixFile(file) {
+  currentFile = file;
   let src = fs.readFileSync(file, "utf8");
   let changed = false;
   if (file.endsWith(".md")) {

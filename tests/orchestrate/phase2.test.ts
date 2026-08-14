@@ -53,9 +53,9 @@ const RESUME_MESSAGE = "Resume the Phase-C work — finish the remaining systems
 // --- fake builders ----------------------------------------------------------
 
 /** A fake fresh pi: sendUserMessage (inject seam target) + the agent-event handler
- *  surface (`pi.on` registration + `emit` firing them the way the extension runner
- *  does) so the orchestration can register turn_end + compaction listeners and the
- *  test can fire them. Models the post-switchSession re-activation pi. */
+ * surface (`pi.on` registration + `emit` firing them the way the extension runner
+ * does) so the orchestration can register turn_end + compaction listeners and the
+ * test can fire them. Models the post-switchSession re-activation pi. */
 interface FreshPi {
   pi: ExtensionAPI;
   sendUserMessage: ReturnType<typeof vi.fn>;
@@ -335,7 +335,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   });
 
   it("threads the fresh ctx from each withSession into the next attempt's switchSession", async () => {
-    // CR-R1-1 regression guard (mirrors phase1): switchSession invalidates the ctx
+    // regression guard (mirrors phase1): switchSession invalidates the ctx
     // it's called on, so attempt 2+ MUST use the fresh ctx threaded from the prior
     // attempt's withSession, NOT the stale command-handler ctx.
     const ops = makeFakeOps();
@@ -390,10 +390,10 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
     }
   });
 
-  it("paces toward the model's contextWindow, NOT the Phase-0/1 compactionBoundary (§3.8)", async () => {
+  it("paces toward the model's contextWindow, NOT the Phase-0/1 compactionBoundary", async () => {
     // The fake session ctx reports contextWindow=200000; makeConfig's compactionBoundary=140000.
     // Phase-2 must pace toward the window so the run can reach the natural auto-compactions
-    // §3.8/AC5 expect to capture (pacing at compactionBoundary would self-stop early +
+    // expect to capture (pacing at compactionBoundary would self-stop early +
     // make the window-based monitor dead code).
     const ops = makeFakeOps({ stopAfter: 1 });
     await runContinuations({

@@ -46,7 +46,7 @@ describe("isQaOnlyBranch (real git + two session files)", () => {
   });
 
   /** Fork main→branch, optionally mutate a project file, commit, write the probe
-   *  session file (base + appended lines), return the probe session-file path. */
+   * session file (base + appended lines), return the probe session-file path. */
   function probeBranch(name: string, appended: string[], mutateFile: boolean): string {
     forkBranch(repo, BASE_BRANCH, name);
     checkout(repo, name);
@@ -84,7 +84,7 @@ describe("isQaOnlyBranch (real git + two session files)", () => {
     expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-empty", baseSessionFile, probeFile)).toBe(true);
   });
 
-  it("false when the probe MODIFIED a base entry (probe prefix != base — R1-4)", () => {
+  it("false when the probe MODIFIED a base entry (probe prefix != base —)", () => {
     forkBranch(repo, BASE_BRANCH, "p-mod");
     checkout(repo, "p-mod");
     commitAll(repo, "probe modify");

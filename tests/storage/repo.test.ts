@@ -27,7 +27,7 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
   let repo: string;
   beforeEach(() => {
     repo = mkdtempSync(path.join(tmpdir(), "bench-repo-"));
-    // populate the working tree as a caller (Task 10 prepare) would
+    // populate the working tree as a caller (prepare) would
     writeFileSync(path.join(repo, "session.jsonl"), '{"type":"session","cwd":"/x"}\n');
     writeFileSync(path.join(repo, "game.ts"), "export const x = 1;\n");
     mkdirSync(path.join(repo, "src"), { recursive: true });
@@ -101,12 +101,12 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     expect(diffNameOnly(repo, "main", "sibling")).toEqual([]);
   });
 
-  it("commitAll with --allow-empty succeeds on a no-change tree (R1-9)", () => {
+  it("commitAll with --allow-empty succeeds on a no-change tree", () => {
     initScenarioRepo(repo);
     expect(() => commitAll(repo, "no-op phase boundary")).not.toThrow();
   });
 
-  it("git failures throw a contextual error with the command (R2-1, §3.8 stop-and-surface)", () => {
+  it("git failures throw a contextual error with the command (, stop-and-surface)", () => {
     initScenarioRepo(repo);
     // checkout a non-existent branch -> git fails; runGit must surface the command + failure
     expect(() => checkout(repo, "no-such-branch")).toThrow(/failed/i);

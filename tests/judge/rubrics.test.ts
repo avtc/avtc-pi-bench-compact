@@ -7,7 +7,7 @@ import { BINARY_METRICS, COMPARATIVE_METRICS, type MetricId } from "../../src/me
 
 const EFFECTIVENESS_AXES: readonly MetricId[] = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E10"];
 
-describe("JUDGE_RUBRICS (§5.11 per-axis)", () => {
+describe("JUDGE_RUBRICS (per-axis)", () => {
   it("defines a rubric for every effectiveness axis (the 9 judge-graded metrics)", () => {
     for (const axis of EFFECTIVENESS_AXES) {
       const rubric = JUDGE_RUBRICS[axis];
@@ -59,7 +59,7 @@ describe("JUDGE_RUBRICS (§5.11 per-axis)", () => {
     }
     for (const axis of COMPARATIVE_METRICS) {
       // Comparative axes are NOT graded yes/no in the single-call slice (they're
-      // ranked in Task 16b); the rubric still describes what to look for.
+      // ranked in ); the rubric still describes what to look for.
       expect(JUDGE_RUBRICS[axis]).toBeDefined();
     }
   });

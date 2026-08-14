@@ -95,7 +95,7 @@ describe("renderComparison", () => {
     expect(md).toContain("g9b1c3");
   });
 
-  it("R1-9: a judgesNumber-only diff shows in the config diff (not 'all match')", () => {
+  it("a judgesNumber-only diff shows in the config diff (not 'all match')", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-1",
@@ -147,7 +147,7 @@ describe("renderComparison", () => {
     expect(md).not.toContain("⚠");
   });
 
-  it("CR-5: selecting run1:A1 derives run2 A1-less arms' ΔvsA1 (prior A1 as baseline)", () => {
+  it("selecting run1:A1 derives run2 A1-less arms' ΔvsA1 (prior A1 as baseline)", () => {
     // E4 proactive-recall higherBetter: run1·A1=0.10, run2·A3=0.60 → +50pp (better, no ⚠).
     const run1 = mkResult({
       runId: "run1",
@@ -168,13 +168,13 @@ describe("renderComparison", () => {
         { runId: "run2", arms: ["A3"] },
       ],
     );
-    // run2·A3 gets ΔvsA1 derived from run1·A1 (CR-5): +50pp
+    // run2·A3 gets ΔvsA1 derived from run1·A1: +50pp
     expect(md).toContain("run2·A3");
     expect(md).toMatch(/\[\+50\]/); // (0.60 - 0.10) * 100 = +50pp
     expect(md).not.toContain("⚠"); // better than baseline → no net-negative
   });
 
-  it("CR-5 flags net-negative when a run2 memory arm is worse than the prior A1 baseline", () => {
+  it("flags net-negative when a run2 memory arm is worse than the prior A1 baseline", () => {
     // C1 footprint lowerBetter: run1·A1=500 (bare, tiny native summary), run2·A3=5000 (memory) → A3 worse → negative ⚠.
     const run1 = mkResult({
       runId: "run1",
@@ -211,7 +211,7 @@ describe("renderComparison", () => {
     expect(md).not.toMatch(/\[\+\d+\]/); // no delta column for the only run
   });
 
-  it("labels each run with its cfgId + tool version (§7.3 comparison labels)", () => {
+  it("labels each run with its cfgId + tool version (comparison labels)", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-aaa",

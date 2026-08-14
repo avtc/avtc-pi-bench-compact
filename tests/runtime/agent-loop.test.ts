@@ -19,10 +19,10 @@ import {
 // --- fake agentLoop seam ---------------------------------------------------
 
 /** Build a fake `agentLoop` (the `loopFn` test seam) that yields scripted events,
- *  honors abort (stops on signal) and the turn cap (stops when the loop's
- *  `shouldStopAfterTurn` returns true), and awaits a microtask between events so a
- *  fake-clock per-turn timer can fire mid-stream. `.result()` returns the scripted
- *  final messages. */
+ * honors abort (stops on signal) and the turn cap (stops when the loop's
+ * `shouldStopAfterTurn` returns true), and awaits a microtask between events so a
+ * fake-clock per-turn timer can fire mid-stream. `.result()` returns the scripted
+ * final messages. */
 function fakeLoop(
   events: AgentEvent[],
   finalMessages: AgentMessage[],

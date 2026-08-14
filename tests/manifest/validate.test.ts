@@ -205,7 +205,7 @@ describe("validateManifest — probe checks", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("R2-1 regression: a later condition's out-of-span citation is NOT masked by an earlier condition missing entryText", () => {
+  it("regression: a later condition's out-of-span citation is NOT masked by an earlier condition missing entryText", () => {
     // rf1 cites e1 (in-span but NOT in entryTextById → content check skips it via continue)
     // rf2 cites e99 (out-of-span) — MUST still be caught. `return` (bug) would skip rf2.
     const m: ScenarioManifest = {
@@ -230,7 +230,7 @@ describe("validateManifest — probe checks", () => {
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/e99/); // rf2's out-of-span caught
   });
 
-  it("R2-3: rejects a recallFact NOT targeted by any probe (§4.18: each condition needs a probe)", () => {
+  it("rejects a recallFact NOT targeted by any probe (: each condition needs a probe)", () => {
     // rf2 is not in any probe.targets
     const m: ScenarioManifest = {
       ...cleanManifest(),
@@ -256,7 +256,7 @@ describe("validateManifest — probe checks", () => {
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/rf2|probe|target/i);
   });
 
-  it("R3-issue3: rejects a probe whose target is not in the pre-sliced (in-span) set — §4.7 defense-in-depth", () => {
+  it("R3-issue3: rejects a probe whose target is not in the pre-sliced (in-span) set — defense-in-depth", () => {
     // add an extra probe targeting e99 (out-of-span); conditions still targeted by clean probes
     const m: ScenarioManifest = {
       ...cleanManifest(),
@@ -270,7 +270,7 @@ describe("validateManifest — probe checks", () => {
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/e99/);
   });
 
-  it("R3-1: when probes is empty, emits ONE summary reason (not N+1 redundant per-condition reasons)", () => {
+  it("when probes is empty, emits ONE summary reason (not N+1 redundant per-condition reasons)", () => {
     const m = { ...cleanManifest(), probes: [] };
     const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);

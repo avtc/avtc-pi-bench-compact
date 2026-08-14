@@ -247,7 +247,7 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
   });
 
   it("reads the FRESH pi from globalThis inside each withSession (not the stale command-handler pi)", async () => {
-    // CR-R1-1 regression guard: switchSession invalidates the command-handler pi, so
+    // regression guard: switchSession invalidates the command-handler pi, so
     // runPhase1 MUST use the fresh pi stashed by re-activation. This test fails
     // (setActiveTools never called on the fresh pi) if runPhase1 used a stale pi.
     const ops = makeFakeOps();
@@ -280,7 +280,7 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
   });
 
   it("threads the fresh ctx from each withSession into the next arm's switchSession (NOT the stale command-handler ctx)", async () => {
-    // CR-R1-1 regression guard: switchSession invalidates the ctx it's called on, so
+    // regression guard: switchSession invalidates the ctx it's called on, so
     // arm 2+ MUST use the fresh ctx threaded from the previous arm's withSession.
     const ops = makeFakeOps();
     const cmdCtx = { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext;

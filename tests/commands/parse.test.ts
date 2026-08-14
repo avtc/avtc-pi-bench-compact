@@ -21,7 +21,7 @@ describe("parsePrepareArgs", () => {
       error: undefined,
     });
   });
-  it("extracts --from-session=PATH (equals form, R2-2)", () => {
+  it("extracts --from-session=PATH (equals form,)", () => {
     expect(parsePrepareArgs("--from-session=/sessions/real.jsonl")).toEqual({
       idea: undefined,
       fromSession: "/sessions/real.jsonl",
@@ -50,12 +50,12 @@ describe("parsePrepareArgs", () => {
     expect(r.error).toMatch(/from-session/i);
     expect(r.fromSession).toBeUndefined();
   });
-  it("errors when --from-session is followed by another flag (R2-4)", () => {
+  it("errors when --from-session is followed by another flag", () => {
     const r = parsePrepareArgs("--from-session --force");
     expect(r.error).toMatch(/from-session/i);
     expect(r.fromSession).toBeUndefined();
   });
-  it("errors when --from-session= has an empty value (R5-4)", () => {
+  it("errors when --from-session= has an empty value", () => {
     const r = parsePrepareArgs("--from-session=");
     expect(r.error).toMatch(/from-session/i);
     expect(r.fromSession).toBeUndefined();
@@ -93,28 +93,28 @@ describe("parseResultsArgs", () => {
     const r = parseResultsArgs("run1:A1,A9");
     expect(r.error).toMatch(/arm/i);
   });
-  it("errors when runId is empty (:A1 — R5-1)", () => {
+  it("errors when runId is empty (:A1 —)", () => {
     const r = parseResultsArgs(":A1");
     expect(r.error).toMatch(/runId/i);
     expect(r.runs).toEqual([]);
   });
-  it("errors when :arms is empty (run1: — R5-1)", () => {
+  it("errors when :arms is empty (run1: —)", () => {
     const r = parseResultsArgs("run1:");
     expect(r.error).toMatch(/arm/i);
     expect(r.runs).toEqual([]);
   });
-  it("errors on a trailing comma in :arms (space-after-comma, R2-1)", () => {
+  it("errors on a trailing comma in :arms (space-after-comma,)", () => {
     // "run1:A1, A3" tokenizes -> "run1:A1," + "A3"; the trailing comma signals the mistake.
     const r = parseResultsArgs("run1:A1, A3");
     expect(r.error).toMatch(/comma|space/i);
     expect(r.runs).toEqual([]);
   });
-  it("errors on a leading comma in :arms (R3-1)", () => {
+  it("errors on a leading comma in :arms", () => {
     const r = parseResultsArgs("run1:,A1");
     expect(r.error).toMatch(/comma|empty/i);
     expect(r.runs).toEqual([]);
   });
-  it("errors on an internal double comma in :arms (R3-1)", () => {
+  it("errors on an internal double comma in :arms", () => {
     const r = parseResultsArgs("run1:A1,,A3");
     expect(r.error).toMatch(/comma|empty/i);
     expect(r.runs).toEqual([]);
@@ -125,7 +125,7 @@ describe("parseResultsArgs", () => {
 });
 
 describe("parsePositional", () => {
-  it("returns the trimmed arg verbatim, preserving internal spaces (R2-5)", () => {
+  it("returns the trimmed arg verbatim, preserving internal spaces", () => {
     expect(parsePositional("/path/with spaces/here")).toEqual({ value: "/path/with spaces/here", error: undefined });
   });
   it("empty -> undefined value, no error", () => {

@@ -10,8 +10,9 @@
 
 import type { ArmId } from "../config/types.js";
 
-/** The bench pipeline phases. */
-type BenchPhase = "phase-1" | "phase-2" | "phase-3";
+/** The bench pipeline phases (the run-state tracks the SAME stages the widget
+ *  bar shows — compaction, evaluated-agent continuations, direct probes, scoring). */
+type BenchPhase = "phase-1" | "phase-2" | "probe" | "score";
 
 /** The harness run-state. One active run per process (TUI-primary). */
 export interface BenchRunState {
@@ -29,7 +30,7 @@ export interface BenchRunState {
   phase: BenchPhase;
   /** The arm currently being processed (null between arms). */
   currentArm: ArmId | null;
-  /** Phase-2 attempt index (1-based; null outside phase-2). */
+  /** Continuation-attempt index (1-based; null outside phase-2). */
   currentAttempt: number | null;
   /** Set on stop-and-surface — surfaces the reason to the operator. */
   lastStopReason: string | null;
@@ -117,6 +118,50 @@ export function isRunInFlight(): boolean {
 }
 
 const PREPARE_KEY = "__benchCompactPrepareInFlight";
+const PREPARE_ABORT_KEY = "__benchCompactPrepareAbort";
+
+function readPrepareAbort(): AbortController | null {
+  return ((globalThis as Record<string, unknown>)[PREPARE_ABORT_KEY] as AbortController | null) ?? null;
+}
+
+/** Begin a prepare window atomically: set the in-flight guard AND register a fresh
+ *  abort controller whose signal the prepare threads into its drive/stage seams —
+ *  `/bench-compact:abort` fires it, so a live prepare actually STOPS (its own
+ *  stop-and-surface path runs, and its `finally` calls {@link endPrepare}).
+ *  Returns the signal to thread. Callers MUST pair with {@link endPrepare} in a
+ *  `finally`. */
+export function beginPrepare(): AbortSignal {
+  setPrepareInFlight(true);
+  const controller = new AbortController();
+  (globalThis as Record<string, unknown>)[PREPARE_ABORT_KEY] = controller;
+  return controller.signal;
+}
+
+/** End a prepare window: drop the abort controller + clear the in-flight guard.
+ *  Called from the prepare flow's `finally` on EVERY exit path (done, stopped,
+ *  thrown). */
+export function endPrepare(): void {
+  delete (globalThis as Record<string, unknown>)[PREPARE_ABORT_KEY];
+  setPrepareInFlight(false);
+}
+
+/** The live prepare window's abort signal. Falls back to a fresh never-aborted
+ *  signal when no window is open (direct programmatic deps use outside a handler). */
+export function getPrepareAbortSignal(): AbortSignal {
+  return readPrepareAbort()?.signal ?? new AbortController().signal;
+}
+
+/** Fire the live prepare's abort controller (registered by {@link beginPrepare})
+ *  and drop the holder. Returns true if a prepare controller was fired. Does NOT
+ *  clear the in-flight guard — the aborting prepare's own `finally` does that, so
+ *  the concurrency window stays closed until the prepare has actually exited. */
+export function abortActivePrepare(): boolean {
+  const controller = readPrepareAbort();
+  if (controller === null) return false;
+  controller.abort();
+  delete (globalThis as Record<string, unknown>)[PREPARE_ABORT_KEY];
+  return true;
+}
 
 /** Mark the prepare window in-flight (the run-state is only set later, inside
  *  `startRun` — but a prepare ALSO drives the ONE main pi session for potentially

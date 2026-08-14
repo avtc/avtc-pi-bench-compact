@@ -19,7 +19,7 @@ describe("benchReadOnlyTools", () => {
 });
 
 describe("benchAuthoringTools", () => {
-  it("returns read-only core tools (read/grep/find/ls) + bash for JSONL parsing (§4.18)", () => {
+  it("returns read-only core tools (read/grep/find/ls) + bash for JSONL parsing", () => {
     const names = benchAuthoringTools(TMP).map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(["read", "grep", "find", "ls", "bash"]));
     // the authoring agent must NOT get edit/write (it only reads + writes the manifest)

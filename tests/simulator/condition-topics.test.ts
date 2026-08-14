@@ -11,7 +11,7 @@ import {
 } from "../../src/simulator/condition-topics.js";
 
 describe("CONDITION_TOPICS", () => {
-  it("exposes exactly the 4 canonical topics (§4.17)", () => {
+  it("exposes exactly the 4 canonical topics", () => {
     expect(CONDITION_TOPICS).toHaveLength(4);
   });
 
@@ -33,7 +33,7 @@ describe("CONDITION_TOPICS", () => {
     expect(safeToSkip).toHaveLength(2);
   });
 
-  it("binds recallFact + doneOp to essential; supersession + abstention to safeToSkip (§4.17)", () => {
+  it("binds recallFact + doneOp to essential; supersession + abstention to safeToSkip", () => {
     const byAxis = new Map(CONDITION_TOPICS.map((t) => [t.metricAxis, t.tag]));
     expect(byAxis.get("recallFact")).toBe("essential");
     expect(byAxis.get("doneOp")).toBe("essential");

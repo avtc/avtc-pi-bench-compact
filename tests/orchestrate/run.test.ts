@@ -503,13 +503,13 @@ describe("startRun — Phase 3 scoring", () => {
     expect(readFileSync(result.reportPath, "utf8")).toBe("# headline");
   });
 
-  it("contamination guard: throws before writing the run config if the bench root is inside the scenario repo (R0-10)", async () => {
+  it("contamination guard: throws before writing the run config if the bench root is inside the scenario repo", async () => {
     // Misconfigured: scenarioRepo IS the bench root → configPath (root/configs/X) lands inside it.
     const deps = makeDeps({ arms: ["A1"], root, scenarioRepo: root });
     await expect(startRun(deps)).rejects.toThrow(/contamination/i);
   });
 
-  it("contamination guard: throws at the results/report write if the run dir is inside the scenario repo (R0-10)", async () => {
+  it("contamination guard: throws at the results/report write if the run dir is inside the scenario repo", async () => {
     // Misconfigured: scenarioRepo = the runs dir → configPath (root/configs) is safe, but the
     // results/report writes (root/runs/<runId>) land inside it → guard fires at the score-output write.
     const bases = fakeBases(["A1"]);
@@ -625,7 +625,7 @@ describe("startRun — Phase 3 scoreDeps ctx-threading", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("buildScoreDeps receives the LAST probe's threaded final ctx (R1-8)", async () => {
+  it("buildScoreDeps receives the LAST probe's threaded final ctx", async () => {
     const PROBE_CTX_A = { __probeCtx: "A1" } as unknown as Phase1Result["finalCtx"];
     const PROBE_CTX_B = { __probeCtx: "A3" } as unknown as Phase1Result["finalCtx"];
     const bases = fakeBases(["A1", "A3"]);
@@ -656,7 +656,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("a missing pricing entry → BenchJudgeError(model-unavailable) stop-and-surface (R1-1)", async () => {
+  it("a missing pricing entry → BenchJudgeError(model-unavailable) stop-and-surface", async () => {
     const { buildProductionScoreDeps } = await import("../../src/orchestrate/run.js");
     const runConfig = {
       evaluatedModel: "provider/missing-model",
@@ -709,7 +709,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
   });
 });
 
-describe("startRun — testSpec harness fault (R2-1)", () => {
+describe("startRun — testSpec harness fault", () => {
   let root: string;
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "bench-run-testspec-fault-"));

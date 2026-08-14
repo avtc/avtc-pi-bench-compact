@@ -93,8 +93,8 @@ function assistantEntry(id: string, parentId: string | null, output: number): Se
 }
 
 /** Build a boundary CompactionEntry with the given summary + usage (+ optional stage details).
- *  The per-stage names live under the entry's `details.compactionStages` field (the field the
- *  compaction-cost metric reads); null details → the native single-stage arm. */
+ * The per-stage names live under the entry's `details.compactionStages` field (the field the
+ * compaction-cost metric reads); null details → the native single-stage arm. */
 function makeCompactionEntry(summary: string, stages: readonly string[] | null): CompactionEntry {
   const stageDetails = stages === null ? null : { compactionStages: stages };
   return {

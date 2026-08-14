@@ -15,7 +15,13 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
-import { isPrepareInFlight, isRunInFlight, setPrepareInFlight } from "../orchestrate/run-state.js";
+import {
+  beginPrepare,
+  endPrepare,
+  getPrepareAbortSignal,
+  isPrepareInFlight,
+  isRunInFlight,
+} from "../orchestrate/run-state.js";
 import { SurfaceConditionsError } from "../production/build.js";
 import { LANDING_FILE, type LandingState, readLandingState } from "../production/landing-state.js";
 import { buildLiveSeams } from "../production/live-seams.js";
@@ -132,8 +138,10 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
 
     const scenarioId = computeScenarioId(parsed);
     // Guard the WHOLE prepare window (the run-state only appears later, inside
-    // startRun): every exit path clears the flag — surface, failure, success.
-    setPrepareInFlight(true);
+    // startRun): every exit path clears the flag — surface, failure, success. The
+    // window's abort signal is threaded into the build seams, so /bench-compact:abort
+    // genuinely stops a live prepare (its finally clears the guard).
+    beginPrepare(); // registers the window's abort controller (read by defaultBuildPrepareDeps)
     try {
       const deps = opts.buildDeps(ctx, parsed, scenarioId);
       const result = await prepare(deps);
@@ -149,7 +157,7 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
       const msg = err instanceof Error ? err.message : String(err);
       notify(`prepare failed: ${msg}`, "error");
     } finally {
-      setPrepareInFlight(false);
+      endPrepare();
     }
   };
 }
@@ -217,7 +225,7 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
     scenarioDescription,
     compactionPlan,
     widget,
-    signal: PREPARE_SIGNAL,
+    signal: getPrepareAbortSignal(),
   });
 
   const deps: PrepareDeps = {
@@ -266,8 +274,6 @@ const BUILD_PLAN = "build";
 const EXTRACT_PLAN = "extract";
 /** Filename for the extract-mode cleaned backup (under preSliceDir). */
 const EXTRACT_BACKUP_NAME = "extract-backup.jsonl";
-/** A never-aborting signal for the prepare flow (no run-level abort wired yet). */
-const PREPARE_SIGNAL = new AbortController().signal;
 
 /** Register the prepare-scenario command on `pi`. */
 export function registerPrepareScenarioCommand(pi: ExtensionAPI): void {

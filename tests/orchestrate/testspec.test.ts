@@ -37,7 +37,7 @@ function makeOps(result: TestSpecExecResult): TestSpecOps {
   return { exec: vi.fn((): TestSpecExecResult => result), checkout: vi.fn() };
 }
 
-describe("scrubEnv — strip secret-looking vars from the subprocess env (R0-9)", () => {
+describe("scrubEnv — strip secret-looking vars from the subprocess env", () => {
   it("drops provider API keys (ANTHROPIC/OPENAI/ZAI/etc.) + keeps PATH/HOME", () => {
     const scrubbed = scrubEnv({
       PATH: "/usr/bin",
@@ -114,7 +114,7 @@ describe("runTestSpec — skip when there is no testSpec", () => {
 
   it("whitespace-only testSpec → {skipped}", () => {
     const ops = makeOps({ exitCode: 0, output: "" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("   \n  "), ops });
+    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("   \n "), ops });
     expect(result).toEqual({ kind: "skipped" });
     expect(ops.exec).not.toHaveBeenCalled();
   });
@@ -143,7 +143,7 @@ describe("runTestSpec — checkout + exec wiring", () => {
   });
 });
 
-describe("runTestSpec — checkout-fault handling (R1-6: a harness fault, not a thrown contract break)", () => {
+describe("runTestSpec — checkout-fault handling (: a harness fault, not a thrown contract break)", () => {
   it("a checkout error → {ran, pass:false, runError:true} (never throws past the runError contract)", () => {
     const ops: TestSpecOps = {
       exec: vi.fn((): TestSpecExecResult => ({ exitCode: 0, output: "" })),

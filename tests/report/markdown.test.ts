@@ -6,8 +6,8 @@ import { renderHeadline } from "../../src/report/markdown.js";
 import type { BenchResultJson } from "../../src/report/result-json.js";
 
 /** A synthetic result-JSON: A1 (bare) + A3 (memkeeper). A3 beats A1 on E4/E5
- *  (higher rate → positive Δ) but is WORSE on C1 footprint (higher tokens →
- *  net-negative ⚠, lowerBetter polarity). Exercises ΔvsA1 both signs + a ⚠. */
+ * (higher rate → positive Δ) but is WORSE on C1 footprint (higher tokens →
+ * net-negative ⚠, lowerBetter polarity). Exercises ΔvsA1 both signs + a ⚠. */
 function syntheticResult(omitA1: boolean | null): BenchResultJson {
   const arms: BenchResultJson["arms"] =
     omitA1 === true
@@ -122,7 +122,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
 }
 
 describe("renderHeadline", () => {
-  it("renders the §7.3 header: scenario/runId/cfgId + config + tool versions", () => {
+  it("renders the header: scenario/runId/cfgId + config + tool versions", () => {
     const md = renderHeadline(syntheticResult(false));
     expect(md).toContain("tycoon");
     expect(md).toContain("2026-08-10T14-32Z");
@@ -205,7 +205,7 @@ describe("renderHeadline", () => {
     expect(md).toContain("10"); // A1 completed
     expect(md).toContain("Artifacts");
     expect(md).toContain("/p/repo");
-    // The A3 failure note (arm + run + phase + reason + branch + resolved state — §3.8 transparency).
+    // The A3 failure note (arm + run + phase + reason + branch + resolved state — transparency).
     expect(md).toContain("agent hang");
     expect(md).toContain("run 4");
     expect(md).toContain("resume");

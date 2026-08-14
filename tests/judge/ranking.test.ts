@@ -63,7 +63,7 @@ describe("rankAxis (combined)", () => {
     ).rejects.toThrow(/malformed|not valid json/i);
   });
 
-  // R5: an invented label is tool-misuse (§5.12.5) -> re-prompt (not immediate surface)
+  // R5: an invented label is tool-misuse -> re-prompt (not immediate surface)
   it("re-prompts on an invented label, then succeeds when the judge self-corrects (R5)", async () => {
     const responses = [JSON.stringify({ order: ["A", "Z"] }), JSON.stringify({ order: ["A", "B"] })];
     let i = 0;
@@ -91,9 +91,9 @@ describe("rankAxis (combined)", () => {
     ).rejects.toThrow(/unknown.*label|invented/i);
   });
 
-  // R2-1: the combined order must be a PERMUTATION of the known labels (right
+  // : the combined order must be a PERMUTATION of the known labels (right
   // count, no dups, none omitted) — same completeness class as c2/trajectory.
-  it("re-prompts when the order has a duplicate label, then succeeds (R2-1)", async () => {
+  it("re-prompts when the order has a duplicate label, then succeeds", async () => {
     const responses = [JSON.stringify({ order: ["A", "A"] }), JSON.stringify({ order: ["A", "B"] })];
     let i = 0;
     const callJudge: CallJudge = async () => responses[i++] ?? "";
@@ -107,7 +107,7 @@ describe("rankAxis (combined)", () => {
     expect(ranking.order).toEqual(["arm1", "arm2"]);
   });
 
-  it("surfaces when the order omits a label past maxRetries (R2-1)", async () => {
+  it("surfaces when the order omits a label past maxRetries", async () => {
     const callJudge: CallJudge = async () => JSON.stringify({ order: ["A"] }); // B omitted
     await expect(
       rankAxis({

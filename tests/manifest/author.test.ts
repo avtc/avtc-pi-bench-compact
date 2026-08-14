@@ -47,7 +47,7 @@ describe("postProcessManifest (pure)", () => {
     expect(m.abstentions[0].id).toBe("ab1");
   });
 
-  it("sets domain:technical on recallFacts (the only condition carrying the field per §4.5)", () => {
+  it("sets domain:technical on recallFacts (the only condition carrying the field per)", () => {
     const m = postProcessManifest(cannedAuthor, scenarioCtx);
     expect(m.recallFacts[0].domain).toBe("technical");
   });
@@ -111,7 +111,7 @@ describe("buildAuthoringTools", () => {
     expect(names).toContain("read");
     expect(names).toContain("grep");
     expect(names).toContain("find");
-    expect(names).toContain("bash"); // §4.18: bash for JSONL parsing (jq)
+    expect(names).toContain("bash"); // : bash for JSONL parsing (jq)
     expect(names).toContain("write_manifest");
     expect(writeManifest.name).toBe("write_manifest");
   });
@@ -226,7 +226,7 @@ describe("runAuthoringAgent", () => {
     ).rejects.toThrow(/model/i);
   });
 
-  it("throws when the stage timed out (even if write_manifest left a capture) — R1-1", async () => {
+  it("throws when the stage timed out (even if write_manifest left a capture)", async () => {
     // a timed-out stage that left a partial capture must NOT be silently post-processed
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
@@ -262,7 +262,7 @@ describe("runAuthoringAgent", () => {
     ).rejects.toThrow(/timed.?out|timeout/i);
   });
 
-  it("throws when the stage was aborted (run signal) even with a capture — R2-2", async () => {
+  it("throws when the stage was aborted (run signal) even with a capture", async () => {
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
@@ -297,7 +297,7 @@ describe("runAuthoringAgent", () => {
     ).rejects.toThrow(/abort/i);
   });
 
-  it("takes the LAST capture when write_manifest was called multiple times — R1-9", async () => {
+  it("takes the LAST capture when write_manifest was called multiple times", async () => {
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {

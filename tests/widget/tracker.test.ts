@@ -15,7 +15,7 @@ import {
 const TERM_WIDE = 200;
 
 /** Capturing deps: records every published line + hide, fixed termWidth (no
- *  elision → exact assertions), real globals (controlled by vi fake timers). */
+ * elision → exact assertions), real globals (controlled by vi fake timers). */
 function capturingDeps(width: number): {
   deps: WidgetDeps;
   lines: string[];

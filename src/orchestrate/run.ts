@@ -233,10 +233,12 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
     // --- Phase 2b: direct probes per arm (from the base) + embedded testSpec per attempt ---
     widget?.startPhase("probe", NO_DETAIL);
+    updateRunState({ phase: "probe", currentArm: null, currentAttempt: null });
     let probeCtx = contResult.finalCtx;
     const probeTraces = [];
     for (const base of bases) {
       widget?.setArm(bases.indexOf(base) + 1, bases.length, base.tool);
+      updateRunState({ currentArm: base.arm });
       const probeResult = await probes({
         cmdCtx: probeCtx,
         armBase: base,
@@ -273,6 +275,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
     // --- Phase 3: score every captured run → results.json + report.md ---
     widget?.startPhase("score", NO_DETAIL);
+    updateRunState({ phase: "score", currentArm: null, currentAttempt: null });
     const input = buildScoreRunInput(bases, contResult.traces, probeTraces, testSpecByBranch, deps.scenarioRepo);
     const meta = buildScoreMeta(deps, runConfig, bases, contResult.traces, runId, cfgId, root, runPath, now);
     const scoreDeps = buildScoreDeps({

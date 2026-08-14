@@ -3,8 +3,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  abortActivePrepare,
   abortActiveRun,
+  beginPrepare,
   clearRunState,
+  endPrepare,
+  getPrepareAbortSignal,
   getRunState,
   isPrepareInFlight,
   isRunInFlight,
@@ -137,6 +141,24 @@ describe("statusString", () => {
     expect(s).toContain("attempt 2");
   });
 
+  it("probe + score phases render in status (live tracking through the scoring tail)", () => {
+    setRunState({
+      runId: "r",
+      id: 7,
+      cfgId: "cfg-r",
+      date: "d",
+      scenarioRepo: "/repo",
+      phase: "probe",
+      currentArm: "A3",
+      currentAttempt: null,
+      lastStopReason: null,
+    });
+    expect(statusString()).toContain("probe");
+    expect(statusString()).toContain("A3");
+    updateRunState({ phase: "score", currentArm: null, currentAttempt: null });
+    expect(statusString()).toBe("score");
+  });
+
   it("includes the last stop reason when surfaced", () => {
     setRunState({
       runId: "r",
@@ -226,6 +248,20 @@ describe("isRunInFlight", () => {
 });
 
 describe("prepare-in-flight marker", () => {
+  it("prepare window: begin registers an abortable signal; abort fires it but keeps the guard until endPrepare", () => {
+    const signal = beginPrepare();
+    expect(isPrepareInFlight()).toBe(true);
+    expect(signal.aborted).toBe(false);
+    expect(getPrepareAbortSignal()).toBe(signal); // holder read-back
+    expect(abortActivePrepare()).toBe(true); // fired
+    expect(signal.aborted).toBe(true);
+    expect(isPrepareInFlight()).toBe(true); // guard STAYS until the prepare's finally
+    expect(abortActivePrepare()).toBe(false); // holder dropped after firing
+    endPrepare();
+    expect(isPrepareInFlight()).toBe(false);
+    expect(getPrepareAbortSignal().aborted).toBe(false); // fresh fallback signal
+  });
+
   it("false by default; set/clear round-trips on globalThis", () => {
     setPrepareInFlight(false);
     expect(isPrepareInFlight()).toBe(false);

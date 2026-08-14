@@ -438,7 +438,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
 
   return async (attempt: number) => {
     ensureBuildSession(deps.buildSessionPath, deps.repoPath, { exists, writeHeader });
-    const targetContext = deps.compactionBoundary + attempt * continueStep;
+    const formulaTarget = deps.compactionBoundary + attempt * continueStep;
     await load(deps.holder.current, deps.buildSessionPath, async (sessionCtx) => {
       deps.holder.current = sessionCtx;
       const pi = getPi();
@@ -448,6 +448,17 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       // compacts. Done once per load (idempotent); skipped when no memory proxies are live.
       disableMemoryHooks(pi, getProxies(), deps.repoPath, deps.omFullReflectionThresholdTokens, configure);
       const { stop, onStop } = makeDriveStop();
+      // Read the session's current context BEFORE constructing the driver: a resumed
+      // (plant) or continued session may have OVERSHOT its formula target by more
+      // than one continue-step (a large last turn grows >20K past it), which would
+      // pace-stop before the plant/continue instruction is ever consulted. Pace
+      // against actual usage — the target always leaves one continue-step of headroom.
+      const usage = sessionCtx.getContextUsage();
+      const seededTokens = usage?.tokens;
+      const targetContext =
+        seededTokens === undefined || seededTokens === null
+          ? formulaTarget
+          : Math.max(formulaTarget, seededTokens + continueStep);
       const driver = makeSimulator({
         pi,
         ctx: sessionCtx,
@@ -460,8 +471,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       });
       // Seed the driver with the session's current context (so a continue attempt paces
       // correctly against the already-grown session, not a fresh zero).
-      const usage = sessionCtx.getContextUsage();
-      if (usage?.tokens !== undefined && usage.tokens !== null) driver.trackContext(usage.tokens);
+      if (seededTokens !== undefined && seededTokens !== null) driver.trackContext(seededTokens);
       const disposeMsgEnd = subscribeAgentEvent(pi, "message_end", (event: unknown) => {
         const parsed = readMessageEndUsage(event as MessageEndEvent);
         if (parsed !== null) driver.trackContext(parsed.totalTokens);

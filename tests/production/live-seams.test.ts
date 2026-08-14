@@ -281,6 +281,48 @@ describe("buildDriveAndCaptureSeam", () => {
     expect(holder.current).toBe(freshCtx);
   });
 
+  it("paces against ACTUAL session usage: a >continueStep overshoot still leaves headroom (plant retry)", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    // Session already at 180K (attempt 4's target was 220K? no — simulate a big
+    // overshoot: usage 180K while the resumed formula target is only 160K).
+    const grownCtx = {
+      getContextUsage: () => ({ tokens: 180000, contextWindow: 200000 }),
+    } as unknown as ExtensionCommandContext;
+    const loadedLoad: typeof fakeLoadSession = async (_ctx, _path, withSession) => withSession(grownCtx);
+    let seenTarget = 0;
+    let seeded = 0;
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => true,
+      writeHeader: () => {},
+      loadSession: loadedLoad,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => {
+        seenTarget = args.targetContext;
+        return {
+          trackContext: (t) => {
+            seeded = t;
+          },
+          onAgentSettled: async () => args.onStop({ contextTokens: 0, reason: "boundary" }),
+        };
+      },
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}
+`,
+    });
+    await driveAndCapture(1); // formula target = 140K + 1*20K = 160K < usage 180K
+    expect(seenTarget).toBe(180000 + 20000); // max(160K, usage+step) — headroom restored
+    expect(seeded).toBe(180000);
+  });
+
   it("advances the widget to the 'build' cell before driving", async () => {
     const holder: CtxHolder = { current: {} as ExtensionCommandContext };
     const widget = capturingWidget();

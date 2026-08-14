@@ -9,7 +9,7 @@ import type { BenchConfig } from "../../src/config/types.js";
 
 function validConfig(over: Partial<BenchConfig>): BenchConfig {
   // Dedup against the single source of truth (DEFAULTS) — only `armsEnabled` (derived,
-  // not stored) is added here. (R4-3)
+  // not stored) is added here.
   return { ...DEFAULTS, armsEnabled: ["A1", "A2", "A3", "A4", "A5"], ...over };
 }
 
@@ -85,7 +85,7 @@ describe("preflight — prepare (extract --from-session)", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/from-session|exist/i);
   });
-  it("rejects when BOTH idea and --from-session are given (mutual exclusivity, R5-2)", () => {
+  it("rejects when BOTH idea and --from-session are given (mutual exclusivity,)", () => {
     const args: PrepareArgs = {
       idea: "a tycoon game",
       fromSession: "/s.jsonl",
