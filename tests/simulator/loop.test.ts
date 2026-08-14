@@ -6,7 +6,9 @@ import type { Api, Model, UserMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
+  driveUntilStop,
   extractAssistantText,
+  makeDriveStop,
   nextInstruction,
   pacingDecision,
   SimulatorDriver,
@@ -292,5 +294,133 @@ describe("SimulatorDriver", () => {
     await driver.onAgentSettled();
     expect(events).toEqual(["message_update"]); // the fake event reached the onEvent sink
     expect(resolvedModels).toHaveLength(1); // onModelResolved fired after a successful resolve
+  });
+});
+
+// --- driveUntilStop (the shared drive loop) ----------------------------------
+
+/** A faithful fake driver: injects (records) on non-stop cycles; on the stopAfter-th
+ *  cycle fires the boundary-stop WITHOUT injecting — the real SimulatorDriver's order
+ *  (the pacing check precedes the inject). */
+function makeFaithfulDriver(stopAfter: number, onStop: () => void) {
+  let cycles = 0;
+  const injects: number[] = [];
+  return {
+    injects,
+    driver: {
+      async onAgentSettled(): Promise<void> {
+        cycles += 1;
+        if (cycles >= stopAfter) {
+          onStop(); // boundary-stop — NO inject
+          return;
+        }
+        injects.push(cycles);
+      },
+    },
+  };
+}
+
+describe("driveUntilStop — boundary-stop control flow (no hang)", () => {
+  /** An awaitSettled faithful to the real awaitAgentSettled: it resolves only after the
+   *  agent was DRIVEN (an inject happened). Called when the last cycle injected nothing,
+   *  it would block forever — model that as a throw so a regression fails loudly instead
+   *  of hanging the suite. */
+  function makeEventGatedAwaitSettled(injectCount: () => number) {
+    let settledFor = 0;
+    const calls: number[] = [];
+    const awaitSettled = async (): Promise<void> => {
+      calls.push(settledFor);
+      if (settledFor >= injectCount()) {
+        throw new Error("awaitSettled called with no pending inject — would HANG forever");
+      }
+      settledFor += 1;
+    };
+    return { awaitSettled, calls };
+  }
+
+  it("a mid-loop boundary-stop cycle (no inject) exits WITHOUT awaiting the settle", async () => {
+    // stopAfter=3 → cycles 1-2 inject; cycle 3 boundary-stops (injects nothing).
+    // The loop must exit after cycle 3 without calling awaitSettled again — the real
+    // awaitAgentSettled is an awaitOnce one-shot that resolves only on the NEXT
+    // agent_settled event, which never fires when nothing drove the agent.
+    const { stop, onStop } = makeDriveStop();
+    const { driver, injects } = makeFaithfulDriver(3, () => onStop({ contextTokens: 0, reason: "boundary" }));
+    const { awaitSettled, calls } = makeEventGatedAwaitSettled(() => injects.length);
+    await driveUntilStop({
+      driver,
+      stop,
+      awaitSettled,
+      shouldBreak: () => stop.stopped,
+      makeCycleError: (error) => new Error(`cycle error: ${error ?? "unknown"}`),
+    });
+    expect(injects).toEqual([1, 2]); // two injecting cycles
+    expect(calls).toEqual([0, 1]); // awaitSettled called once per inject — and NEVER after the stop cycle
+  });
+
+  it("a kick-off boundary-stop (continue case: already at boundary) exits WITHOUT any awaitSettled", async () => {
+    // stopAfter=1 → even the kick-off cycle stops without injecting. The loop must
+    // exit immediately — awaiting would hang (nothing was ever injected).
+    const { stop, onStop } = makeDriveStop();
+    const { driver } = makeFaithfulDriver(1, () => onStop({ contextTokens: 0, reason: "boundary" }));
+    let called = 0;
+    await driveUntilStop({
+      driver,
+      stop,
+      awaitSettled: async () => {
+        called += 1;
+        throw new Error("awaitSettled called after a kick-off boundary-stop — would HANG forever");
+      },
+      shouldBreak: () => stop.stopped,
+      makeCycleError: (error) => new Error(`cycle error: ${error ?? "unknown"}`),
+    });
+    expect(called).toBe(0);
+  });
+
+  it("the budget check (shouldBreak) still fires AFTER the await — no extra cycle past the budget", async () => {
+    // The budget monitor fires DURING the agent's run (onApproachingWindow at 90% of
+    // the window) while pacing-stop fires at the window — so shouldBreak must be
+    // checked AFTER the settle, or a budget-reached run would inject one more cycle
+    // past the budget before breaking.
+    const { stop } = makeDriveStop();
+    let budgetReached = false;
+    let injects = 0;
+    const alwaysInjectDriver = {
+      async onAgentSettled(): Promise<void> {
+        injects += 1;
+      },
+    };
+    let settled = 0;
+    await driveUntilStop({
+      driver: alwaysInjectDriver,
+      stop,
+      awaitSettled: async () => {
+        settled += 1;
+        if (settled >= 2) budgetReached = true; // budget fires during the 2nd run
+      },
+      shouldBreak: () => stop.stopped || budgetReached,
+      makeCycleError: (error) => new Error(`cycle error: ${error ?? "unknown"}`),
+    });
+    // kick-off inject + ONE more cycle after the first settle; the budget fired during
+    // the 2nd settle → the loop breaks with NO 3rd cycle.
+    expect(injects).toBe(2);
+    expect(settled).toBe(2);
+  });
+
+  it("a cycle error-stop throws makeCycleError (never silently exits)", async () => {
+    const { stop, onStop } = makeDriveStop();
+    const errorDriver = {
+      async onAgentSettled(): Promise<void> {
+        onStop({ contextTokens: 0, reason: "error", error: "simulator stage failed" });
+      },
+    };
+    await expect(
+      driveUntilStop({
+        driver: errorDriver,
+        stop,
+        awaitSettled: async () => {},
+        shouldBreak: () => stop.stopped,
+        makeCycleError: (error) => new Error(`cycle error: ${error ?? "unknown"}`),
+      }),
+    ).rejects.toThrow("cycle error: simulator stage failed");
   });
 });

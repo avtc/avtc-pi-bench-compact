@@ -152,6 +152,12 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
       return {
         async onAgentSettled(): Promise<void> {
           calls += 1;
+          // Faithful to the real SimulatorDriver: the pacing check fires BEFORE the
+          // inject — a boundary-stop cycle injects NOTHING (it just signals stop).
+          if (calls >= stopAfter) {
+            args.onStop({ contextTokens: 0, reason: "boundary" });
+            return;
+          }
           // The kick-off cycle: voice the resume message via the inject seam
           // (the seam prepends ANTI_PEEK on the first call). The fake also lets the
           // test emit a compaction event pair on the fresh pi for the wallMs test.
@@ -162,9 +168,6 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
               type: "session_compact",
               compactionEntry: { id: "phase2-c1" },
             });
-          }
-          if (calls >= stopAfter) {
-            args.onStop({ contextTokens: 0, reason: "boundary" });
           }
         },
       };
@@ -358,7 +361,8 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   it("the simulator injects into the SWITCHED session (fresh pi), not the stale command-handler pi", async () => {
     // The inject seam MUST capture the FRESH pi (getBenchPi inside withSession). The
     // kick-off inject lands on the fresh pi's sendUserMessage, never a stale handle.
-    const ops = makeFakeOps();
+    // stopAfter=2: the kick-off injects (cycle 1), then cycle 2 boundary-stops (no inject).
+    const ops = makeFakeOps({ stopAfter: 2 });
     await runContinuations({
       cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
       armBases: [makeArmBase("A1", "bare-pi", undefined)],
@@ -408,9 +412,10 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   });
 
   it("the FIRST agent-facing message carries the anti-peek preamble (prepended before the first tool-bearing turn)", async () => {
-    // stopAfter=2 → two injects within attempt 1: the kick-off (anti-peek prepended)
-    // + a subsequent cycle (bare resume). Anti-peek is first-inject only.
-    const ops = makeFakeOps({ stopAfter: 2 });
+    // stopAfter=3 → two injects within attempt 1: the kick-off (anti-peek prepended)
+    // + a subsequent cycle (bare resume), then the third cycle boundary-stops. Anti-peek
+    // is first-inject only.
+    const ops = makeFakeOps({ stopAfter: 3 });
     await runContinuations({
       cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
       armBases: [makeArmBase("A1", "bare-pi", undefined)],
@@ -457,10 +462,12 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   });
 
   it("awaits agent_settled between simulator cycles (multi-cycle driving hits the fresh pi)", async () => {
-    // stopAfter=2 → kick-off inject (cycle 1, no stop) → awaitSettled → cycle 2 inject +
-    // stop → awaitSettled (settles cycle 2's inject too — the agent always processes the
-    // last inject before the run returns). So awaitSettled is called once per driven cycle.
-    const ops = makeFakeOps({ stopAfter: 2 });
+    // stopAfter=3 → kick-off inject (cycle 1) → awaitSettled → cycle 2 inject → awaitSettled
+    // → cycle 3 boundary-stops WITHOUT injecting → the loop exits WITHOUT awaiting (a
+    // boundary-stop cycle injects nothing, so awaiting the settle afterwards would hang
+    // forever — awaitAgentSettled resolves only on the NEXT agent_settled event). So
+    // awaitSettled is called once per INJECTING cycle, never after a stop cycle.
+    const ops = makeFakeOps({ stopAfter: 3 });
     await runContinuations({
       cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
       armBases: [makeArmBase("A1", "bare-pi", undefined)],
@@ -478,7 +485,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
   });
 
   it("Phase-2 compaction wallMs is measured via the before→after compact event pair (keyed by compaction id)", async () => {
-    const ops = makeFakeOps({ emitCompaction: true });
+    const ops = makeFakeOps({ stopAfter: 2, emitCompaction: true });
     const base = makeArmBase("A1", "bare-pi", undefined);
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
     // first loadSession re-activation; control Date.now across the compact pair per attempt

@@ -339,10 +339,20 @@ export interface DriveUntilStopArgs {
   readonly makeCycleError: (error: string | null) => Error;
 }
 
-/** The shared drive loop: kick-off cycle → { await-settle → check break → cycle } until
- *  the driver signals stop or the caller's break condition holds. A cycle that signals
+/** The shared drive loop: kick-off cycle → { check stop → await-settle → check break → cycle }
+ *  until the driver signals stop or the caller's break condition holds. A cycle that signals
  *  an error-stop throws `makeCycleError(stop.error)`. Shared by build (Phase 0) +
- *  continuation (Phase 2). */
+ *  continuation (Phase 2).
+ *
+ *  Two stop checks, not one: a boundary-stop cycle injects NOTHING (the pacing check in
+ *  onAgentSettled returns before the inject), so awaiting the agent's settle afterwards
+ *  would block forever — `awaitAgentSettled` is an `awaitOnce` one-shot that resolves only
+ *  on the NEXT `agent_settled` event, never on idle state. So `stop.stopped` (set by the
+ *  boundary-stop) is checked BEFORE the await, letting a no-inject cycle exit cleanly. The
+ *  full `shouldBreak` (which also covers the budget monitor) is checked AFTER the await,
+ *  because the budget is reached DURING the agent's run (the monitor fires at 90% of the
+ *  window, while pacing-stop fires at the window) — moving it before the await would let a
+ *  budget-reached run inject one more cycle past the budget before breaking. */
 export async function driveUntilStop(args: DriveUntilStopArgs): Promise<void> {
   const cycle = async (): Promise<void> => {
     await args.driver.onAgentSettled();
@@ -352,8 +362,9 @@ export async function driveUntilStop(args: DriveUntilStopArgs): Promise<void> {
   };
   await cycle();
   while (true) {
+    if (args.stop.stopped) break; // a boundary-stop cycle injected nothing — exit, don't await
     await args.awaitSettled();
-    if (args.shouldBreak()) break;
+    if (args.shouldBreak()) break; // budget reached DURING the just-awaited run
     await cycle();
   }
 }
