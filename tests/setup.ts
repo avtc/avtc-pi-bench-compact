@@ -35,14 +35,23 @@ _setBaseLoggerForTest(NO_OP_LOG_SINK);
 // These singletons live on globalThis (survive /reload in production; under
 // isolate:false they survive across test files too). Clear them before each test
 // so no test sees another's singleton state.
-const RUN_STATE_KEY = "__benchCompactRunState";
-const MEMORY_PROXIES_KEY = "__benchCompactMemoryProxies";
+const GLOBAL_KEYS = [
+  "__benchCompactRunState",
+  "__benchCompactMemoryProxies",
+  // the active-widget slot: widget tests install capturing widgets; a leaked one
+  // silently wires into any later getActiveWidget() reader (live-seams default deps)
+  "__benchCompactActiveWidget",
+  // the prepare-in-flight guard: prepare tests set it in try/finally, but the
+  // beforeEach clear makes the invariant structural instead of per-test discipline
+  "__benchCompactPrepareInFlight",
+] as const;
 
 // Cleared before EACH test: a test that writes one (via writeGlobal) must never
 // bleed into the next, and every test starts from a known-empty slot.
 beforeEach(() => {
-  delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
-  delete (globalThis as Record<string, unknown>)[MEMORY_PROXIES_KEY];
+  for (const key of GLOBAL_KEYS) {
+    delete (globalThis as Record<string, unknown>)[key];
+  }
   // configureArm (writeArmConfig) sets three managed env keys; under isolate:false
   // they persist across test files (the same cross-file hazard the globalThis
   // resets above address). Clear them centrally so no test inherits another's arm
@@ -61,6 +70,7 @@ beforeEach(() => {
 afterAll(() => {
   _setHandleForTest(null);
   _setRegisterSettingsCommand(null);
-  delete (globalThis as Record<string, unknown>)[RUN_STATE_KEY];
-  delete (globalThis as Record<string, unknown>)[MEMORY_PROXIES_KEY];
+  for (const key of GLOBAL_KEYS) {
+    delete (globalThis as Record<string, unknown>)[key];
+  }
 });

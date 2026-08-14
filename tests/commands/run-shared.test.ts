@@ -108,6 +108,11 @@ describe("loadManifestFile", () => {
     expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/exactly one of accept or correctRefusal/);
   });
 
+  it("refuses a manifest whose taskObjective lacks testSpec (the done-snapshot judge reads .length)", () => {
+    const read = (): string => JSON.stringify({ ...VALID, taskObjective: { description: "the task" } });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/testSpec/);
+  });
+
   it("refuses a manifest whose supersessions key is missing (scoring flatMaps it)", () => {
     const { supersessions, ...noSup } = { ...VALID, supersessions: [] };
     expect(supersessions).toEqual([]);

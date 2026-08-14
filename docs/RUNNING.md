@@ -26,7 +26,7 @@ The frozen scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (`repo/` +
 
 `/bench-compact:run-scenario <folder>` forks the scenario per arm, isolates each arm (configure-API `reloadConfig` + `setActiveTools`), runs `N` continuation attempts + the manifest's direct probes, scores effectiveness (judge) + cost (trace), and writes `runs/<runId>/results.json` + `report.md`.
 
-The live-progress widget tracks the phases (`build` → `compact` → `resume` → `probe` → `score`). The bench **stops and surfaces** any failure via notification (never auto-retries) — inspect the cause, then `/bench-compact:resume`.
+The live-progress widget tracks the phases (`build` → `extract` → `compact` → `eval` → `probe` → `score`). The bench **stops and surfaces** any failure via notification (never auto-retries) — inspect the cause, then `/bench-compact:resume`.
 
 ### 3. Read the report
 
@@ -36,14 +36,14 @@ The live-progress widget tracks the phases (`build` → `compact` → `resume` �
 
 The bench is feature-complete for **scoring + reporting** (judge ensemble, exact metrics, statistics, result-JSON + headline report, live-progress widget, results command) — verified by the automated smoke + acceptance tests (`tests/e2e/`) which drive the **real** run driver + real scoring orchestrator end-to-end with mocked live-session phases + canned judges.
 
-The **prepare-scenario live seams** (the user-simulator drive-and-capture, the trial compaction, the manifest authoring agent) are wired via `buildLiveSeams` (`src/production/live-seams.ts`) — `/bench-compact:prepare-scenario` drives a real build (or extracts a real session) end-to-end. `/bench-compact:run <idea>` + `/bench-compact:run-session-file <path>` chain through the same wiring. The optional tail-content detection (`findTailContent`) is not yet wired (absent → missing tail topics surface for the operator).
+The **prepare-scenario live seams** (the user-simulator drive-and-capture, the trial compaction, the manifest authoring agent) are wired via `buildLiveSeams` (`src/production/live-seams.ts`) — `/bench-compact:prepare-scenario` drives a real build (or extracts a real session) end-to-end. `/bench-compact:run <idea>` + `/bench-compact:run-session-file <path>` chain through the same wiring. Tail-content detection (`findTailContent`) is wired: when a topic's condition-list comes back empty, a kind-level presence check asks whether that content lives in the kept tail (conservative on malformed replies; skipped entirely when every topic has conditions). Recovery flows: `--plant` resumes the build session past the surfaced attempt with a fresh attempt budget; `--skip-topics` freezes without the dropped topics.
 
 ## Verifying without live LLMs (automated)
 
 The full pipeline is verified without live sessions via the e2e suite:
 
 ```bash
-npm test                              # all lints + 971 tests (incl. e2e smoke + acceptance)
+npm test                              # all lints + full suite (incl. e2e smoke + acceptance)
 npx vitest run tests/e2e/             # the smoke (real driver + real score → result-v1) + acceptance checks
 ```
 

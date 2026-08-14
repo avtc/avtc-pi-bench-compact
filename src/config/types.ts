@@ -69,8 +69,8 @@ export function judgeEnsembleFields(c: JudgeEnsembleConfig): JudgeEnsembleConfig
  *
  * The bench configures ONLY evaluated + judge `thinkingLevel` + model selection;
  * it does NOT override model sampling params (temperatures) or pi model-level
- * config (contextWindow / keepRecentTokens) — those come from the model config
- * (UD30). `null` model = fall through to the session default.
+ * config (contextWindow / keepRecentTokens) — those come from the model config.
+ * `null` model = fall through to the session default.
  */
 export interface BenchConfig extends JudgeEnsembleConfig {
   // Models tab

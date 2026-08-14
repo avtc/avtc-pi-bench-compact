@@ -76,6 +76,7 @@ const TOKEN_RES = [
   // and prose-form user-decision citations (`decision #20`, `decision #2`).
   /\bT\d{1,2}\b/g,
   /\bdecision[\s*]+#\d+\b/gi,
+  /\bUD\d{1,2}\b/g,
   // historical framing ("is now", "no longer", "formerly", "has moved to") — the
   // comments/product-docs convention says describe the CURRENT state, not a past one.
   /\b(is now|no longer|formerly)\b/gi,

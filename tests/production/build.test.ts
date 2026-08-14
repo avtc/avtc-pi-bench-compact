@@ -271,31 +271,37 @@ describe("buildBackup — plant-and-continue resume", () => {
     }
   });
 
-  it("resume attempt at/after maxAttempts → clear non-convergence error", async () => {
+  it("a resumed build gets its OWN maxAttempts window (surface at the last original attempt still recovers)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bench-build-resume2-"));
     try {
       const backup = writeBackup(dir, 5);
+      const attempts: number[] = [];
+      let n = 0;
       const seams: BuildSeams = {
-        async driveAndCapture() {
+        async driveAndCapture(attempt) {
+          attempts.push(attempt);
           return { backupPath: backup.path, backupEntries: backup.entries };
         },
         async trialCompact() {
           return { firstKeptEntryId: "e4", summary: "cut" };
         },
         async author() {
-          return manifestWith("e1", "e2", "e3", "e3");
+          // two stuck rounds, then landed — the window must keep going past the
+          // original maxAttempts boundary before giving up.
+          return n++ < 2 ? manifestWith("e5", "e2", "e3", "e3") : manifestWith("e1", "e2", "e3", "e3");
         },
       };
-      await expect(
-        buildBackup({
-          scenario: "game",
-          compactionBoundary: 140000,
-          preSliceDir: dir,
-          seams,
-          resume: { attempt: 5 },
-          maxAttempts: 5,
-        }),
-      ).rejects.toThrow(/did not converge/);
+      await buildBackup({
+        scenario: "game",
+        compactionBoundary: 140000,
+        preSliceDir: dir,
+        seams,
+        // a surface at attempt 4 resumes at 5 — previously 5 == maxAttempts meant
+        // the loop body never ran and the plant was never even tried.
+        resume: { attempt: 5 },
+        maxAttempts: 5,
+      });
+      expect(attempts).toEqual([5, 6, 7]); // own window: 5..9, converged on 7
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

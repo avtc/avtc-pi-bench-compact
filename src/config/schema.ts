@@ -68,8 +68,7 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("evaluatedThinkingLevel", {
     label: "Evaluated thinking level",
-    description:
-      "Thinking level for the evaluated agent. The bench pins this (UD30); it does NOT override temperatures or other sampling params.",
+    description: "Thinking level for the evaluated agent.",
     type: "thinking-level",
     defaultValue: DEFAULTS.evaluatedThinkingLevel,
   }),

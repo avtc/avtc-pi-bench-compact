@@ -27,7 +27,7 @@ Open the settings panel: evaluated model + thinking level, judge model(s) + thin
 Re-prepare over an existing scenario folder (otherwise an existing folder is rejected).
 
 ### `/bench-compact:prepare-scenario --plant <folder>` *(recovery)*
-**Plant + continue.** When a build surfaces (condition topics did not land in the compacted-away span), the failed prepare persists `landing.json` in the scenario folder. This resumes the SAME build session at the surfaced attempt, steering the user-simulator to voice the missing topics (~+20K), then re-trials → re-authors → re-validates.
+**Plant + continue.** When a build surfaces (condition topics did not land in the compacted-away span), the failed prepare persists `landing.json` in the scenario folder. This resumes the SAME build session ONE attempt past the surfaced one — the pacing target grows ~+20K above the already-reached usage, so the first resumed cycle continues the session while the simulator voices the missing topics — then re-trials → re-authors → re-validates. The resumed build runs with its own full attempt budget.
 
 ```
 /bench-compact:prepare-scenario --plant ~/.pi/bench-compact/scenarios/2026-08-14-1

@@ -107,7 +107,12 @@ export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions
       } catch {
         continue; // not on disk (deleted-but-staged) — nothing to copy
       }
-      if (!st.isFile() && !st.isSymbolicLink()) continue; // submodule/directory entry
+      // Skip submodule/directory entries — and symlinks: copyFileSync DEREFERENCES
+      // a symlink, so an innocently-named tracked link pointing at a secret (or at
+      // anything outside `src`) would copy the TARGET's content straight past the
+      // basename denylist into the judge-readable scenario repo. A tracked symlink
+      // is not a project file the bench can faithfully relocate.
+      if (!st.isFile()) continue;
       mkdirSync(path.dirname(target), { recursive: true });
       copyFileSync(from, target);
     }
@@ -128,7 +133,9 @@ export function copyProjectTree(src: string, dest: string, opts: CopyTreeOptions
       if (ent.isDirectory()) {
         mkdirSync(to, { recursive: true });
         walk(from, to, relPath);
-      } else if (ent.isFile() || ent.isSymbolicLink()) {
+      } else if (ent.isFile()) {
+        // ent.isSymbolicLink() → skipped: copying would dereference the link and
+        // pull the target's content in (denylist bypass by indirection).
         copyFileSync(from, to);
       }
     }

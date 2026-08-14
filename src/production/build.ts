@@ -136,7 +136,13 @@ export function validateAuthoredManifest(
  */
 export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupResult> {
   const maxAttempts = deps.maxAttempts ?? 5;
-  for (let attempt = deps.resume?.attempt ?? 0; attempt < maxAttempts; attempt++) {
+  // A resumed (--plant) build gets its OWN maxAttempts-sized window from its start
+  // attempt — sharing the global cap with the fresh build would make a surface at
+  // the last original attempt resume at exactly maxAttempts and never enter the
+  // loop body, failing with a convergence error before the plant is ever tried.
+  const startAttempt = deps.resume?.attempt ?? 0;
+  const endAttempt = startAttempt + maxAttempts;
+  for (let attempt = startAttempt; attempt < endAttempt; attempt++) {
     const { backupPath, backupEntries } = await deps.seams.driveAndCapture(attempt);
     const { firstKeptEntryId } = await deps.seams.trialCompact(backupPath);
 
@@ -176,5 +182,7 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
     }
     // action.kind === "continue" → loop again (driveAndCapture(attempt+1) continues the session)
   }
-  throw new Error(`condition-landing did not converge after ${maxAttempts} attempts`);
+  throw new Error(
+    `condition-landing did not converge after ${maxAttempts} attempts (attempts ${startAttempt}..${endAttempt - 1})`,
+  );
 }

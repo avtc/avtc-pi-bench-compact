@@ -50,6 +50,11 @@ export function manifestStructureError(manifest: unknown): string | null {
   ) {
     return "taskObjective.description missing or empty";
   }
+  // testSpec may be "" (no embedded test) but MUST be a string — the done-snapshot
+  // judge slice dereferences `.testSpec.length` unguarded.
+  if (typeof (taskObjective as Record<string, unknown>).testSpec !== "string") {
+    return "taskObjective.testSpec must be a string (empty = no embedded test)";
+  }
 
   const boundary = m.compactionBoundary;
   if (
