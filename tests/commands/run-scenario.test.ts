@@ -9,6 +9,16 @@ import { fakeCommandCtx } from "./helpers.js";
 
 /** A capturing fake ctx with the notify + widget surface. */
 
+const VALID_MANIFEST = {
+  id: "scen-1",
+  recallFacts: [{ fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
+  doneOps: [{ description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] }],
+  supersessions: [],
+  abstentions: [],
+  probes: [{ question: "where are scores stored?", accept: ["~/.scores.json"], targets: ["e1"] }],
+  taskObjective: { description: "the task", testSpec: "npm test" },
+};
+
 describe("makeRunScenarioHandler", () => {
   it("missing folder arg → warning notify, no run", async () => {
     const { ctx, notifies } = fakeCommandCtx();
@@ -40,7 +50,7 @@ describe("makeRunScenarioHandler", () => {
   it("valid folder → resolves layout + loads manifest + calls executeRun with repoPath + manifest", async () => {
     const { ctx } = fakeCommandCtx();
     const folder = "/scen/repo";
-    const manifest = { id: "scen-1" };
+    const manifest = VALID_MANIFEST;
     const executeRun = vi
       .fn()
       .mockResolvedValue({ kind: "done", runId: "r", cfgId: "c", resultsPath: "/p", reportPath: "/r" });

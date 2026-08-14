@@ -50,7 +50,7 @@ export function readMessageEndUsage(event: MessageEndEvent): MessageUsage | null
 }
 
 /** Register a `turn_end` handler; returns a disposer to stop listening. Used by the
- *  live-progress widget and the Phase-2 context monitor. */
+ *  Phase-2 context monitor (the widget consumes the message events instead). */
 export function onTurnEnd(pi: ExtensionAPI, fn: (event: TurnEndEvent) => void): () => void {
   return subscribeAgentEvent(pi, "turn_end", (data) => {
     fn(data as TurnEndEvent);

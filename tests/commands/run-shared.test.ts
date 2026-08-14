@@ -64,8 +64,18 @@ describe("resolveScenarioLayout", () => {
 });
 
 describe("loadManifestFile", () => {
-  it("parses valid manifest JSON", () => {
-    const read = (): string => JSON.stringify(MANIFEST);
+  const VALID = {
+    id: "scen-1",
+    recallFacts: [{ fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
+    doneOps: [{ description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] }],
+    supersessions: [],
+    abstentions: [],
+    probes: [{ question: "where are scores stored?", accept: ["~/.scores.json"], targets: ["e1"] }],
+    taskObjective: { description: "the task", testSpec: "npm test" },
+  };
+
+  it("parses a structurally valid manifest", () => {
+    const read = (): string => JSON.stringify(VALID);
     const manifest = loadManifestFile("/p/manifest.json", read);
     expect(manifest.id).toBe("scen-1");
   });
@@ -73,6 +83,30 @@ describe("loadManifestFile", () => {
   it("throws on invalid JSON", () => {
     const read = (): string => "{not json";
     expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(SyntaxError);
+  });
+
+  it("refuses a manifest without taskObjective", () => {
+    const read = (): string => JSON.stringify({ ...VALID, taskObjective: undefined });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/taskObjective/);
+  });
+
+  it("refuses a manifest with an empty recallFacts list", () => {
+    const read = (): string => JSON.stringify({ ...VALID, recallFacts: [] });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/recallFacts.*empty/);
+  });
+
+  it("refuses a probe carrying both accept and correctRefusal", () => {
+    const read = (): string =>
+      JSON.stringify({
+        ...VALID,
+        probes: [{ question: "q?", accept: ["a"], correctRefusal: true, targets: ["e1"] }],
+      });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/exactly one of accept or correctRefusal/);
+  });
+
+  it("refuses a probe with empty targets", () => {
+    const read = (): string => JSON.stringify({ ...VALID, probes: [{ question: "q?", accept: ["a"], targets: [] }] });
+    expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/targets/);
   });
 });
 

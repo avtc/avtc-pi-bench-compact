@@ -17,6 +17,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { getBenchConfig } from "../config/accessor.js";
 import type { BenchConfig } from "../config/types.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
+import { manifestStructureError } from "../manifest/validate.js";
 import type { RunResult, StartRunDeps } from "../orchestrate/run.js";
 import { startRun as startRunImpl } from "../orchestrate/run.js";
 import { isRunInFlight } from "../orchestrate/run-state.js";
@@ -66,13 +67,19 @@ export function resolveScenarioLayout(folder: string, exists: (path: string) => 
   };
 }
 
-/** Read + parse a frozen scenario manifest from disk. Throws on invalid JSON. */
+/** Read + parse a frozen scenario manifest from disk. Throws on invalid JSON or
+ *  when the parsed manifest fails the structural check (one-line refusal). */
 export function loadManifestFile(
   manifestPath: string,
   read: (path: string, opts: { encoding: "utf-8" }) => string,
 ): ScenarioManifest {
   const text = read(manifestPath, { encoding: "utf-8" });
-  return JSON.parse(text) as ScenarioManifest;
+  const parsed = JSON.parse(text) as ScenarioManifest;
+  const structureError = manifestStructureError(parsed);
+  if (structureError !== null) {
+    throw new Error(`manifest ${manifestPath} failed structural validation: ${structureError}`);
+  }
+  return parsed;
 }
 
 /** The narrow surface executeRun needs from the command context. {@link

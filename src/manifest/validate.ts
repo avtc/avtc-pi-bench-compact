@@ -31,6 +31,60 @@ export interface ManifestValidationContext {
 
 export type ManifestValidationResult = { ok: true } | { ok: false; reasons: string[] };
 
+/** Light STRUCTURAL check of a parsed frozen manifest (no session context needed —
+ *  the semantic in-span/content checks live in {@link validateManifest}). Guards
+ *  load-time use (run-scenario / prepare-then-run): a hand-edited or corrupted
+ *  manifest fails here with one actionable line instead of deep in scoring.
+ *  Returns the first violation as a message, or null when structurally sound. */
+export function manifestStructureError(manifest: unknown): string | null {
+  if (typeof manifest !== "object" || manifest === null) {
+    return "manifest is not an object";
+  }
+  const m = manifest as Record<string, unknown>;
+
+  const taskObjective = m.taskObjective;
+  if (
+    typeof taskObjective !== "object" ||
+    taskObjective === null ||
+    typeof (taskObjective as Record<string, unknown>).description !== "string" ||
+    (taskObjective as Record<string, unknown>).description === ""
+  ) {
+    return "taskObjective.description missing or empty";
+  }
+
+  for (const list of ["recallFacts", "doneOps"] as const) {
+    if (!Array.isArray(m[list]) || (m[list] as unknown[]).length === 0) {
+      return `condition list "${list}" missing or empty`;
+    }
+  }
+
+  const probes = m.probes;
+  if (!Array.isArray(probes)) {
+    return 'condition list "probes" missing';
+  }
+  for (const probe of probes) {
+    if (typeof probe !== "object" || probe === null) {
+      return "probe is not an object";
+    }
+    const q = (probe as Record<string, unknown>).question;
+    if (typeof q !== "string" || q === "") {
+      return "probe.question missing or empty";
+    }
+    const accept = (probe as Record<string, unknown>).accept;
+    const refusal = (probe as Record<string, unknown>).correctRefusal;
+    const hasAccept = Array.isArray(accept) && accept.length > 0;
+    const hasRefusal = refusal === true;
+    if (hasAccept === hasRefusal) {
+      return `probe "${q}": must have exactly one of accept or correctRefusal`;
+    }
+    const targets = (probe as Record<string, unknown>).targets;
+    if (!Array.isArray(targets) || targets.length === 0) {
+      return `probe "${q}": targets missing or empty`;
+    }
+  }
+  return null;
+}
+
 interface CitedCondition {
   readonly id: string;
   readonly entryIds: readonly string[];

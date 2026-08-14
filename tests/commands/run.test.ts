@@ -7,6 +7,16 @@ import type { PrepareDeps } from "../../src/production/prepare.js";
 
 import { fakeCommandCtx } from "./helpers.js";
 
+const VALID_MANIFEST = {
+  id: "scen-1",
+  recallFacts: [{ fact: "scores live in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
+  doneOps: [{ description: "built the shop", artifact: "src/shop.ts", reworkable: false, entryIds: ["e2"] }],
+  supersessions: [],
+  abstentions: [],
+  probes: [{ question: "where are scores stored?", accept: ["~/.scores.json"], targets: ["e1"] }],
+  taskObjective: { description: "the task", testSpec: "npm test" },
+};
+
 describe("makeRunHandler", () => {
   it("missing idea + no --from-session → warning notify, no prepare", async () => {
     const { ctx, notifies } = fakeCommandCtx();
@@ -19,7 +29,7 @@ describe("makeRunHandler", () => {
 
   it("valid idea → prepareScenario (build) → loadManifest → executeRun with repoPath + manifest", async () => {
     const { ctx } = fakeCommandCtx();
-    const manifest = { id: "scen-1" };
+    const manifest = VALID_MANIFEST;
     const prepareScenario = vi.fn().mockResolvedValue({ repoPath: "/repo/x", manifestPath: "/m.json" });
     const executeRun = vi.fn().mockResolvedValue({ kind: "done" });
     const buildDeps = vi.fn().mockReturnValue({} as unknown as PrepareDeps);
