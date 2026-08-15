@@ -216,6 +216,10 @@ export class SimulatorDriver {
         this._step === 0 && this.deps.firstInstruction !== undefined
           ? this.deps.firstInstruction
           : nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
+      log.info(
+        `simulator cycle ${this._step}: ${unobserved.length} entries → ${chunks.length} chunk(s), ` +
+          `${renderedChunk.length} chars rendered, instruction ${harnessInstruction.length} chars`,
+      );
       const messages = buildSimulatorInput({ renderedChunk, harnessInstruction });
 
       // 5. run ONE stage (maxTurns:1, no tools) → the simulator's next user voice

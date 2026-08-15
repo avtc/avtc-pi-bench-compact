@@ -180,6 +180,30 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
       `prepare: attempt ${attempt} landing — ${action.kind}` +
         (missingIds.length > 0 ? ` (missing: ${missingIds})` : ""),
     );
+    // Diagnostic breakdown per non-landed topic: WHY it did not land. `unknown`
+    // citations are entry ids the classifier could not resolve in the backup —
+    // an authoring-side hallucination shows up here (the author only ever saw
+    // pre-cut entries, so genuine `postCut` citations are structurally impossible).
+    const cutIdx = buildEntryOrder(backupEntries).get(firstKeptEntryId);
+    for (const t of notLanded) {
+      const conditions = manifest[`${t.topic.metricAxis}s` as keyof ScenarioManifest] as readonly {
+        entryIds: readonly string[];
+      }[];
+      const cited = (conditions ?? []).flatMap((c) => c.entryIds);
+      const order = buildEntryOrder(backupEntries);
+      const inSpan = cited.filter((id) => {
+        const idx = order.get(id);
+        return idx !== undefined && (cutIdx === undefined || idx < cutIdx);
+      }).length;
+      const postCut = cited.filter((id) => {
+        const idx = order.get(id);
+        return idx !== undefined && cutIdx !== undefined && idx >= cutIdx;
+      }).length;
+      const unknown = cited.filter((id) => order.get(id) === undefined).length;
+      log.info(
+        `prepare: attempt ${attempt} landing detail — ${t.topic.id}: status=${t.status}, conditions=${(conditions ?? []).length}, citations inSpan=${inSpan} postCut=${postCut} unknown=${unknown}`,
+      );
+    }
     if (action.kind === "proceed") {
       validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
       return { backupPath, backupEntries, manifest };
