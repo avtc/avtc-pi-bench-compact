@@ -47,6 +47,7 @@ import {
   type ConfigureArmOp,
   type CtxHolder,
   type DriveAndCaptureSeamDeps,
+  extractDetailFromCapture,
   type ResolveModel,
   type RunAuthor,
   type RunStage,
@@ -172,6 +173,7 @@ describe("buildTrialCompactSeam", () => {
     let triggered = false;
     let configuredArm: string | null = null;
     const trialCompact = buildTrialCompactSeam({
+      signal: new AbortController().signal,
       holder,
       repoCwd: "/repo",
       omFullReflectionThresholdTokens: 4000,
@@ -204,6 +206,7 @@ describe("buildTrialCompactSeam", () => {
     const configured: { arm: string; repoCwd: string; threshold: number } = { arm: "", repoCwd: "", threshold: 0 };
     const fakeProxies = { om: {}, mk: {} } as unknown as MemoryProxies;
     const trialCompact = buildTrialCompactSeam({
+      signal: new AbortController().signal,
       holder,
       repoCwd: "/repo",
       omFullReflectionThresholdTokens: 4000,
@@ -695,6 +698,7 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
     const trialCompact = buildTrialCompactSeam({
       holder,
       repoCwd: "/repo",
+      signal: new AbortController().signal,
       omFullReflectionThresholdTokens: 4000,
       trialCopyPath: "/tmp/trial.jsonl",
       copyFile: () => {},
@@ -1035,5 +1039,51 @@ describe("driveAndCapture — plant threading (plant-and-continue resume)", () =
     });
     await driveAndCapture(0);
     expect(seen[0]).toBeUndefined();
+  });
+});
+
+describe("extractDetailFromCapture (extract-phase widget coverage)", () => {
+  it("maps capture lists to topic coverage + point count", () => {
+    expect(extractDetailFromCapture({ recallFacts: [{}, {}], doneOps: [{}], supersessions: [], abstentions: [] })).toBe(
+      "topics 2/4 · 3 pts",
+    );
+    expect(extractDetailFromCapture({ recallFacts: [{}] })).toBe("topics 1/4 · 1 pts");
+  });
+
+  it("non-object payload → null (no detail)", () => {
+    expect(extractDetailFromCapture(null)).toBeNull();
+    expect(extractDetailFromCapture("x")).toBeNull();
+  });
+
+  it("buildAuthorSeam threads onCapture → widget.setDetail on intermediate captures", async () => {
+    const details: string[] = [];
+    const widget = {
+      startPhase: () => {},
+      setDetail: (d: string) => details.push(d),
+      onEvent: () => {},
+      onModelResolved: () => {},
+    } as unknown as WidgetPort;
+    const author = buildAuthorSeam({
+      ctxGetter: () => fakeCtx,
+      evaluatedModel: "provider/model-a",
+      scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      widget,
+      runAuthor: (async (deps: { onCapture: (p: unknown) => void }) => {
+        // two intermediate captures, as write_manifest would fire them
+        deps.onCapture({ recallFacts: [{}] });
+        deps.onCapture({ recallFacts: [{}, {}], doneOps: [{}], supersessions: [{}], abstentions: [{}] });
+        return {
+          id: "sc1",
+          recallFacts: [],
+          doneOps: [],
+          supersessions: [],
+          probes: [],
+        } as unknown as ScenarioManifest;
+      }) as unknown as RunAuthor,
+    });
+    await author("/tmp/sliced-0.jsonl");
+    expect(details).toEqual(["topics 1/4 · 1 pts", "topics 4/4 · 5 pts"]);
   });
 });

@@ -45,10 +45,14 @@ export interface JsonOutputTool<TParameters extends TSchema = TSchema> extends A
  *  arguments validated against `paramSchema`; validated objects accumulate on
  *  `tool._captured` and the agent is acked. Invalid arguments are rejected with
  *  an error text (nothing accumulated). */
+/** Named no-op for an absent capture callback (explicit at call sites). */
+export const NO_CAPTURE: (payload: unknown) => void = () => {};
+
 export function makeJsonOutputTool<TParameters extends TSchema>(
   name: string,
   description: string,
   paramSchema: TParameters,
+  onCapture: (payload: unknown) => void,
 ): JsonOutputTool<TParameters> {
   const captured: unknown[] = [];
   const tool: JsonOutputTool<TParameters> = {
@@ -69,6 +73,7 @@ export function makeJsonOutputTool<TParameters extends TSchema>(
         };
       }
       captured.push(params);
+      onCapture(params);
       return {
         content: [{ type: "text", text: `recorded ${name}; stop calling tools and reply Done` }],
         details: { accepted: 1, rejected: 0 },

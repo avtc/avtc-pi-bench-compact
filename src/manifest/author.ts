@@ -49,6 +49,9 @@ export interface KnownCondition {
 export type AuthoringSeams = JsonToolStageSeams;
 
 export interface RunAuthoringAgentDeps {
+  /** Fires on EVERY accepted write_manifest call (intermediate captures included) —
+   *  the live-progress widget's extract-phase coverage signal. */
+  readonly onCapture: (payload: unknown) => void;
   readonly seams: AuthoringSeams;
   /** Working directory the authoring tools operate in (the scenario repo). */
   readonly cwd: string;
@@ -235,8 +238,16 @@ export function buildAuthoringSystemPrompt(deps: {
  * `bash` (for JSONL parsing) bound to `cwd` + the `write_manifest` terminal
  * tool (validated against `AUTHOR_OUTPUT_SCHEMA`, captures payloads on `._captured`).
  */
-export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeManifest: JsonOutputTool } {
-  const writeManifest = makeJsonOutputTool("write_manifest", WRITE_MANIFEST_DESCRIPTION, AUTHOR_OUTPUT_SCHEMA);
+export function buildAuthoringTools(
+  cwd: string,
+  onCapture: (payload: unknown) => void,
+): { tools: AgentTool[]; writeManifest: JsonOutputTool } {
+  const writeManifest = makeJsonOutputTool(
+    "write_manifest",
+    WRITE_MANIFEST_DESCRIPTION,
+    AUTHOR_OUTPUT_SCHEMA,
+    onCapture,
+  );
   const tools: AgentTool[] = [...benchAuthoringTools(cwd), writeManifest];
   return { tools, writeManifest };
 }
@@ -253,7 +264,7 @@ export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeMan
 const JSONL_NEWLINE = "\n";
 
 export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<ScenarioManifest> {
-  const { tools, writeManifest } = buildAuthoringTools(deps.cwd);
+  const { tools, writeManifest } = buildAuthoringTools(deps.cwd, deps.onCapture);
   const systemPrompt = buildAuthoringSystemPrompt({
     preSlicedJsonlPath: deps.preSlicedJsonlPath,
     knownConditions: deps.knownConditions,

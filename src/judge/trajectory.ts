@@ -12,7 +12,7 @@
 import { Type } from "typebox";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { MetricId } from "../metrics/defs.js";
-import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool, NO_CAPTURE } from "../runtime/tools.js";
 import { renderDoneOps } from "./context.js";
 import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
@@ -101,6 +101,7 @@ export async function gradeTrajectory(deps: GradeTrajectoryDeps): Promise<Trajec
     "record_grades",
     RECORD_GRADES_DESCRIPTION,
     RECORD_GRADES_SCHEMA,
+    NO_CAPTURE,
   );
   const stageDeps = buildStageDeps(deps, {
     tools: benchReadOnlyTools(deps.cwd), // terminal tool auto-appended by runJsonToolStage

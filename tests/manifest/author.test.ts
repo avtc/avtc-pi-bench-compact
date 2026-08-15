@@ -107,7 +107,7 @@ describe("postProcessManifest (pure)", () => {
 
 describe("buildAuthoringTools", () => {
   it("composes read-only core tools (read/grep/find/ls) + bash + a write_manifest tool", () => {
-    const { tools, writeManifest } = buildAuthoringTools(process.cwd());
+    const { tools, writeManifest } = buildAuthoringTools(process.cwd(), () => {});
     const names = tools.map((t) => t.name);
     expect(names).toContain("read");
     expect(names).toContain("grep");
@@ -118,7 +118,7 @@ describe("buildAuthoringTools", () => {
   });
 
   it("write_manifest captures validated payloads on _captured", async () => {
-    const { writeManifest } = buildAuthoringTools(process.cwd());
+    const { writeManifest } = buildAuthoringTools(process.cwd(), () => {});
     const res = await writeManifest.execute("call1", {
       recallFacts: [{ fact: "x", accept: ["x"], entryIds: ["e1"] }],
       doneOps: [],
@@ -131,8 +131,23 @@ describe("buildAuthoringTools", () => {
     expect(res.terminate).toBe(true); // signals the agent to stop
   });
 
+  it("write_manifest fires onCapture per ACCEPTED payload (widget progress signal)", async () => {
+    const seen: unknown[] = [];
+    const { writeManifest } = buildAuthoringTools(process.cwd(), (p) => seen.push(p));
+    await writeManifest.execute("call1", {
+      recallFacts: [{ fact: "x", accept: ["x"], entryIds: ["e1"] }],
+      doneOps: [],
+      supersessions: [],
+      abstentions: [],
+      probes: [],
+      taskObjective: { description: "x", testSpec: "npm test" },
+    });
+    await writeManifest.execute("call2", { recallFacts: [{ fact: "x", accept: "x", entryIds: ["e1"] }] }); // rejected
+    expect(seen).toHaveLength(1); // only the accepted capture fires
+  });
+
   it("write_manifest rejects malformed payloads (nothing captured)", async () => {
-    const { writeManifest } = buildAuthoringTools(process.cwd());
+    const { writeManifest } = buildAuthoringTools(process.cwd(), () => {});
     await writeManifest.execute("call1", { recallFacts: [{ fact: "x", accept: "x", entryIds: ["e1"] }] }); // accept not array
     expect(writeManifest._captured).toHaveLength(0);
   });
@@ -167,6 +182,7 @@ describe("runAuthoringAgent", () => {
     };
 
     const manifest = await runAuthoringAgent({
+      onCapture: () => {},
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/sliced.jsonl",
@@ -194,6 +210,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
+        onCapture: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -217,6 +234,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
+        onCapture: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -253,6 +271,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
+        onCapture: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -288,6 +307,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
+        onCapture: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -332,6 +352,7 @@ describe("runAuthoringAgent", () => {
       },
     };
     const manifest = await runAuthoringAgent({
+      onCapture: () => {},
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -381,6 +402,7 @@ describe("runAuthoringAgent", () => {
       sleep: async () => {},
     };
     const manifest = await runAuthoringAgent({
+      onCapture: () => {},
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/x.jsonl",

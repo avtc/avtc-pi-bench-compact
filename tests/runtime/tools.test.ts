@@ -3,7 +3,7 @@
 
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { benchAuthoringTools, benchReadOnlyTools, makeJsonOutputTool } from "../../src/runtime/tools.js";
+import { benchAuthoringTools, benchReadOnlyTools, makeJsonOutputTool, NO_CAPTURE } from "../../src/runtime/tools.js";
 
 const TMP = import.meta.dirname ?? ".";
 
@@ -31,7 +31,7 @@ describe("benchAuthoringTools", () => {
 describe("makeJsonOutputTool", () => {
   it("builds a valid AgentTool (name/description/parameters/execute)", () => {
     const schema = Type.Object({ value: Type.Integer() });
-    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);
+    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema, NO_CAPTURE);
     expect(tool.name).toBe("write_thing");
     expect(tool.description).toBe("Emit the thing as JSON.");
     expect(tool.label).toBe("write_thing");
@@ -41,7 +41,7 @@ describe("makeJsonOutputTool", () => {
 
   it("execute validates params against the schema, accumulates the emitted JSON, and acks the agent", async () => {
     const schema = Type.Object({ value: Type.Integer() });
-    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);
+    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema, NO_CAPTURE);
     const result = await tool.execute("call-1", { value: 7 } as unknown as Parameters<typeof tool.execute>[1]);
     expect(result.content).toEqual([{ type: "text", text: expect.stringMatching(/recorded|captured|done/i) }]);
     expect(tool._captured).toEqual([{ value: 7 }]);
@@ -49,7 +49,7 @@ describe("makeJsonOutputTool", () => {
 
   it("_captured returns a defensive copy — mutating it does not corrupt internal state", async () => {
     const schema = Type.Object({ value: Type.Integer() });
-    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);
+    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema, NO_CAPTURE);
     await tool.execute("call-1", { value: 7 } as unknown as Parameters<typeof tool.execute>[1]);
     const view = tool._captured;
     expect(view).toHaveLength(1);
@@ -60,7 +60,7 @@ describe("makeJsonOutputTool", () => {
 
   it("execute rejects params that fail schema validation (does not accumulate)", async () => {
     const schema = Type.Object({ value: Type.Integer() });
-    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema);
+    const tool = makeJsonOutputTool("write_thing", "Emit the thing as JSON.", schema, NO_CAPTURE);
     const result = await tool.execute("call-1", { value: "not-an-int" } as unknown as Parameters<
       typeof tool.execute
     >[1]);

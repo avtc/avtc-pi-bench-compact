@@ -5,14 +5,14 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { buildStageDeps, type JsonToolStageSeams, runJsonToolStage } from "../../src/judge/stage-runner.js";
-import { type JsonOutputTool, makeJsonOutputTool } from "../../src/runtime/tools.js";
+import { type JsonOutputTool, makeJsonOutputTool, NO_CAPTURE } from "../../src/runtime/tools.js";
 import { callTerminal, capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
 
 const SCHEMA = Type.Object({ value: Type.String() });
 
 describe("runJsonToolStage", () => {
   it("returns the last captured payload from the terminal tool", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const { seams } = capturingSeams("emit", { value: "hello" });
     const payload = await runJsonToolStage({
       seams,
@@ -28,7 +28,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("fires onModelResolved after resolve + forwards onEvent to runStage", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const resolvedModels: unknown[] = [];
     const fakeEvent = { type: "message_update" } as unknown as Parameters<
       NonNullable<JsonToolStageSeams["onEvent"]>
@@ -66,7 +66,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("throws when the model is unavailable, naming the stage in the message", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const seams: JsonToolStageSeams = {
       resolveModel: async () => ({ ok: false, error: "no model" }),
       runStage: async () => cleanResult(),
@@ -86,7 +86,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("auto-appends the terminal tool when the caller omits it from tools (R7)", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     let seenTools: readonly AgentTool[] = [];
     const seams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,
@@ -112,7 +112,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("does not double-append the terminal tool when the caller already included it (R7)", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     let count = 0;
     const seams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,
@@ -137,7 +137,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("throws on a timed-out stage, naming the stage in the message", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const seams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,
       runStage: async (input) => {
@@ -161,7 +161,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("throws on an aborted stage", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const seams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,
       runStage: async () => ({ ...cleanResult(), aborted: true }),
@@ -181,7 +181,7 @@ describe("runJsonToolStage", () => {
   });
 
   it("throws when the terminal tool was never called (no capture)", async () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const seams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,
       runStage: async () => cleanResult(),
@@ -203,7 +203,7 @@ describe("runJsonToolStage", () => {
 
 describe("buildStageDeps", () => {
   it("threads the transport fields (seams/maxTokens/signal/rateLimitOptions) + content into RunJsonToolStageDeps", () => {
-    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA);
+    const terminal = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const ctrl = new AbortController();
     const transportSeams: JsonToolStageSeams = {
       resolveModel: async () => OK_MODEL,

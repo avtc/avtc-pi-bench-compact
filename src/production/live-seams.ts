@@ -152,6 +152,25 @@ const AUTHOR_MAX_TOKENS = 8192;
 
 /** Build the `author` seam: run the manifest-authoring agent on the pre-sliced JSONL.
  *  The authoring tools' cwd is the JSONL's directory (so the file is within tool scope). */
+/** Widget detail for the extract phase from an intermediate write_manifest
+ *  capture: topic coverage (condition lists with >=1 item) + raw point count. */
+export function extractDetailFromCapture(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as {
+    recallFacts?: readonly unknown[];
+    doneOps?: readonly unknown[];
+    supersessions?: readonly unknown[];
+    abstentions?: readonly unknown[];
+  };
+  const rf = p.recallFacts?.length ?? 0;
+  const dops = p.doneOps?.length ?? 0;
+  const ss = p.supersessions?.length ?? 0;
+  const ab = p.abstentions?.length ?? 0;
+  const topics = [rf, dops, ss, ab].filter((n) => n > 0).length;
+  const pts = rf + dops + ss + ab;
+  return `topics ${topics}/4 · ${pts} pts`;
+}
+
 export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
   const resolve = deps.resolveModel ?? resolveBenchModel;
   const runStage = deps.runStage ?? runBenchStage;
@@ -170,6 +189,10 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
       cwd: dirname(preSlicedJsonlPath),
       preSlicedJsonlPath,
       scenarioCtx: deps.scenarioCtx,
+      onCapture: (payload: unknown): void => {
+        const detail = extractDetailFromCapture(payload);
+        if (detail !== null) deps.widget?.setDetail(detail);
+      },
       signal: deps.signal,
       maxTokens: deps.maxTokens,
       rateLimitOptions: deps.rateLimitOptions,
@@ -294,6 +317,8 @@ function disableMemoryHooks(
 export interface TrialCompactSeamDeps {
   readonly holder: CtxHolder;
   readonly repoCwd: string;
+  /** Cooperative-abort signal — aborting it cancels an in-flight trial compaction. */
+  readonly signal: AbortSignal;
   readonly omFullReflectionThresholdTokens: number;
   /** Where to write the trial copy (must be OUTSIDE the repo — contamination rule). */
   readonly trialCopyPath: string;
@@ -328,7 +353,7 @@ export function buildTrialCompactSeam(deps: TrialCompactSeamDeps): BuildSeams["t
       const pi = getPi();
       // Disable the memory arms' hooks so this compaction is NATIVE (bare-pi cut).
       disableMemoryHooks(pi, getProxies(), deps.repoCwd, deps.omFullReflectionThresholdTokens, configure);
-      return trigger(pi, sessionCtx, {});
+      return trigger(pi, sessionCtx, { signal: deps.signal });
     });
     log.info(
       `prepare: trial compaction cut at ${compactionEntry.firstKeptEntryId}` +
@@ -691,6 +716,7 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   const trialCompact = buildTrialCompactSeam({
     holder,
     repoCwd: args.repoPath,
+    signal: args.signal,
     omFullReflectionThresholdTokens: args.config.omFullReflectionThresholdTokens,
     trialCopyPath: join(args.preSliceDir, TRIAL_COPY_NAME),
     getPi: getBenchPi,

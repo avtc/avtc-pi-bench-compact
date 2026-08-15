@@ -10,7 +10,7 @@
 
 import { Type } from "typebox";
 import type { ScenarioManifest } from "../manifest/schema.js";
-import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool, NO_CAPTURE } from "../runtime/tools.js";
 import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
 import { type JsonToolStageSeams, type RunJsonToolStageDeps, runJsonToolStage } from "./stage-runner.js";
@@ -94,6 +94,7 @@ export async function findFirstCorrectUse(deps: FindFirstCorrectUseDeps): Promis
     "report_boundary",
     REPORT_BOUNDARY_DESCRIPTION,
     REPORT_BOUNDARY_SCHEMA,
+    NO_CAPTURE,
   );
   const stageDeps: RunJsonToolStageDeps = {
     seams: deps.seams,

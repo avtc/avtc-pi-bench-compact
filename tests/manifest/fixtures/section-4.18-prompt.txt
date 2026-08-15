@@ -63,7 +63,9 @@ conditions yourself. Either way, record only what is genuinely in the session.
 
 OUTPUT
 
-When done, call write_manifest with a JSON object of this shape:
+You may call write_manifest multiple times as your picture firms up — intermediate
+calls are progress snapshots and the last complete call wins. When done, call
+write_manifest with a JSON object of this shape:
 {
   "recallFacts": [
     { "fact": "<the decision/detail as a short statement>",

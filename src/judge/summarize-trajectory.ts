@@ -19,7 +19,7 @@
 
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { MetricId } from "../metrics/defs.js";
-import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool, Type } from "../runtime/tools.js";
+import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool, NO_CAPTURE, Type } from "../runtime/tools.js";
 import { renderDoneOps } from "./context.js";
 import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
@@ -123,6 +123,7 @@ export async function summarizeTrajectory(deps: TrajectorySummaryDeps): Promise<
     "write_summary",
     WRITE_SUMMARY_DESCRIPTION,
     WRITE_SUMMARY_SCHEMA,
+    NO_CAPTURE,
   );
   const stageDeps = buildStageDeps(deps, {
     tools: benchReadOnlyTools(deps.cwd),
