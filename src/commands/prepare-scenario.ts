@@ -66,10 +66,12 @@ export interface PrepareScenarioHandlerOptions {
   readonly buildDeps: (ctx: unknown, parsed: PrepareArgs, scenarioId: string) => PrepareDeps;
   /** Construct the live-progress widget (default: {@link makePrepareWidget}). Tests inject a capturing widget. */
   readonly makeWidget?: (ctx: unknown) => WidgetPort;
+  /** Construct the shorthand path's prepare widget (default: same {@link makePrepareWidget}). */
+  readonly makePrepareWidget?: (ctx: unknown) => WidgetPort;
 }
 
 /** Construct the prepare-scenario live-progress widget (TUI-only; inert when non-TUI). */
-function makePrepareWidget(ctx: unknown): WidgetPort {
+export function makePrepareWidget(ctx: unknown): WidgetPort {
   const c = ctx as {
     mode?: string;
     hasUI?: boolean;

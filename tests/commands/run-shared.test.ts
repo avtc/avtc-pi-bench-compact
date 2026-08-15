@@ -3,7 +3,13 @@
 
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { executeRun, guardPreflight, loadManifestFile, resolveScenarioLayout } from "../../src/commands/run-shared.js";
+import {
+  executeRun,
+  guardPreflight,
+  invokeShorthand,
+  loadManifestFile,
+  resolveScenarioLayout,
+} from "../../src/commands/run-shared.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { getActiveWidget, setActiveWidget } from "../../src/widget/active-widget.js";
@@ -203,6 +209,44 @@ describe("executeRun", () => {
     expect(notifies.some((n) => n.msg === stopMessage)).toBe(true);
     // executeRun must NOT add its own redundant stop notify
     expect(notifies.filter((n) => n.msg.includes("/bench-compact:resume"))).toHaveLength(0);
+  });
+
+  it("the shorthand's prepare phase drives a FRESH prepare widget (visible during the build drive)", async () => {
+    // /bench-compact:run <idea> previously ran its entire prepare widget-less (hours
+    // of build drive with no progress line); it must instead set a fresh prepare
+    // widget that the build/extract seams read for ctx/tok — and NOT re-animate a
+    // stale terminal widget from a prior command (the stale-leak hazard that once
+    // motivated clearing the widget entirely).
+    const stale: { status: string[] } = { status: [] };
+    setActiveWidget({ setStatus: (s: string) => stale.status.push(s) } as unknown as Parameters<
+      typeof setActiveWidget
+    >[0]);
+    const duringPrepare: unknown[] = [];
+    const { ctx } = fakeCommandCtx();
+    await invokeShorthand(
+      ctx,
+      {
+        idea: "build an ai-company tycoon game",
+        force: false,
+        fromSession: undefined,
+        plantFrom: undefined,
+        skipFrom: undefined,
+        skipTopics: undefined,
+        error: undefined,
+      },
+      {
+        buildDeps: (() => ({})) as unknown as Parameters<typeof invokeShorthand>[2]["buildDeps"],
+        prepareScenario: (async () => {
+          duringPrepare.push(getActiveWidget());
+          return { repoPath: "/scen/repo", manifestPath: "/scen/manifest.json", liveCtx: { current: ctx } };
+        }) as unknown as Parameters<typeof invokeShorthand>[2]["prepareScenario"],
+        readManifest: () => JSON.stringify(MANIFEST),
+        executeRun: async () => undefined,
+      },
+    );
+    expect(duringPrepare).toHaveLength(1);
+    expect(duringPrepare[0]).not.toBeNull(); // fresh widget active DURING prepare
+    expect(stale.status).toHaveLength(0); // the stale prior widget was NOT re-animated
   });
 
   it("sets the widget active (so /abort can reach it)", async () => {

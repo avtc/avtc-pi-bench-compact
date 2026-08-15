@@ -23,14 +23,10 @@ import { startRun as startRunImpl } from "../orchestrate/run.js";
 import { beginPrepare, endPrepare, isPrepareInFlight, isRunInFlight } from "../orchestrate/run-state.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
-import { setActiveWidget } from "../widget/active-widget.js";
-
-/** Named null for {@link setActiveWidget} (no-bare-literals). */
-const NO_ACTIVE_WIDGET: null = null;
-
+import { getActiveWidget, setActiveWidget } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
 import type { PrepareArgs } from "./parse.js";
-import { computeScenarioId, defaultBuildPrepareDeps } from "./prepare-scenario.js";
+import { computeScenarioId, defaultBuildPrepareDeps, makePrepareWidget } from "./prepare-scenario.js";
 import type { CommandArgs, CommandKind } from "./validate.js";
 import { preflight } from "./validate.js";
 
@@ -131,10 +127,12 @@ interface PrepareThenRunOptions {
 
 /** Prepare (build/extract) then run. See {@link PrepareThenRunOptions}. */
 async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
-  // Clear any stale active widget so the prepare seams (which read getActiveWidget)
-  // don't re-animate a prior command's terminal widget. executeRun sets the run widget
-  // after prepare; the shorthand's prepare phase is intentionally widget-less.
-  setActiveWidget(NO_ACTIVE_WIDGET);
+  // Set a FRESH prepare widget (replacing any stale terminal widget from a prior
+  // command — never re-animating it) so the shorthand's build/extract drive shows
+  // live progress exactly like /bench-compact:prepare-scenario does. The build/extract
+  // seams read it via getActiveWidget for ctx/tok; executeRun replaces it with the run
+  // widget once prepare succeeds.
+  setActiveWidget(makePrepareWidget(opts.ctx));
   // Capture the UI surface EAGERLY: prepare's build/extract work switchSessions, which
   // invalidates the command ctx's guarded getters — the catch-path notifies below fire
   // AFTER those switches, so a lazy ctx.ui read would throw "stale" (the uiContext
@@ -162,6 +160,7 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     notify(`prepare failed: ${msg}`, "error");
+    getActiveWidget()?.setStatus("stopped", "/bench-compact:prepare-scenario");
     return;
   } finally {
     endPrepare();
@@ -173,6 +172,7 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     notify(`failed to load manifest ${manifestPath}: ${msg}`, "error");
+    getActiveWidget()?.setStatus("stopped", "/bench-compact:prepare-scenario");
     return;
   }
 
