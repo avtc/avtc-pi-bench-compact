@@ -21,7 +21,9 @@ import { initBenchConfig } from "./config/accessor.js";
 import { registerBenchSettings } from "./config/schema.js";
 import { log } from "./log.js";
 import { setBenchPi } from "./orchestrate/bench-ctx.js";
+import { subscribeToDialogCoordinator } from "./snippets/vendored/subscribe-to-dialog-coordinator.js";
 import { subscribeToMemkeeper } from "./snippets/vendored/subscribe-to-memkeeper.js";
+import { subscribeToNotificationApi } from "./snippets/vendored/subscribe-to-notifications.js";
 import { subscribeToObservationalMemory } from "./snippets/vendored/subscribe-to-observational-memory.js";
 
 export default function activate(pi: ExtensionAPI): void {
@@ -44,4 +46,12 @@ export default function activate(pi: ExtensionAPI): void {
   const om = subscribeToObservationalMemory(pi);
   const mk = subscribeToMemkeeper(pi);
   setMemoryProxies({ om, mk });
+
+  // Operator-facing UI plumbing (both no-ops when the extensions are absent):
+  // - dialog coordination — bench dialogs queue behind any open modal instead of
+  //   stealing focus (askOperator serializes through it)
+  // - notification attention — an away-from-keyboard operator is pinged while a
+  //   bench dialog blocks (askOperator wraps the ask with it)
+  subscribeToDialogCoordinator(pi);
+  subscribeToNotificationApi(pi);
 }

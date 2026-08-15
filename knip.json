@@ -14,7 +14,8 @@
     "scripts/**/*.{cjs,mjs,js,ts}"
   ],
   "ignore": [
-    "**/docs/**"
+    "**/docs/**",
+    "**/src/snippets/**"
   ],
   "ignoreDependencies": [
     "avtc-pi-logger",

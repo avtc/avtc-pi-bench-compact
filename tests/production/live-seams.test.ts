@@ -12,6 +12,9 @@ import { defaultBuildPrepareDeps } from "../../src/commands/prepare-scenario.js"
 import { LANDING_FILE, type LandingState, writeLandingState } from "../../src/production/landing-state.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 
+const MESSAGE_END_EVENT = "message_end";
+const SESSION_COMPACT_EVENT = "session_compact";
+
 /** A capturing WidgetPort: records startPhase calls. */
 function capturingWidget(): WidgetPort & { phases: string[] } {
   const phases: string[] = [];
@@ -410,7 +413,7 @@ describe("buildDriveAndCaptureSeam", () => {
           cycles += 1;
           // A marathon tool-looping turn: the assistant keeps producing messages
           // (message_end) with usage far past the target — mid-turn, no settle yet.
-          for (const h of handlers["message_end"] ?? []) {
+          for (const h of handlers[MESSAGE_END_EVENT] ?? []) {
             h({ message: { role: "assistant", usage: { input: 150000, output: 1000, cacheRead: 0, cacheWrite: 0 } } });
           }
           if (cycles >= 3 && stopReason === null) {
@@ -461,7 +464,7 @@ describe("buildDriveAndCaptureSeam", () => {
         trackContext: () => {},
         onAgentSettled: async () => {
           // pi auto-compacts the build session mid-drive
-          for (const h of handlers["session_compact"] ?? []) {
+          for (const h of handlers[SESSION_COMPACT_EVENT] ?? []) {
             h({ type: "session_compact", summary: "auto", aborted: false });
           }
         },
