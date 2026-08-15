@@ -31,7 +31,8 @@ function capturingDeps(width: number): {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
       clearTimeout: (h) => clearTimeout(h),
       termWidth: () => width,
-      publish: (line: string) => {
+      publish: (render: (theme: import("@earendil-works/pi-coding-agent").Theme) => string) => {
+        const line = render(PLAIN_THEME);
         lines.push(line);
       },
       hide: () => {
@@ -40,6 +41,9 @@ function capturingDeps(width: number): {
     },
   };
 }
+
+/** Identity theme fake — the plain-string assertions keep working (fg = no-op). */
+const PLAIN_THEME = { fg: (_c: string, t: string) => t } as unknown as import("@earendil-works/pi-coding-agent").Theme;
 
 describe("WidgetController", () => {
   beforeEach(() => {
@@ -231,7 +235,7 @@ describe("makeTuiWidgetDeps — TUI gate", () => {
     expect(deps).not.toBeNull();
     if (deps === null) return;
 
-    deps.publish("🅑 ◧□□□□□ build");
+    deps.publish(() => "🅑 ◧□□□□□ build");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.key).toBe(WIDGET_KEY);
     expect(calls[0]?.opts.placement).toBe(WIDGET_PLACEMENT);

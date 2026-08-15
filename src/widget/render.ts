@@ -15,7 +15,8 @@
 // EXCLUDES ctx/tok: each memory tool renders its own progress widget for its
 // internal stages, so the bench doesn't duplicate them.
 
-import { fitLine, joinSegments, type Segment } from "./fitline.js";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { fitLine, fitSegments, joinSegments, type Segment } from "./fitline.js";
 
 /** The 6 progression phases, in cell order (build → extract → compact → eval → probe → score). */
 export const PHASE_ORDER = ["build", "extract", "compact", "eval", "probe", "score"] as const;
@@ -71,17 +72,48 @@ function showCtxTok(state: WidgetState): boolean {
   return state.status === "running" && state.phase !== "compact" && state.ctxUsage !== null && state.tok !== null;
 }
 
-/** The 6-cell phase-bar.
- *  - `done` → all ■.
+/** One phase-bar cell with its theme color (success = done, accent = active,
+ *  dim = pending — the sibling widgets' convention). */
+interface PhaseCell {
+  readonly glyph: string;
+  readonly color: ThemeColor;
+}
+
+/** The 6 phase-bar cells.
+ *  - `done` → all ■ (success).
  *  - `prepared` → build+extract (cells 0-1) ■, rest □ (prepare complete, run pending).
  *  - else cells before the active phase = ■, active = ◧, after = □. */
-function phaseBar(state: WidgetState): string {
-  if (state.status === "done") return CELL_DONE.repeat(PHASE_ORDER.length);
-  if (state.status === "prepared") {
-    return PHASE_ORDER.map((_, i) => (i <= PREPARED_LAST_DONE_CELL ? CELL_DONE : CELL_PENDING)).join("");
+function phaseCells(state: WidgetState): PhaseCell[] {
+  const cells: PhaseCell[] = [];
+  for (let i = 0; i < PHASE_ORDER.length; i++) {
+    if (state.status === "done") {
+      cells.push({ glyph: CELL_DONE, color: "success" });
+      continue;
+    }
+    if (state.status === "prepared") {
+      cells.push({ glyph: i <= PREPARED_LAST_DONE_CELL ? CELL_DONE : CELL_PENDING, color: "success" });
+      continue;
+    }
+    const active = PHASE_ORDER.indexOf(state.phase);
+    if (i < active) cells.push({ glyph: CELL_DONE, color: "success" });
+    else if (i === active) cells.push({ glyph: CELL_ACTIVE, color: "accent" });
+    else cells.push({ glyph: CELL_PENDING, color: "dim" });
   }
-  const activeIdx = PHASE_ORDER.indexOf(state.phase);
-  return PHASE_ORDER.map((_, i) => (i < activeIdx ? CELL_DONE : i === activeIdx ? CELL_ACTIVE : CELL_PENDING)).join("");
+  return cells;
+}
+
+/** The plain (unthemed) bar text — must equal the themed one without colors. */
+function phaseBar(state: WidgetState): string {
+  return phaseCells(state)
+    .map((c) => c.glyph)
+    .join("");
+}
+
+/** The themed bar text (per-cell colors). */
+function phaseBarThemed(state: WidgetState, theme: Theme): string {
+  return phaseCells(state)
+    .map((c) => theme.fg(c.color, c.glyph))
+    .join("");
 }
 
 /** Format a context-token count: `K` (>=1000, rounded), else raw. */
@@ -107,8 +139,27 @@ function phaseLabel(state: WidgetState): string {
  * when an arm counter is present) is the single elastic segment; all others are
  * fixed. Exposed so the tracker can fit it to the terminal width via `fitLine`.
  */
-function buildContentSegments(state: WidgetState): Segment[] {
-  const segs: Segment[] = [];
+/** A renderable content part with its theme role. `cells` parts carry their own
+ *  themed painter (the phase bar colors PER CELL); everything else takes one color. */
+type Part =
+  | { readonly kind: "fixed"; readonly text: string; readonly color: ThemeColor }
+  | { readonly kind: "cells"; readonly text: string; readonly themed: (theme: Theme) => string }
+  | { readonly kind: "elastic"; readonly prefix: string; readonly tail: string; readonly color: ThemeColor };
+
+/** Theme roles (the sibling widgets' convention): identity muted, phase accent,
+ *  counters dim, success/error for terminal states. */
+const COLOR_TOOL = "muted" as const;
+const COLOR_PHASE = "accent" as const;
+const COLOR_COUNTER = "dim" as const;
+const COLOR_STOPPED = "error" as const;
+const COLOR_HINT = "dim" as const;
+const COLOR_SUCCESS = "success" as const;
+
+/** The ordered content parts (the 🅑 glyph prefix is prepended separately). The
+ *  tool name (the first part when an arm counter is present) is the single
+ *  elastic part; all others are fixed. */
+function renderParts(state: WidgetState): Part[] {
+  const parts: Part[] = [];
 
   // Arm counter (omitted during build/extract + the done/prepared terminals — no per-arm tool there).
   if (
@@ -118,30 +169,58 @@ function buildContentSegments(state: WidgetState): Segment[] {
     state.armTotal !== null &&
     state.tool !== null
   ) {
-    segs.push({ prefix: `${state.armIndex}/${state.armTotal} `, tail: state.tool });
+    parts.push({
+      kind: "elastic",
+      prefix: `${state.armIndex}/${state.armTotal} `,
+      tail: state.tool,
+      color: COLOR_TOOL,
+    });
   }
 
-  // Phase-bar + phase label (always present).
-  segs.push(`${phaseBar(state)} ${phaseLabel(state)}`);
+  // Phase-bar + phase label (always present, ONE part — a space joins them, not
+  // the ` · ` segment separator). The cells part carries the per-cell themed bar +
+  // the label (accent while running; success on the done/prepared terminals —
+  // stopped keeps accent, its status word is the error).
+  const labelColor: ThemeColor = state.status === "running" ? COLOR_PHASE : COLOR_SUCCESS;
+  const label = phaseLabel(state);
+  parts.push({
+    kind: "cells",
+    text: `${phaseBar(state)} ${label}`,
+    themed: (theme) => `${phaseBarThemed(state, theme)} ${theme.fg(labelColor, label)}`,
+  });
 
   // ctx/tok (background agent generating, not compact).
   if (showCtxTok(state)) {
     const window = state.ctxWindow ?? 0;
-    segs.push(`ctx ${formatCtxTokens(state.ctxUsage as number)}/${formatCtxTokens(window)}`);
-    segs.push(`${formatTokTokens(state.tok as number)} tok`);
+    parts.push({
+      kind: "fixed",
+      text: `ctx ${formatCtxTokens(state.ctxUsage as number)}/${formatCtxTokens(window)}`,
+      color: COLOR_COUNTER,
+    });
+    parts.push({ kind: "fixed", text: `${formatTokTokens(state.tok as number)} tok`, color: COLOR_COUNTER });
   }
 
   // Status word (stopped only; running has none; done is folded into the label).
   if (state.status === "stopped") {
-    segs.push("stopped");
+    parts.push({ kind: "fixed", text: "stopped", color: COLOR_STOPPED });
   }
 
   // Hint (trailing pointer).
   if (state.hint !== null) {
-    segs.push(state.hint);
+    parts.push({ kind: "fixed", text: state.hint, color: COLOR_HINT });
   }
 
-  return segs;
+  return parts;
+}
+
+/** Strip parts to plain fitline segments (fixed text / elastic prefix+tail). */
+function partsToSegments(parts: readonly Part[]): Segment[] {
+  return parts.map((p) => (p.kind === "elastic" ? { prefix: p.prefix, tail: p.tail } : p.text));
+}
+
+/** The plain content segments (single source: parts stripped). */
+function buildContentSegments(state: WidgetState): Segment[] {
+  return partsToSegments(renderParts(state));
 }
 
 /** Render the line (un-fit; the tracker applies `fitRenderedLine` to the width). */
@@ -154,4 +233,30 @@ export function renderLine(state: WidgetState): string {
 export function fitRenderedLine(state: WidgetState, termWidth: number): string {
   const contentWidth = termWidth - GLYPH_PREFIX.length;
   return GLYPH_PREFIX + fitLine(buildContentSegments(state), Math.max(contentWidth, 1));
+}
+
+/** The plain ` · ` separator between content parts (fits fitline's join). */
+const SEGMENT_SEP_TEXT = " · ";
+/** The bare glyph (colored at themed render; the plain prefix keeps its trailing space). */
+const GLYPH = "🅑";
+const GLYPH_SPACE = " ";
+
+/** Render + fit + THEME the line (the widget's publish target — the TUI hands
+ *  the live theme to the setWidget renderFn). Colors follow the sibling widgets'
+ *  convention: glyph + phase accent, phase-bar cells success/accent/dim, tool
+ *  muted, ctx/tok + hint dim, stopped error. Fitting is decided on PLAIN widths
+ *  (theme codes never enter the width math), then colors wrap the fitted text. */
+export function fitThemedRenderedLine(state: WidgetState, theme: Theme, termWidth: number): string {
+  const parts = renderParts(state);
+  const contentWidth = termWidth - GLYPH_PREFIX.length;
+  const fitted = fitSegments(partsToSegments(parts), Math.max(contentWidth, 1));
+  const body = fitted
+    .map((seg, i) => {
+      const part = parts[i] as Part;
+      if (part.kind === "cells") return part.themed(theme);
+      const text = typeof seg === "string" ? seg : `${seg.prefix}${seg.tail}`;
+      return theme.fg(part.color, text);
+    })
+    .join(SEGMENT_SEP_TEXT);
+  return `${theme.fg(COLOR_PHASE, GLYPH)}${GLYPH_SPACE}${body}`;
 }

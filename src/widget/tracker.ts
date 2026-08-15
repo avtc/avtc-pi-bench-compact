@@ -14,10 +14,11 @@
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { deltaTextOf, deltaTokens, messageEndUsage, streamedOutputUsage } from "../runtime/streaming-tokens.js";
 import { getTermWidth } from "./fitline.js";
-import { fitRenderedLine, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
+import { fitThemedRenderedLine, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
 
 /** Throttle window (ms) — leading + trailing edge. */
 const THROTTLE_MS = 200;
@@ -45,7 +46,9 @@ export interface WidgetDeps {
   /** Usable terminal width for the fit (default {@link getTermWidth}). */
   readonly termWidth: () => number;
   /** Publish the rendered (already fit) line. */
-  readonly publish: (line: string) => void;
+  /** Publish a render pass: the TUI hands the live theme to the setWidget renderFn,
+   *  and the fitted + themed line is computed per render. */
+  readonly publish: (render: (theme: Theme) => string) => void;
   /** Hide the widget line. */
   readonly hide: () => void;
 }
@@ -183,7 +186,9 @@ export class WidgetController {
   private render(): void {
     if (this.deps === null) return;
     this.lastRender = this.deps.now();
-    this.deps.publish(fitRenderedLine(this.state, this.deps.termWidth()));
+    const deps = this.deps;
+    if (deps === null) return;
+    this.deps.publish((theme) => fitThemedRenderedLine(this.state, theme, deps.termWidth()));
   }
 }
 
@@ -204,9 +209,12 @@ export function makeTuiWidgetDeps(ctx: {
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (h) => clearTimeout(h),
     termWidth: getTermWidth,
-    publish: (line) => {
-      // The renderFn ignores (tui, theme) — the bench widget carries no theme.
-      ctx.ui.setWidget(WIDGET_KEY, () => new Text(line, 0, 0), { placement: WIDGET_PLACEMENT });
+    publish: (render) => {
+      // The TUI hands the live theme to the renderFn on every paint — the fitted
+      // line is computed (and colored) per render (the sibling widgets' pattern).
+      ctx.ui.setWidget(WIDGET_KEY, (_tui: unknown, theme: Theme) => new Text(render(theme), 0, 0), {
+        placement: WIDGET_PLACEMENT,
+      });
     },
     hide: () => {
       ctx.ui.setWidget(WIDGET_KEY, HIDE_WIDGET, { placement: WIDGET_PLACEMENT });

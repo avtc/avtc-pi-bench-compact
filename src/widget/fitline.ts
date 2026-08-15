@@ -5,8 +5,8 @@
 // full-width TUI line: fixed segments (🅑 marker, arm counter, phase-bar,
 // phase name, ctx/tok counters, status/hint) joined by ` · `, with at most one
 // elastic segment (the tool name) that middle-elides when the line overflows the
-// terminal. Theme-less plain-string render (the bench widget carries no ANSI
-// colors — only the 🅑/■/◧/□ glyphs).
+// terminal. The fitting math is THEME-LESS (plain visible widths — ANSI-free);
+// theming happens one layer up (render.ts colors the fitted segments).
 
 /** A renderable line segment. A bare string is fixed (never shortened); an
  *  `{ prefix, tail }` is elastic — `prefix` is fixed, `tail` middle-elides. */
@@ -61,10 +61,10 @@ function lineWidth(segments: readonly Segment[]): number {
  * elastic segments, the line passes through unchanged even on overflow (the
  * caller's fixed segments are authoritative).
  */
-export function fitLine(segments: readonly Segment[], termWidth: number): string {
+export function fitSegments(segments: readonly Segment[], termWidth: number): Segment[] {
   const elasticIdx = segments.map((s, i) => (typeof s === "string" ? -1 : i)).filter((i) => i >= 0);
   if (elasticIdx.length === 0 || lineWidth(segments) <= termWidth) {
-    return joinSegments(segments);
+    return segments.slice();
   }
 
   const fullWidths = elasticIdx.map((i) => (segments[i] as { tail: string }).tail.length);
@@ -80,7 +80,12 @@ export function fitLine(segments: readonly Segment[], termWidth: number): string
     const seg = segments[i] as { prefix: string; tail: string };
     trimmed[i] = { prefix: seg.prefix, tail: elideMiddle(seg.tail, budgets[k] as number) };
   }
-  return joinSegments(trimmed);
+  return trimmed;
+}
+
+/** The fitted line as one string (`fitSegments` + join). */
+export function fitLine(segments: readonly Segment[], termWidth: number): string {
+  return joinSegments(fitSegments(segments, termWidth));
 }
 
 /**
