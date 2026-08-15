@@ -91,6 +91,34 @@ describe("validateManifest — accept", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("accepts a PARAPHRASED fact when the cited entry shares distinctive tokens (real authoring shape)", () => {
+    // The authoring agent summarizes what it read: the fact sentence is its own
+    // wording, not a verbatim quote. Verbatim-only matching rejected every real
+    // authored manifest; token overlap is the paraphrase-tolerant signal.
+    const base = cleanManifest();
+    const rf = base.recallFacts[0];
+    if (rf === undefined) throw new Error("fixture");
+    const m = {
+      ...base,
+      recallFacts: [{ ...rf, fact: "scores get persisted into the dot-scores file", accept: ["~/.scores.json"] }],
+    };
+    const r = validateManifest(m, cleanCtx({}));
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects a citation whose entries share NO content with the claim (hallucinated citation)", () => {
+    const base = cleanManifest();
+    const rf = base.recallFacts[0];
+    if (rf === undefined) throw new Error("fixture");
+    const m = {
+      ...base,
+      recallFacts: [{ ...rf, fact: "terraform provisioning uses eu-central region", accept: ["eu-central-1"] }],
+    };
+    const r = validateManifest(m, cleanCtx({}));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.reasons.some((x) => x.includes("rf1") && x.includes("not present"))).toBe(true);
+  });
+
   it("accepts when a non-essential list (supersessions/abstentions) is empty", () => {
     const m = cleanManifest();
     const r = validateManifest({ ...m, supersessions: [], abstentions: [] }, cleanCtx({}));

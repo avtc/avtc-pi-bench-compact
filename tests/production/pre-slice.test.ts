@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { countCompactions, preSlice } from "../../src/production/pre-slice.js";
+import { countCompactions, decodeEntryText, preSlice } from "../../src/production/pre-slice.js";
 
 /** A backup JSONL: header + 4 message entries (e1..e4). firstKeptEntryId will be e3. */
 function writeBackup(dir: string): string {
@@ -131,5 +131,33 @@ describe("countCompactions", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("decodeEntryText (validator's cited-content source)", () => {
+  it("decodes JSON-escaped content — quotes, newlines, tool inputs — not the raw line", () => {
+    const line = JSON.stringify({
+      type: "message",
+      id: "m1",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: 'movement keys: use "arrows"\nnot WASD' }],
+      },
+    });
+    const decoded = decodeEntryText(line);
+    expect(decoded).toContain('"arrows"'); // the REAL quote, not the \" escape
+    expect(decoded).toContain("not WASD"); // real newline-separated text, joined
+    expect(decoded).not.toContain("\\n"); // no literal backslash-n escape sequences
+    expect(decoded).not.toContain("{"); // not the raw JSON line
+  });
+
+  it("collects strings from nested tool results the author could have read", () => {
+    const line = JSON.stringify({
+      type: "message",
+      id: "m2",
+      message: { role: "toolResult", content: [{ type: "text", text: "allInCost = 1.8e9 charged at tick start" }] },
+    });
+    expect(decodeEntryText(line)).toContain("allInCost");
+    expect(decodeEntryText("{not json")).toBe(""); // unparseable → empty, never throws
   });
 });

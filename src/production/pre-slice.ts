@@ -19,6 +19,39 @@ interface EntryLike {
   readonly id: string;
 }
 
+/** Recursively collect every string value in a parsed entry (message text blocks,
+ *  thinking, tool-call inputs, tool results — everything the authoring agent could
+ *  have read in the sliced file). The decoded text backs the manifest validator's
+ *  cited-content check: matching against the RAW JSONL line would never find
+ *  content containing quotes/newlines (JSON-escaped in the line). */
+function collectStrings(value: unknown, out: string[]): void {
+  if (typeof value === "string") {
+    if (value.length > 0) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const el of value) collectStrings(el, out);
+    return;
+  }
+  if (typeof value === "object" && value !== null) {
+    for (const v of Object.values(value as Record<string, unknown>)) collectStrings(v, out);
+  }
+}
+
+/** Separator joining collected strings (kept as a named constant). */
+const ENTRY_TEXT_JOIN = "\n";
+
+/** Decoded searchable text for one JSONL line ("" when unparseable). */
+export function decodeEntryText(line: string): string {
+  try {
+    const parts: string[] = [];
+    collectStrings(JSON.parse(line), parts);
+    return parts.join(ENTRY_TEXT_JOIN);
+  } catch {
+    return "";
+  }
+}
+
 /** Result of {@link preSlice}. */
 export interface PreSliceResult {
   /** The standalone JSONL containing the compacted-away span. */
@@ -62,7 +95,7 @@ export function preSlice(backupPath: string, firstKeptEntryId: string, outputPat
   const entryTextById = new Map<string, string>();
   for (const line of spanLines) {
     const entry = JSON.parse(line) as EntryLike;
-    entryTextById.set(entry.id, line);
+    entryTextById.set(entry.id, decodeEntryText(line));
   }
 
   writeFileSync(outputPath, spanLines.join("\n"));

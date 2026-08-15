@@ -154,6 +154,73 @@ function fieldsOf(v: unknown): Record<string, unknown> | null {
   return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 }
 
+/** Join separator for the cited-entries text union (named constant). */
+const CITED_TEXT_JOIN = "\n";
+
+/** Common English glue words — never distinctive evidence of a citation. */
+const STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "against",
+  "their",
+  "there",
+  "these",
+  "those",
+  "which",
+  "while",
+  "would",
+  "could",
+  "should",
+  "shall",
+  "your",
+  "yours",
+  "with",
+  "this",
+  "that",
+  "from",
+  "have",
+  "been",
+  "were",
+  "will",
+  "when",
+  "what",
+  "where",
+  "then",
+  "than",
+  "them",
+  "they",
+  "into",
+  "only",
+  "over",
+  "also",
+  "just",
+  "like",
+  "some",
+  "such",
+  "more",
+  "most",
+  "other",
+  "using",
+  "used",
+  "user",
+  "must",
+  "does",
+  "done",
+]);
+
+/** Distinctive lowercase tokens (length >= 4, not stopword) across all terms —
+ *  the paraphrase-tolerant presence signal for cited-content validation. */
+function distinctiveTokens(terms: readonly string[]): readonly string[] {
+  const out = new Set<string>();
+  for (const term of terms) {
+    for (const tok of term.split(/[^a-z0-9]+/)) {
+      if (tok.length >= 4 && !STOPWORDS.has(tok)) out.add(tok);
+    }
+  }
+  return [...out];
+}
+
 interface CitedCondition {
   readonly id: string;
   readonly entryIds: readonly string[];
@@ -185,7 +252,16 @@ function checkConditions<T extends CitedCondition>(
       continue;
     }
     const terms = searchTerms(c).map((t) => t.toLowerCase());
-    const present = citedTexts.some((text) => terms.some((term) => term.length > 0 && text.includes(term)));
+    // Presence = verbatim term OR distinctive-token overlap. The authoring agent
+    // PARAPHRASES what it read (its fact/description sentences are summaries, not
+    // verbatim quotes), so a verbatim-only check rejects every real authored
+    // manifest; the token overlap keeps the guard's meaning (the cited entries
+    // must actually relate to the claim) while tolerating paraphrase.
+    const citedUnion = citedTexts.join(CITED_TEXT_JOIN);
+    const verbatim = terms.some((term) => term.length > 0 && citedUnion.includes(term));
+    const tokens = distinctiveTokens(terms);
+    const matched = tokens.filter((tok) => citedUnion.includes(tok)).length;
+    const present = verbatim || (tokens.length > 0 && matched >= Math.min(2, tokens.length));
     if (!present) {
       reasons.push(`${kind} ${c.id}: cited content not present at entry ${c.entryIds.join("/")}`);
     }
