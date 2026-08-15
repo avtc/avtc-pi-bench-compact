@@ -29,10 +29,24 @@ export function inject(pi: ExtensionAPI, text: string, mode: InjectMode): void {
  *  zero extra turns); subsequent injects pass the text through unchanged. Shared by the
  *  build (Phase 0) + continuation (Phase 2) simulator drivers. */
 export function makeAntiPeekInject(pi: ExtensionAPI, antiPeekPrompt: string): (text: string) => void {
+  return makeAntiPeekInjectFactory(antiPeekPrompt)(pi);
+}
+
+/** Build a FAMILY of inject seams sharing ONE first-inject flag. Use when the same
+ *  conversation is driven across several loads (the build session's continue
+ *  attempts re-switchSession the stable session file): the session is never
+ *  compacted, so the preamble from the first inject stays in the agent's context —
+ *  a per-attempt fresh seam would duplicate it in the transcript. Each produced
+ *  injector binds its own `pi` (a fresh ExtensionAPI per load); the flag is shared.
+ *  Post-compaction forks do NOT use this — each fork's context lost the original
+ *  preamble to compaction, so each fork gets its own single inject. */
+export function makeAntiPeekInjectFactory(antiPeekPrompt: string): (pi: ExtensionAPI) => (text: string) => void {
   let firstInject = true;
-  return (text: string): void => {
-    const body = firstInject ? `${antiPeekPrompt}${ANTI_PEEK_SEPARATOR}${text}` : text;
-    firstInject = false;
-    inject(pi, body, SIMULATOR_DELIVER_AS);
+  return (pi: ExtensionAPI): ((text: string) => void) => {
+    return (text: string): void => {
+      const body = firstInject ? `${antiPeekPrompt}${ANTI_PEEK_SEPARATOR}${text}` : text;
+      firstInject = false;
+      inject(pi, body, SIMULATOR_DELIVER_AS);
+    };
   };
 }

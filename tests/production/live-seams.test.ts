@@ -102,7 +102,13 @@ describe("buildAuthorSeam", () => {
     };
     const signal = new AbortController().signal;
     const captured = { cwd: "", preSlicedJsonlPath: "", resolveCtx: fakeCtx, modelSetting: "x" as string | null };
-    const manifest = { id: "sc1" } as unknown as ScenarioManifest;
+    const manifest = {
+      id: "sc1",
+      recallFacts: [],
+      doneOps: [],
+      supersessions: [],
+      probes: [],
+    } as unknown as ScenarioManifest;
     const author = buildAuthorSeam({
       ctxGetter: () => fakeCtx,
       evaluatedModel: "provider/model-a",
@@ -139,7 +145,8 @@ describe("buildAuthorSeam", () => {
       scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
       signal: new AbortController().signal,
       maxTokens: 4096,
-      runAuthor: async () => ({ id: "sc1" }) as unknown as ScenarioManifest,
+      runAuthor: async () =>
+        ({ id: "sc1", recallFacts: [], doneOps: [], supersessions: [], probes: [] }) as unknown as ScenarioManifest,
       widget,
     });
     await author("/tmp/sliced-0.jsonl");
@@ -540,7 +547,13 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
       runStage: (async () => ({ aborted: false, timedOut: false, messages: [] })) as unknown as RunStage,
       runAuthor: (async (deps: { seams: { resolveModel(): Promise<unknown> } }) => {
         await deps.seams.resolveModel(); // exercise the ctxGetter-bound resolveModel
-        return { id: "sc1" } as unknown as ScenarioManifest;
+        return {
+          id: "sc1",
+          recallFacts: [],
+          doneOps: [],
+          supersessions: [],
+          probes: [],
+        } as unknown as ScenarioManifest;
       }) as unknown as RunAuthor,
     });
 

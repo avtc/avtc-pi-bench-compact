@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { _setBaseLoggerForTest } from "../../src/log.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import {
   type BuildSeams,
@@ -397,4 +398,40 @@ describe("buildBackup — tail-check gating", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+it("logs the landing action + non-landed topics per attempt (prepare observability)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bench-build-"));
+  const lines: string[] = [];
+  const prev = _setBaseLoggerForTest({
+    info: (m: string) => lines.push(m),
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  });
+  try {
+    const backup = writeBackup(dir, 5);
+    let authored = false;
+    const seams: BuildSeams = {
+      async driveAndCapture() {
+        return { backupPath: backup.path, backupEntries: backup.entries };
+      },
+      async trialCompact() {
+        return { firstKeptEntryId: "e4", summary: "cut at e4" };
+      },
+      async author() {
+        // attempt 0: recallFact cites the kept tail (e5) → not landed → continue;
+        // attempt 1: everything lands in-span → proceed.
+        authored = !authored;
+        return authored ? manifestWith("e5", "e2", "e3", "e3") : manifestWith("e1", "e2", "e3", "e3");
+      },
+    };
+    await buildBackup({ scenario: "tycoon", compactionBoundary: 140000, preSliceDir: dir, seams });
+    const landing = lines.filter((l) => l.includes("landing"));
+    expect(landing.some((l) => l.includes("continue") && l.includes("key-decision"))).toBe(true);
+    expect(landing.some((l) => l.includes("proceed"))).toBe(true);
+  } finally {
+    _setBaseLoggerForTest(prev);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

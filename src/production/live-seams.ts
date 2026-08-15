@@ -27,6 +27,7 @@ import { getMemoryProxies, type MemoryProxies } from "../arms/proxies.js";
 import { configureArm } from "../arms/switch.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
+import { log } from "../log.js";
 import { type AuthoringSeams, runAuthoringAgent } from "../manifest/author.js";
 import type { ScenarioContext, ScenarioManifest } from "../manifest/schema.js";
 import { getBenchPi } from "../orchestrate/bench-ctx.js";
@@ -41,7 +42,7 @@ import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js"
 import { triggerCompact } from "../session/compact.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
 import { readMessageEndUsage, subscribeAgentEvent } from "../session/events.js";
-import { makeAntiPeekInject } from "../session/inject.js";
+import { makeAntiPeekInjectFactory } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import {
   buildSimulatorDriver,
@@ -156,7 +157,7 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
       onEvent: hooks?.onEvent,
       onModelResolved: hooks?.onModelResolved,
     };
-    return runAuthor({
+    const manifest = await runAuthor({
       seams,
       cwd: dirname(preSlicedJsonlPath),
       preSlicedJsonlPath,
@@ -165,6 +166,12 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
       maxTokens: deps.maxTokens,
       rateLimitOptions: deps.rateLimitOptions,
     });
+    log.info(
+      `prepare: manifest authored — ${manifest.recallFacts.length} recallFacts, ` +
+        `${manifest.doneOps.length} doneOps, ${manifest.supersessions.length} supersessions, ` +
+        `${manifest.probes.length} probes`,
+    );
+    return manifest;
   };
 }
 
@@ -315,6 +322,10 @@ export function buildTrialCompactSeam(deps: TrialCompactSeamDeps): BuildSeams["t
       disableMemoryHooks(pi, getProxies(), deps.repoCwd, deps.omFullReflectionThresholdTokens, configure);
       return trigger(pi, sessionCtx, {});
     });
+    log.info(
+      `prepare: trial compaction cut at ${compactionEntry.firstKeptEntryId}` +
+        (compactionEntry.tokensBefore !== undefined ? ` (${compactionEntry.tokensBefore} tokens before)` : ""),
+    );
     return { firstKeptEntryId: compactionEntry.firstKeptEntryId, summary: compactionEntry.summary };
   };
 }
@@ -395,6 +406,12 @@ function createDefaultBuildSimulatorFactory(deps: {
   maxTokens: number;
   antiPeekPrompt: string;
 }): (args: MakeBuildSimulatorArgs) => BuildDriver {
+  // ONE anti-peek flag for the whole build session (created once per factory, which
+  // lives for the seam): the build session is never compacted, so the preamble from
+  // the first inject stays in the agent's context across continue attempts — arming
+  // a fresh injector per attempt would duplicate the preamble in the transcript.
+  // Each attempt still binds its own fresh pi (a new injector per load, shared flag).
+  const injector = makeAntiPeekInjectFactory(deps.antiPeekPrompt);
   return (args: MakeBuildSimulatorArgs): BuildDriver =>
     buildSimulatorDriver({
       pi: args.pi,
@@ -404,7 +421,7 @@ function createDefaultBuildSimulatorFactory(deps: {
       targetContext: args.targetContext,
       maxTokens: deps.maxTokens,
       signal: args.signal,
-      inject: makeAntiPeekInject(args.pi, deps.antiPeekPrompt),
+      inject: injector(args.pi),
       onStop: args.onStop,
       firstInstruction: args.firstInstruction,
       ...widgetStageHooks(args.widget),
@@ -459,6 +476,12 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
         seededTokens === undefined || seededTokens === null
           ? formulaTarget
           : Math.max(formulaTarget, seededTokens + continueStep);
+      log.info(
+        `prepare: attempt ${attempt} build drive — target ~${Math.round(targetContext / 1000)}k tokens` +
+          (seededTokens !== undefined && seededTokens !== null
+            ? ` (session already at ~${Math.round(seededTokens / 1000)}k)`
+            : ""),
+      );
       const driver = makeSimulator({
         pi,
         ctx: sessionCtx,
@@ -508,6 +531,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       }
     });
     const backupEntries = readBackupEntries(deps.buildSessionPath, { read });
+    log.info(`prepare: attempt ${attempt} drive captured ${backupEntries.length} entries`);
     return { backupPath: deps.buildSessionPath, backupEntries };
   };
 }

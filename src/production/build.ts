@@ -13,6 +13,7 @@
 // condition-landing loop are unit-tested here.
 
 import { join } from "node:path";
+import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 
 import { type ConditionListName, validateManifest } from "../manifest/validate.js";
@@ -173,6 +174,12 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
     );
     const action = decideLandingAction(classification);
 
+    const notLanded = classification.filter((t) => t.status !== "landed");
+    const missingIds = notLanded.map((t) => `${t.topic.id} (${t.status})`).join(", ");
+    log.info(
+      `prepare: attempt ${attempt} landing — ${action.kind}` +
+        (missingIds.length > 0 ? ` (missing: ${missingIds})` : ""),
+    );
     if (action.kind === "proceed") {
       validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
       return { backupPath, backupEntries, manifest };

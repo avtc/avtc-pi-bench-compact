@@ -115,6 +115,15 @@ export interface PrepareScenarioResult {
 
 export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenarioResult> {
   validateDeps(deps);
+  const mode =
+    deps.fromSessionPath !== undefined
+      ? "extract"
+      : deps.skipRecovery !== undefined
+        ? "skip-recovery"
+        : deps.resume !== undefined
+          ? `plant-resume (attempt ${deps.resume.attempt})`
+          : "build";
+  log.info(`prepare: ${mode} — repo ${deps.repoPath}, manifest ${deps.manifestPath}`);
 
   let backupPath: string;
   let manifest: ScenarioManifest;
@@ -218,5 +227,6 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
     manifestPath: deps.manifestPath,
     force: deps.force,
   });
+  log.info(`prepare: scenario frozen — manifest ${frozen.manifestPath}`);
   return { ...frozen, liveCtx: deps.liveCtx };
 }
