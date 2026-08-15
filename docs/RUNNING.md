@@ -20,6 +20,8 @@ The canonical operator flow: **configure → prepare a scenario → run every ar
 
 The frozen scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (`repo/` + `manifest.json`). Re-prepare over an existing folder with `--force`.
 
+> **Trust prompt:** when the bench first switches the session into a freshly created scenario repo, pi asks `Trust project folder?` — answer **Trust**. The repo's `.pi/settings.json` carries the bench + suite + arm packages the run depends on; declining it silently disables arm isolation for that run. Expect one prompt per new scenario folder.
+
 > **Review the authored `testSpec` before running.** The manifest's `taskObjective.testSpec` is authored by the manifest-authoring agent from the evaluated model's own build session and is executed via the real shell during scoring (`scrubEnv` strips provider API keys + other secret-looking env vars first, but the execution itself is unsandboxed). Inspect the frozen `manifest.json` before `/bench-compact:run-scenario` — especially if you used the `/bench-compact:run <idea>` shorthand, which automates prepare→run with no human checkpoint. A malicious or injected model under test can otherwise author a `testSpec` that runs arbitrary code in the repo cwd.
 
 ### 2. Run every arm
