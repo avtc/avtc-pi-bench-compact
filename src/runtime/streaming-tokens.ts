@@ -56,13 +56,19 @@ export function messageEndUsage(message: AgentMessage): MessageUsage | null {
     }
   ).usage;
   if (u === undefined) return null;
+  const input = u.input ?? 0;
+  const output = u.output ?? 0;
+  const cacheRead = u.cacheRead ?? 0;
+  const cacheWrite = u.cacheWrite ?? 0;
   return {
-    input: u.input ?? 0,
-    output: u.output ?? 0,
-    cacheRead: u.cacheRead ?? 0,
-    cacheWrite: u.cacheWrite ?? 0,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
     cost: u.cost?.total ?? 0,
-    totalTokens: u.totalTokens ?? 0,
+    // Some providers omit the precomputed total — fall back to the component sum
+    // (same rule pi's own calculateContextTokens applies).
+    totalTokens: u.totalTokens ?? input + output + cacheRead + cacheWrite,
   };
 }
 

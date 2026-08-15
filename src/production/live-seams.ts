@@ -94,16 +94,19 @@ export function serializeSessionFile(header: MinimalSessionHeader): string {
 
 /** Read a session JSONL's entries (EXCLUDING the header), mapped to `{id}`.
  *  Blank lines are ignored. Used to return `backupEntries` from `driveAndCapture`. */
-export function readBackupEntries(jsonlPath: string, deps: { read: ReadText }): readonly { id: string }[] {
+export function readBackupEntries(
+  jsonlPath: string,
+  deps: { read: ReadText },
+): readonly { id: string; type?: string }[] {
   const text = deps.read(jsonlPath);
-  const entries: { id: string }[] = [];
+  const entries: { id: string; type?: string }[] = [];
   for (const line of text.split(JSONL_NEWLINE)) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
     const entry = JSON.parse(trimmed) as { type?: string; id?: string };
     if (entry.type === SESSION_HEADER_TYPE) continue;
     if (entry.id === undefined) continue;
-    entries.push({ id: entry.id });
+    entries.push(entry.type === undefined ? { id: entry.id } : { id: entry.id, type: entry.type });
   }
   return entries;
 }
@@ -430,6 +433,29 @@ function createDefaultBuildSimulatorFactory(deps: {
 
 /** Build the `driveAndCapture` seam: ensure the build-session file exists, load it,
  *  drive the user-simulator until the boundary, then capture the session's entries. */
+/** Mirror of pi's default compaction reserve: pi auto-compacts when
+ *  `contextTokens > contextWindow − reserveTokens` (settings-manager default 16384).
+ *  The build drive MUST stop below that line or pi's NATIVE auto-compaction fires
+ *  mid-drive, which voids the backup's pre-compaction guarantee (fatal for the scenario). */
+const AUTO_COMPACT_RESERVE_TOKENS = 16384;
+/** Headroom under the auto-compaction line for one marathon tool-looping turn: the
+ *  mid-turn tripwire checks per assistant message, but a single long turn can add
+ *  tens of thousands of tokens between checks (observed: +76K in one 28-minute turn). */
+const TURN_HEADROOM_TOKENS = 30000;
+
+/** Error thrown when pi's native auto-compaction fires during the build drive (or is
+ *  found in the captured backup): the build session then contains a compaction, so
+ *  it is unusable as the pre-compaction input every arm forks + compacts. */
+export class BuildAutoCompactedError extends Error {
+  constructor(attempt: number) {
+    super(
+      `native auto-compaction fired during the build drive (attempt ${attempt}) — the build session is no longer pre-compaction and cannot back a scenario. ` +
+        "Lower the compactionBoundary setting (or reduce the work-order size) and re-prepare with --force",
+    );
+    this.name = "BuildAutoCompactedError";
+  }
+}
+
 export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSeams["driveAndCapture"] {
   const exists = deps.exists ?? existsSync;
   const writeHeader = deps.writeHeader ?? ((path, header) => writeFileSync(path, serializeSessionFile(header)));
@@ -456,6 +482,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
   return async (attempt: number) => {
     ensureBuildSession(deps.buildSessionPath, deps.repoPath, { exists, writeHeader });
     const formulaTarget = deps.compactionBoundary + attempt * continueStep;
+    let autoCompacted = false;
     await load(deps.holder.current, deps.buildSessionPath, async (sessionCtx) => {
       deps.holder.current = sessionCtx;
       const pi = getPi();
@@ -472,16 +499,35 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       // against actual usage — the target always leaves one continue-step of headroom.
       const usage = sessionCtx.getContextUsage();
       const seededTokens = usage?.tokens;
-      const targetContext =
+      let targetContext =
         seededTokens === undefined || seededTokens === null
           ? formulaTarget
           : Math.max(formulaTarget, seededTokens + continueStep);
+      // Clamp the target BELOW pi's native auto-compaction line (window − reserve −
+      // marathon-turn headroom): crossing that line mid-drive makes pi auto-compact the
+      // build session itself — the backup must stay never-compacted.
+      const contextWindow = usage?.contextWindow;
+      if (contextWindow !== undefined && contextWindow > 0) {
+        const ceiling = contextWindow - AUTO_COMPACT_RESERVE_TOKENS - TURN_HEADROOM_TOKENS;
+        if (targetContext > ceiling) {
+          log.warn(
+            `prepare: attempt ${attempt} target ~${Math.round(targetContext / 1000)}k clamped to ~${Math.round(ceiling / 1000)}k — stays under the native auto-compaction line`,
+          );
+          targetContext = ceiling;
+        }
+      }
       log.info(
         `prepare: attempt ${attempt} build drive — target ~${Math.round(targetContext / 1000)}k tokens` +
           (seededTokens !== undefined && seededTokens !== null
             ? ` (session already at ~${Math.round(seededTokens / 1000)}k)`
             : ""),
       );
+      // Mid-turn tripwire state: pacing normally fires at agent-settle, but a single
+      // marathon tool-looping turn can blow PAST the target (and into pi's native
+      // auto-compaction) with no settle in between — observed as one 28-minute turn
+      // growing +76K tokens. The message_end tracker below aborts the in-flight turn
+      // the moment tracked context crosses the target.
+      let boundaryAbortInitiated = false;
       const driver = makeSimulator({
         pi,
         ctx: sessionCtx,
@@ -497,40 +543,86 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       if (seededTokens !== undefined && seededTokens !== null) driver.trackContext(seededTokens);
       const disposeMsgEnd = subscribeAgentEvent(pi, "message_end", (event: unknown) => {
         const parsed = readMessageEndUsage(event as MessageEndEvent);
-        if (parsed !== null) driver.trackContext(parsed.totalTokens);
+        if (parsed === null) return;
+        driver.trackContext(parsed.totalTokens);
+        // Mid-turn boundary tripwire: abort the in-flight turn as soon as the tracked
+        // context crosses the target (a marathon turn must not run on into pi's native
+        // auto-compaction territory). The abort ends the turn; agent_settled still fires;
+        // the drive loop then sees stop.stopped and breaks cleanly.
+        if (!stop.stopped && !boundaryAbortInitiated && parsed.totalTokens >= targetContext) {
+          boundaryAbortInitiated = true;
+          log.info(
+            `prepare: attempt ${attempt} crossed the target mid-turn (~${Math.round(parsed.totalTokens / 1000)}k) — aborting the in-flight turn`,
+          );
+          onStop({ contextTokens: parsed.totalTokens, reason: "boundary" });
+          try {
+            sessionCtx.abort();
+          } catch (err) {
+            log.warn(`prepare: mid-turn boundary abort failed (${err instanceof Error ? err.message : String(err)})`);
+          }
+        }
+      });
+      // Native auto-compaction tripwire: ANY session_compact during the drive (memory
+      // hooks are disabled, so nothing legitimate compacts) means pi auto-compacted the
+      // build session — the backup is invalid. Detect immediately, stop, and surface.
+      const disposeCompact = subscribeAgentEvent(pi, "session_compact", (event: unknown) => {
+        const abortedFlag = (event as { aborted?: boolean } | null)?.aborted === true;
+        if (!abortedFlag) {
+          autoCompacted = true;
+          log.error(`native auto-compaction fired during the build drive (attempt ${attempt})`);
+          onStop({ contextTokens: 0, reason: "error", error: "native auto-compaction" });
+          try {
+            sessionCtx.abort();
+          } catch {
+            // best effort — the post-capture guard below still catches it
+          }
+        }
       });
       try {
         // Drive until boundary-stop: ALWAYS settle after an inject (even the kick-off),
         // so the agent's response to the last inject is awaited before capturing. Shared
         // loop helper (same as Phase 2 continuation). An error-stop or settle-failure
         // throws (surfaced by the prepare handler).
-        await driveUntilStop({
-          driver,
-          stop,
-          awaitSettled: async () => {
-            try {
-              await awaitSettledFn(pi, { signal: deps.signal });
-            } catch (err) {
-              const cause =
-                err instanceof AgentSettledAbortedError
-                  ? "run signal aborted"
-                  : err instanceof Error
-                    ? err.message
-                    : String(err);
-              throw new Error(`build driveAndCapture(attempt ${attempt}) agent did not settle (${cause})`);
-            }
-          },
-          shouldBreak: () => stop.stopped,
-          makeCycleError: (error) =>
-            new Error(
-              `build driveAndCapture(attempt ${attempt}) simulator stopped with an error (${error ?? "unknown"})`,
-            ),
-        });
+        try {
+          await driveUntilStop({
+            driver,
+            stop,
+            awaitSettled: async () => {
+              try {
+                await awaitSettledFn(pi, { signal: deps.signal });
+              } catch (err) {
+                const cause =
+                  err instanceof AgentSettledAbortedError
+                    ? "run signal aborted"
+                    : err instanceof Error
+                      ? err.message
+                      : String(err);
+                throw new Error(`build driveAndCapture(attempt ${attempt}) agent did not settle (${cause})`);
+              }
+            },
+            shouldBreak: () => stop.stopped,
+            makeCycleError: (error) =>
+              new Error(
+                `build driveAndCapture(attempt ${attempt}) simulator stopped with an error (${error ?? "unknown"})`,
+              ),
+          });
+        } catch (err) {
+          // The auto-compaction tripwire aborts via an error-stop — surface the
+          // DISTINCT cause (the backup is invalid), not the generic cycle error.
+          if (autoCompacted) throw new BuildAutoCompactedError(attempt);
+          throw err;
+        }
       } finally {
         disposeMsgEnd();
+        disposeCompact();
       }
     });
     const backupEntries = readBackupEntries(deps.buildSessionPath, { read });
+    if (autoCompacted || backupEntries.some((e) => e.type === "compaction")) {
+      // Defense in depth: the live tripwire should have caught it, but the captured
+      // entries are the ground truth — any compaction entry means the backup is unusable.
+      throw new BuildAutoCompactedError(attempt);
+    }
     log.info(`prepare: attempt ${attempt} drive captured ${backupEntries.length} entries`);
     return { backupPath: deps.buildSessionPath, backupEntries };
   };

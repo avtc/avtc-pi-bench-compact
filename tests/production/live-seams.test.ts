@@ -79,7 +79,10 @@ describe("readBackupEntries", () => {
       `{"type":"message","id":"m1"}\n` +
       `{"type":"message","id":"m2"}\n`;
     const entries = readBackupEntries("/path", { read: () => jsonl });
-    expect(entries).toEqual([{ id: "m1" }, { id: "m2" }]);
+    expect(entries).toEqual([
+      { id: "m1", type: "message" },
+      { id: "m2", type: "message" },
+    ]);
   });
 
   it("returns an empty array for a header-only session", () => {
@@ -89,7 +92,7 @@ describe("readBackupEntries", () => {
 
   it("ignores blank trailing lines", () => {
     const jsonl = `{"type":"session","id":"h","timestamp":"t","cwd":"/r"}\n{"type":"message","id":"m1"}\n\n`;
-    expect(readBackupEntries("/path", { read: () => jsonl })).toEqual([{ id: "m1" }]);
+    expect(readBackupEntries("/path", { read: () => jsonl })).toEqual([{ id: "m1", type: "message" }]);
   });
 });
 
@@ -284,7 +287,7 @@ describe("buildDriveAndCaptureSeam", () => {
     const result = await driveAndCapture(0);
     expect(written).toEqual([{ path: "/tmp/build.jsonl", cwd: "/repo" }]);
     expect(result.backupPath).toBe("/tmp/build.jsonl");
-    expect(result.backupEntries).toEqual([{ id: "m1" }]);
+    expect(result.backupEntries).toEqual([{ id: "m1", type: "message" }]);
     expect(holder.current).toBe(freshCtx);
   });
 
@@ -293,7 +296,7 @@ describe("buildDriveAndCaptureSeam", () => {
     // A big overshoot: usage 180K already exceeds the resumed formula target
     // (140K + 1×20K = 160K), so the pacing target must grow to usage+step.
     const grownCtx = {
-      getContextUsage: () => ({ tokens: 180000, contextWindow: 200000 }),
+      getContextUsage: () => ({ tokens: 180000, contextWindow: 400000 }),
     } as unknown as ExtensionCommandContext;
     const loadedLoad: typeof fakeLoadSession = async (_ctx, _path, withSession) => withSession(grownCtx);
     let seenTarget = 0;
@@ -328,6 +331,173 @@ describe("buildDriveAndCaptureSeam", () => {
     await driveAndCapture(1); // formula target = 140K + 1*20K = 160K < usage 180K
     expect(seenTarget).toBe(180000 + 20000); // max(160K, usage+step) — headroom restored
     expect(seeded).toBe(180000);
+  });
+
+  it("clamps the pacing target under pi's native auto-compaction line", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const grownCtx = {
+      // tokens null (e.g. post-compaction unknown) → formula target drives pacing
+      getContextUsage: () => ({ tokens: null, contextWindow: 262144 }),
+    } as unknown as ExtensionCommandContext;
+    const loadedLoad: typeof fakeLoadSession = async (_ctx, _path, withSession) => withSession(grownCtx);
+    let seenTarget = 0;
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 260000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => true,
+      writeHeader: () => {},
+      loadSession: loadedLoad,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => {
+        seenTarget = args.targetContext;
+        return {
+          trackContext: () => {},
+          onAgentSettled: async () => args.onStop({ contextTokens: 0, reason: "boundary" }),
+        };
+      },
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}
+`,
+    });
+    // formula target would be 260K, but the ceiling for a 262144 window is
+    // 262144 - 16384 (pi reserve) - 30000 (marathon-turn headroom) = 215760 → clamped.
+    await driveAndCapture(0);
+    expect(seenTarget).toBe(262144 - 16384 - 30000);
+  });
+
+  it("aborts the in-flight turn the moment tracked context crosses the target mid-turn", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const handlers: Record<string, ((data: unknown) => void)[]> = {};
+    const pi = {
+      on: (event: string, handler: (data: unknown) => void) => {
+        const list = handlers[event] ?? [];
+        list.push(handler);
+        handlers[event] = list;
+      },
+    } as unknown as ExtensionAPI;
+    const aborts: string[] = [];
+    const sessionCtx = {
+      getContextUsage: () => ({ tokens: 0, contextWindow: 400000 }),
+      abort: () => aborts.push("abort"),
+    } as unknown as ExtensionCommandContext;
+    const loadedLoad: typeof fakeLoadSession = async (_ctx, _path, withSession) => withSession(sessionCtx);
+    let stopReason: string | null = null;
+    let cycles = 0;
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => true,
+      writeHeader: () => {},
+      loadSession: loadedLoad,
+      awaitSettled: async () => {},
+      makeSimulator: (_args) => ({
+        trackContext: () => {},
+        onAgentSettled: async () => {
+          cycles += 1;
+          // A marathon tool-looping turn: the assistant keeps producing messages
+          // (message_end) with usage far past the target — mid-turn, no settle yet.
+          for (const h of handlers["message_end"] ?? []) {
+            h({ message: { role: "assistant", usage: { input: 150000, output: 1000, cacheRead: 0, cacheWrite: 0 } } });
+          }
+          if (cycles >= 3 && stopReason === null) {
+            // no natural stop — the tripwire must have done it by now
+            stopReason = "checked";
+          }
+        },
+      }),
+      getPi: () => pi,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}
+`,
+    });
+    const result = await driveAndCapture(0); // target 140K; message_end total 151K crosses it
+    expect(result.backupPath).toBe("/tmp/build.jsonl");
+    expect(aborts).toContain("abort"); // the in-flight turn was aborted at the crossing
+  });
+
+  it("surfaces when pi's NATIVE auto-compaction fires during the drive (tripwire)", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const handlers: Record<string, ((data: unknown) => void)[]> = {};
+    const pi = {
+      on: (event: string, handler: (data: unknown) => void) => {
+        const list = handlers[event] ?? [];
+        list.push(handler);
+        handlers[event] = list;
+      },
+    } as unknown as ExtensionAPI;
+    const sessionCtx = {
+      getContextUsage: () => ({ tokens: 0, contextWindow: 400000 }),
+      abort: () => {},
+    } as unknown as ExtensionCommandContext;
+    const loadedLoad: typeof fakeLoadSession = async (_ctx, _path, withSession) => withSession(sessionCtx);
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "build a game",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => true,
+      writeHeader: () => {},
+      loadSession: loadedLoad,
+      awaitSettled: async () => {},
+      makeSimulator: (_args) => ({
+        trackContext: () => {},
+        onAgentSettled: async () => {
+          // pi auto-compacts the build session mid-drive
+          for (const h of handlers["session_compact"] ?? []) {
+            h({ type: "session_compact", summary: "auto", aborted: false });
+          }
+        },
+      }),
+      getPi: () => pi,
+      read: () => `{"type":"session","id":"h","cwd":"/repo"}
+`,
+    });
+    await expect(driveAndCapture(0)).rejects.toThrow(/native auto-compaction fired during the build drive/);
+  });
+
+  it("post-capture guard: a compaction entry already in the build session rejects the backup", async () => {
+    const holder: CtxHolder = { current: {} as ExtensionCommandContext };
+    const driveAndCapture = buildDriveAndCaptureSeam({
+      holder,
+      repoPath: "/repo",
+      buildSessionPath: "/tmp/build.jsonl",
+      compactionBoundary: 140000,
+      scenarioDescription: "x",
+      evaluatedModel: null,
+      omFullReflectionThresholdTokens: 4000,
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      exists: () => true,
+      writeHeader: () => {},
+      loadSession: fakeLoadSession,
+      awaitSettled: async () => {},
+      makeSimulator: (args) => fakeDriver(1, args.onStop),
+      getPi: () => ({ on: () => {} }) as unknown as ExtensionAPI,
+      read: () =>
+        `{"type":"session","id":"h","cwd":"/repo"}
+{"type":"message","id":"m1"}
+{"type":"compaction","id":"c1"}
+`,
+    });
+    await expect(driveAndCapture(0)).rejects.toThrow(/no longer pre-compaction/);
   });
 
   it("advances the widget to the 'build' cell before driving", async () => {

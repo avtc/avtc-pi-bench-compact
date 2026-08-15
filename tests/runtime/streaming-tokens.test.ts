@@ -47,8 +47,13 @@ describe("streaming-tokens", () => {
         cacheRead: 0,
         cacheWrite: 0,
         cost: 0,
-        totalTokens: 0,
+        // total omitted → component-sum fallback (pi calculateContextTokens parity)
+        totalTokens: 15,
       });
+    });
+    it("uses the provider's totalTokens verbatim when present", () => {
+      const m = msgWithUsage({ input: 10, output: 5, totalTokens: 999 });
+      expect(messageEndUsage(m)?.totalTokens).toBe(999);
     });
 
     it("returns null when the message carries no usage", () => {
