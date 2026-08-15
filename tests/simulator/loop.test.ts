@@ -233,7 +233,7 @@ describe("SimulatorDriver", () => {
     expect(onStop.mock.calls[0][0].error).toContain("upstream LLM failed");
   });
 
-  it("derived frontier: does NOT re-render the simulator's own previous message (R1/R3)", async () => {
+  it("full-transcript input: sees its own previous message + ALL prior agent work (real participant)", async () => {
     // cycle 1 branch: [seed, agent-resp-1]
     // cycle 2 branch: [seed, agent-resp-1, sim-msg-1, agent-resp-2]
     const branch1 = [eUser("seed", "build it"), eAsst("a1", "made the core loop")];
@@ -260,12 +260,13 @@ describe("SimulatorDriver", () => {
     await driver.onAgentSettled(); // cycle 1
     driver.trackContext(20_000);
     await driver.onAgentSettled(); // cycle 2
-    // cycle 2's input should contain ONLY agent-resp-2 ("combat is in place")
+    // cycle 2's input is the FULL transcript: the new response AND everything
+    // before it — the simulator's own previous beat + earlier agent work. A real
+    // session participant keeps the whole conversation in view every call.
     expect(captured[1]).toContain("combat is in place");
-    // ... NOT the simulator's own previous message
-    expect(captured[1]).not.toContain("please add a combat system");
-    // ... and NOT agent-resp-1 (already rendered in cycle 1)
-    expect(captured[1]).not.toContain("made the core loop");
+    expect(captured[1]).toContain("please add a combat system"); // its own voice
+    expect(captured[1]).toContain("made the core loop"); // earlier agent work
+    expect(captured[1]).toContain("build it"); // the session's opening message
   });
 
   it("forwards onEvent to runStage + calls onModelResolved after a successful resolve", async () => {

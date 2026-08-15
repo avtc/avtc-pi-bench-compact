@@ -40,7 +40,12 @@ import {
 } from "../runtime/agent-loop.js";
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { triggerCompact } from "../session/compact.js";
-import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
+import {
+  AgentSettledAbortedError,
+  type AwaitSettledOptions,
+  awaitAgentSettled,
+  withStallWatch,
+} from "../session/done.js";
 import { readMessageEndUsage, subscribeAgentEvent } from "../session/events.js";
 import { makeAntiPeekInjectFactory } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
@@ -357,6 +362,8 @@ interface MakeBuildSimulatorArgs {
 /** Tokens added to the pacing target per continue attempt (so a tail-condition
  *  re-drive injects more, sliding the native cut forward into the compacted-away span). */
 const CONTINUE_STEP_TOKENS = 20000;
+/** Settle-wait budget before the drive declares a stall (stop-and-surface). */
+const STALL_TIMEOUT_MS = 60 * 60 * 1000;
 
 /** Injectable ops for {@link buildDriveAndCaptureSeam} (defaults = real implementations). */
 export interface DriveAndCaptureSeamDeps {
@@ -446,7 +453,7 @@ const TURN_HEADROOM_TOKENS = 30000;
 /** Error thrown when pi's native auto-compaction fires during the build drive (or is
  *  found in the captured backup): the build session then contains a compaction, so
  *  it is unusable as the pre-compaction input every arm forks + compacts. */
-export class BuildAutoCompactedError extends Error {
+class BuildAutoCompactedError extends Error {
   constructor(attempt: number) {
     super(
       `native auto-compaction fired during the build drive (attempt ${attempt}) — the build session is no longer pre-compaction and cannot back a scenario. ` +
@@ -460,7 +467,11 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
   const exists = deps.exists ?? existsSync;
   const writeHeader = deps.writeHeader ?? ((path, header) => writeFileSync(path, serializeSessionFile(header)));
   const load = deps.loadSession ?? loadSession;
-  const awaitSettledFn = deps.awaitSettled ?? awaitAgentSettled;
+  const awaitSettledRaw = deps.awaitSettled ?? awaitAgentSettled;
+  // Stall watchdog: a wedged LLM request (or a hung turn) must surface, not block
+  // the drive forever. Generous budget — marathon tool-looping turns run 45+ min.
+  const awaitSettledFn = (pi: ExtensionAPI, options: AwaitSettledOptions | null): Promise<void> =>
+    withStallWatch((opts) => awaitSettledRaw(pi, opts), STALL_TIMEOUT_MS, "build drive")(options);
   const read = deps.read ?? ((path: string) => readFileSync(path, "utf8"));
   const getPi =
     deps.getPi ??

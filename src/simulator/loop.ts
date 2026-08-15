@@ -4,7 +4,7 @@
 // The user-simulator driver. One cycle per coding-agent run:
 //   on `agent_settled` (the agent finished responding to the simulator's last
 //   message) → pace (context vs boundary) → observe the unobserved gap since the
-//   last injection (reusing memkeeper's computeUnobserved + buildChunks) → run ONE
+//   (renderFullTranscript — the whole conversation from the start) → run ONE
 //   `runBenchStage` (maxTurns:1, no tools) with the system prompt → read the
 //   assistant reply → inject it via `pi.sendUserMessage({deliverAs:"followUp"})`.
 //
@@ -35,7 +35,7 @@ import {
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { CONDITION_TOPICS } from "./condition-topics.js";
 import { buildSimulatorInput } from "./messages.js";
-import { buildChunks, type ChunkOptions, computeUnobserved, lastUserMessageId, type RenderedChunk } from "./observe.js";
+import { type ChunkOptions, renderFullTranscript } from "./observe.js";
 import { buildSimulatorSystemPrompt } from "./prompt.js";
 
 // --- pure helpers (tested directly) ----------------------------------------
@@ -190,15 +190,15 @@ export class SimulatorDriver {
     //    into onStop({reason:"error"}) — never an unhandled rejection that stalls a
     //    harness wired only to onStop. The pacing check (step 1) stays outside.
     try {
-      // 2. observe the agent's response since the simulator's last injection.
-      //    The frontier is DERIVED (lastUserMessageId = the simulator's last injection;
-      //    the coding agent never produces user messages), so the gap is exactly the
-      //    agent's response — never re-rendering the simulator's own previous message.
+      // 2. render the FULL session transcript — the simulator is a real session
+      //    participant: it sees the whole conversation from the start (its own
+      //    beats + all agent work) every call, not just the gap since its last
+      //    injection. Append-only growth keeps the request prefix byte-stable
+      //    (prefix-cache friendly). Continuation session files carry the
+      //    pre-compaction history too — the user's memory is never compacted
+      //    (the asymmetry the bench measures).
       const branch = this.deps.seams.getBranch();
-      const frontier = lastUserMessageId(branch);
-      const unobserved = computeUnobserved(branch, frontier);
-      const chunks = buildChunks(unobserved, SIM_CHUNK_OPTS);
-      const renderedChunk = chunks.map((c: RenderedChunk) => c.text).join("\n");
+      const renderedChunk = renderFullTranscript(branch, SIM_CHUNK_OPTS);
 
       // 3. resolve the simulator's local model
       const resolved = await this.deps.seams.resolveModel();
@@ -217,10 +217,10 @@ export class SimulatorDriver {
           ? this.deps.firstInstruction
           : nextInstruction({ step: this._step, agentQuestion: this._agentQuestion });
       log.info(
-        `simulator cycle ${this._step}: ${unobserved.length} entries → ${chunks.length} chunk(s), ` +
+        `simulator cycle ${this._step}: full transcript ${branch.length} entries, ` +
           `${renderedChunk.length} chars rendered, instruction ${harnessInstruction.length} chars`,
       );
-      const messages = buildSimulatorInput({ renderedChunk, harnessInstruction });
+      const messages = buildSimulatorInput({ transcript: renderedChunk, harnessInstruction });
 
       // 5. run ONE stage (maxTurns:1, no tools) → the simulator's next user voice
       const result = await this.deps.seams.runStage({

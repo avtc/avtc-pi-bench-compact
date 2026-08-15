@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { ScenarioManifest } from "../manifest/schema.js";
 
 /** One missing condition topic (id/label/tag from the frozen topic constants). */
-export interface LandingTopic {
+interface LandingTopic {
   readonly id: string;
   readonly label: string;
   readonly tag: string;

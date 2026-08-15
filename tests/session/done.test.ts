@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { describe, expect, it } from "vitest";
-import { AgentSettledAbortedError, awaitAgentSettled } from "../../src/session/done.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  AgentSettledAbortedError,
+  AgentStalledError,
+  awaitAgentSettled,
+  withStallWatch,
+} from "../../src/session/done.js";
 import { fakeBus, fakeSignal } from "./helpers.js";
 
 describe("awaitAgentSettled", () => {
@@ -36,5 +41,32 @@ describe("awaitAgentSettled", () => {
     emit("agent_settled", { type: "agent_settled" });
     await p;
     expect(signal.listenerCount()).toBe(0);
+  });
+});
+
+describe("withStallWatch", () => {
+  it("resolves normally when settle arrives within the budget (timer cleared)", async () => {
+    const settle = async (): Promise<void> => {};
+    await expect(withStallWatch(settle, 60_000, "test")({})).resolves.toBeUndefined();
+  });
+
+  it("rejects with AgentStalledError when the budget elapses first", async () => {
+    vi.useFakeTimers();
+    try {
+      const never = (): Promise<void> => new Promise(() => {});
+      const p = withStallWatch(never, 60_000, "drive label")({});
+      const assertion = expect(p).rejects.toThrow(AgentStalledError);
+      await vi.advanceTimersByTimeAsync(60_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects with the UNDERLYING error when settle itself rejects (no stall)", async () => {
+    const failing = async (): Promise<void> => {
+      throw new Error("run signal aborted");
+    };
+    await expect(withStallWatch(failing, 60_000, "t")({})).rejects.toThrow("run signal aborted");
   });
 });

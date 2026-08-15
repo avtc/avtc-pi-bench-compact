@@ -42,3 +42,39 @@ export async function awaitAgentSettled(pi: ExtensionAPI, options: AwaitSettledO
     makeAbortedError: (reason) => new AgentSettledAbortedError(reason),
   });
 }
+
+/** A drive-level settle wait exceeded the stall budget — the agent turn (or its
+ *  LLM request) is wedged; surfaced as a stop-and-surface error. */
+export class AgentStalledError extends Error {
+  constructor(label: string, stallMs: number) {
+    super(
+      `${label}: agent did not settle within ${Math.round(stallMs / 60000)} min — the turn looks stalled (hung LLM request?)`,
+    );
+    this.name = "AgentStalledError";
+  }
+}
+
+/** Wrap an awaitSettled function with a stall watchdog: resolves normally on
+ *  settle; rejects with {@link AgentStalledError} when `stallMs` elapses first.
+ *  The timer always clears (settle, reject, or abort). Legitimately long turns
+ *  set the budget generously (marathon tool-looping turns run 45+ min). */
+export function withStallWatch(
+  awaitSettled: (options: AwaitSettledOptions | null) => Promise<void>,
+  stallMs: number,
+  label: string,
+): (options: AwaitSettledOptions | null) => Promise<void> {
+  return (options) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new AgentStalledError(label, stallMs)), stallMs);
+      void (async () => {
+        try {
+          await awaitSettled(options);
+          clearTimeout(timer);
+          resolve();
+        } catch (err) {
+          clearTimeout(timer);
+          reject(err);
+        }
+      })();
+    });
+}

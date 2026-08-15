@@ -28,7 +28,7 @@ import { isolateArmOrStop } from "../arms/switch.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
-import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
+import { AgentSettledAbortedError, awaitAgentSettled, withStallWatch } from "../session/done.js";
 import { subscribeAgentEvent } from "../session/events.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
@@ -222,6 +222,9 @@ export function createDefaultSimulatorFactory(
     });
 }
 
+/** Settle-wait budget before the drive declares a stall (stop-and-surface). */
+const STALL_TIMEOUT_MS = 60 * 60 * 1000;
+
 // --- per-attempt drive helpers (throw Phase2StoppedError on failure/hang) ---
 
 /** Await the agent settling; throw run-hung if it rejects (aborted/stalled). */
@@ -233,7 +236,11 @@ async function awaitSettle(
   attempt: number,
 ): Promise<void> {
   try {
-    await awaitSettled(pi, { signal });
+    await withStallWatch(
+      (opts) => awaitSettled(pi, opts),
+      STALL_TIMEOUT_MS,
+      `eval drive (arm ${arm}, attempt ${attempt})`,
+    )({ signal });
   } catch (err) {
     if (err instanceof Phase2StoppedError) throw err;
     const cause =

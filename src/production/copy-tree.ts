@@ -56,7 +56,7 @@ const defaultGit = (cwd: string, args: string[]): string =>
   execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).toString();
 
 /** Injectable git runner (tests fake the ls-files listing; any throw = non-git source). */
-export type GitRunner = (cwd: string, args: string[]) => string;
+type GitRunner = (cwd: string, args: string[]) => string;
 
 /** Options for {@link copyProjectTree}. */
 export interface CopyTreeOptions {

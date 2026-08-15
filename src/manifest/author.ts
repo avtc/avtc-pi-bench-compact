@@ -9,9 +9,11 @@
 // a full `ScenarioManifest` (assigns ids, derives lanes, fixes domain, merges the
 // scenario's taskObjective + compactionBoundary).
 
+import { readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
+import { log } from "../log.js";
 import { benchAuthoringTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
 import { AUTHORING_SYSTEM_PROMPT } from "./prompt.js";
 import {
@@ -98,6 +100,51 @@ function deriveLanes(
  *
  * Pure — directly testable with no seams.
  */
+/** Drop citations the pre-sliced span cannot resolve (authoring-side hallucinated
+ *  entry ids) + the conditions/probes left with no anchors. Without this, the
+ *  landing classifier counts unresolvable ids as tail and the build loop chases
+ *  phantom tails into the clamp; validation would also reject them on proceed.
+ *  Returns the cleaned manifest; logs every drop (observability). */
+export function sanitizeCitations(manifest: ScenarioManifest, spanEntryIds: ReadonlySet<string>): ScenarioManifest {
+  const drops = { conditions: 0, ids: 0, probes: 0 };
+  const cleanIds = (ids: readonly string[]): readonly string[] => {
+    const kept = ids.filter((id) => spanEntryIds.has(id));
+    drops.ids += ids.length - kept.length;
+    return kept;
+  };
+  const cleanList = <T extends { entryIds: readonly string[] }>(list: readonly T[]): readonly T[] => {
+    const out: T[] = [];
+    for (const c of list) {
+      const kept = cleanIds(c.entryIds);
+      if (kept.length === 0) {
+        drops.conditions += 1;
+        continue; // no anchor left — the condition cannot be graded in-span
+      }
+      out.push(kept.length === c.entryIds.length ? c : { ...c, entryIds: kept });
+    }
+    return out;
+  };
+  const recallFacts = cleanList(manifest.recallFacts);
+  const doneOps = cleanList(manifest.doneOps);
+  const supersessions = cleanList(manifest.supersessions);
+  const abstentions = cleanList(manifest.abstentions);
+  const probes = manifest.probes.flatMap((p) => {
+    const kept = cleanIds(p.targets);
+    if (kept.length === 0) {
+      drops.probes += 1;
+      return [];
+    }
+    return [kept.length === p.targets.length ? p : { ...p, targets: kept }];
+  });
+  if (drops.conditions > 0 || drops.ids > 0 || drops.probes > 0) {
+    log.warn(
+      `author citations sanitized against the span: dropped ${drops.conditions} condition(s), ` +
+        `${drops.ids} citation id(s), ${drops.probes} probe(s) — unresolvable (hallucinated) entry ids`,
+    );
+  }
+  return { ...manifest, recallFacts, doneOps, supersessions, abstentions, probes };
+}
+
 export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext): ScenarioManifest {
   const hasEmbedded = author.taskObjective.testSpec.length > 0;
   const targetedIds = new Set(author.probes.flatMap((p) => p.targets));
@@ -202,6 +249,9 @@ export function buildAuthoringTools(cwd: string): { tools: AgentTool[]; writeMan
  * @throws when the model cannot be resolved OR the agent never called
  *   `write_manifest` (no capture) — caller STOP-and-surfaces.
  */
+/** JSONL line separator (named constant for the split). */
+const JSONL_NEWLINE = "\n";
+
 export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<ScenarioManifest> {
   const { tools, writeManifest } = buildAuthoringTools(deps.cwd);
   const systemPrompt = buildAuthoringSystemPrompt({
@@ -225,5 +275,26 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     rateLimitOptions: deps.rateLimitOptions,
   })) as AuthorOutput;
 
-  return postProcessManifest(author, deps.scenarioCtx);
+  const manifest = postProcessManifest(author, deps.scenarioCtx);
+  try {
+    const spanEntryIds = new Set(
+      readFileSync(deps.preSlicedJsonlPath, "utf8")
+        .split(JSONL_NEWLINE)
+        .filter((l) => l.trim().length > 0)
+        .map((l) => {
+          try {
+            return (JSON.parse(l) as { id?: string }).id;
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((id): id is string => id !== undefined),
+    );
+    return sanitizeCitations(manifest, spanEntryIds);
+  } catch (err) {
+    // The span file is unreadable (deleted/moved mid-run): skip sanitization —
+    // the manifest pipeline's own file reads will surface the real fault.
+    log.warn(`citation sanitization skipped — span unreadable (${err instanceof Error ? err.message : String(err)})`);
+    return manifest;
+  }
 }

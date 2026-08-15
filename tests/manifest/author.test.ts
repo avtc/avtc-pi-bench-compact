@@ -10,6 +10,7 @@ import {
   postProcessManifest,
   runAuthoringAgent,
   type ScenarioContext,
+  sanitizeCitations,
 } from "../../src/manifest/author.js";
 import type { AuthorOutput } from "../../src/manifest/schema.js";
 
@@ -390,5 +391,58 @@ describe("runAuthoringAgent", () => {
     });
     expect(calls).toBe(2); // retried once after the rate-limit
     expect(manifest.recallFacts[0]?.fact).toBe("f");
+  });
+});
+
+describe("sanitizeCitations", () => {
+  const base = {
+    id: "sc1",
+    description: "d",
+    compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
+    taskObjective: { description: "b", testSpec: "npm test", lane: "embedded-test" as const },
+  };
+  const span = new Set(["e1", "e2", "e3"]);
+
+  it("drops hallucinated citation ids + conditions left with no anchors + orphaned probes", () => {
+    const m = {
+      ...base,
+      recallFacts: [
+        { id: "rf1", fact: "f1", accept: ["a"], entryIds: ["e1", "ghost9"], domain: "technical" as const, lanes: [] },
+        {
+          id: "rf2",
+          fact: "f2",
+          accept: ["b"],
+          entryIds: ["ghost1", "ghost2"],
+          domain: "technical" as const,
+          lanes: [],
+        },
+      ],
+      doneOps: [{ id: "do1", description: "d", artifact: "a", reworkable: false, entryIds: ["e2"], lanes: [] }],
+      supersessions: [],
+      abstentions: [],
+      probes: [
+        { question: "q1?", accept: ["a"], targets: ["e1"], lanes: ["direct-probe" as const] },
+        { question: "q2?", accept: ["b"], targets: ["ghost1"], lanes: ["direct-probe" as const] },
+      ],
+    } as unknown as import("../../src/manifest/schema.js").ScenarioManifest;
+    const clean = sanitizeCitations(m, span);
+    expect(clean.recallFacts.map((r) => r.id)).toEqual(["rf1"]); // rf2 fully hallucinated → dropped
+    expect(clean.recallFacts[0]?.entryIds).toEqual(["e1"]); // ghost id stripped
+    expect(clean.probes.map((p2) => p2.question)).toEqual(["q1?"]); // orphaned probe dropped
+    expect(clean.doneOps).toHaveLength(1);
+  });
+
+  it("keeps a fully-valid manifest untouched (no drops logged, same lists)", () => {
+    const m = {
+      ...base,
+      recallFacts: [
+        { id: "rf1", fact: "f", accept: ["a"], entryIds: ["e1", "e3"], domain: "technical" as const, lanes: [] },
+      ],
+      doneOps: [{ id: "do1", description: "d", artifact: "a", reworkable: false, entryIds: ["e2"], lanes: [] }],
+      supersessions: [],
+      abstentions: [],
+      probes: [{ question: "q?", accept: ["a"], targets: ["e1"], lanes: ["direct-probe" as const] }],
+    } as unknown as import("../../src/manifest/schema.js").ScenarioManifest;
+    expect(sanitizeCitations(m, span)).toEqual(m);
   });
 });

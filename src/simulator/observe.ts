@@ -72,24 +72,9 @@ export interface ChunkOptions {
   readonly includeEntryId: boolean;
 }
 
-export interface RenderedChunk {
-  readonly text: string;
-  readonly allowedIds: ReadonlySet<string>;
-  /** Lowest-source entry id in this chunk (coverage start). */
-  readonly firstEntryId: string;
-  /** Highest-source entry id in this chunk (frontier advance target). */
-  readonly lastEntryId: string;
-}
-
 // --- computeUnobserved (id-cursor frontier gap) ---------------------------
 
 /** Whether a session entry is a user message (anchors the null-frontier start). */
-function isUserMessageEntry(entry: SessionEntry): boolean {
-  if (entry.type !== "message") return false;
-  const message = entry.message;
-  return typeof message === "object" && message !== null && message.role === "user";
-}
-
 /**
  * The id of the last user-role message in the branch, or null if there is none.
  * For the simulator: this is its most recent injected message (the coding agent
@@ -97,13 +82,6 @@ function isUserMessageEntry(entry: SessionEntry): boolean {
  * the unobserved gap becomes exactly the agent's response to it. Derived fresh each
  * cycle (no stored state — robust against inject/delivery timing).
  */
-export function lastUserMessageId(entries: readonly SessionEntry[]): string | null {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (isUserMessageEntry(entries[i])) return entries[i].id;
-  }
-  return null;
-}
-
 /**
  * The unobserved slice: renderable entries strictly AFTER the frontier id. When
  * `frontier` is null (no user message at all) the slice is empty (no anchor).
@@ -113,19 +91,6 @@ export function lastUserMessageId(entries: readonly SessionEntry[]): string | nu
  * injection — so the result is exactly the agent's response since the simulator
  * last spoke (never re-rendering the simulator's own previous message).
  */
-export function computeUnobserved(entries: readonly SessionEntry[], frontier: string | null): SessionEntry[] {
-  if (frontier === null) {
-    const firstUserIndex = entries.findIndex(isUserMessageEntry);
-    // start strictly after the first user message; no user message → no anchor → empty
-    const startIndex = firstUserIndex === -1 ? entries.length : firstUserIndex + 1;
-    return entries.slice(startIndex).filter(isRenderableEntry);
-  }
-  const frontierIndex = entries.findIndex((entry) => entry.id === frontier);
-  // frontier not found (stale id) → nothing strictly-after it → empty
-  const startIndex = frontierIndex === -1 ? entries.length : frontierIndex + 1;
-  return entries.slice(startIndex).filter(isRenderableEntry);
-}
-
 // --- sanitization & truncation --------------------------------------------
 
 const TRUNCATION_MARKER = "[…truncated…]";
@@ -133,7 +98,6 @@ const THINKING_PREFIX_PATTERN = /^Thinking:\s*/;
 const ATTR_ERROR = "error";
 /** Separator between rendered blocks (each tag on its own line). */
 const BLOCK_SEP = "\n";
-const FIRST_INDEX = 0;
 
 function sanitizeThinking(text: string): string {
   return stripAnsi(text).replace(THINKING_PREFIX_PATTERN, "");
@@ -345,29 +309,14 @@ function emitToolCallPair(
  * is never split across chunks. Each chunk reports `allowedIds`: the entry ids
  * cited in its blocks, + `firstEntryId`/`lastEntryId` (the coverage range).
  */
-export function buildChunks(entries: readonly SessionEntry[], options: ChunkOptions): RenderedChunk[] {
+/** Render EVERY renderable entry as one contiguous transcript text (no chunking,
+ *  no token gating) — the user-simulator's per-cycle input. The simulator is a
+ *  REAL session participant: it sees the whole conversation from the start (its
+ *  own messages + all agent work) every call — append-only growth keeps the
+ *  request prefix stable (provider prefix-cache friendly). Deterministic per
+ *  entry, so successive cycles extend the prefix byte-stably. */
+export function renderFullTranscript(entries: readonly SessionEntry[], options: ChunkOptions): string {
   const groups = renderGroups(entries, options);
-  const chunks: RenderedChunk[] = [];
-  let current: RenderBlock[] = [];
-  let currentTokens = 0;
-
-  const flush = (): void => {
-    if (current.length === 0) return;
-    const text = current.map((block) => block.text).join(BLOCK_SEP);
-    const allowedIds = new Set(current.map((block) => block.entryId));
-    const firstEntryId = current[FIRST_INDEX]?.entryId ?? "";
-    const lastEntryId = current[current.length - 1]?.entryId ?? "";
-    chunks.push({ text, allowedIds, firstEntryId, lastEntryId });
-    current = [];
-    currentTokens = 0;
-  };
-
-  for (const group of groups) {
-    current.push(...group.blocks);
-    const groupChars = group.blocks.reduce((sum, block) => sum + block.text.length, 0);
-    currentTokens += Math.ceil(groupChars / CHARS_PER_TOKEN_ESTIMATE);
-    if (currentTokens >= options.tokenThreshold) flush();
-  }
-  flush(); // trailing remainder
-  return chunks;
+  const blocks = groups.flatMap((g) => g.blocks);
+  return blocks.map((b) => b.text).join(BLOCK_SEP);
 }

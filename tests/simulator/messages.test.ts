@@ -15,7 +15,7 @@ function bodyOf(msg: AgentMessage): string {
 describe("buildSimulatorInput", () => {
   it("returns exactly ONE user message (maxTurns:1 → one assistant reply = the next user voice)", () => {
     const msgs = buildSimulatorInput({
-      renderedChunk: "<ASSISTANT>did a thing</ASSISTANT>",
+      transcript: "<ASSISTANT>did a thing</ASSISTANT>",
       harnessInstruction: "Review what it did.",
     });
     expect(msgs).toHaveLength(1);
@@ -25,7 +25,7 @@ describe("buildSimulatorInput", () => {
   it("embeds the rendered agent output + the harness instruction (instruction is the ask)", () => {
     const chunk = "<USER>build x</USER>\n<ASSISTANT>ok done</ASSISTANT>";
     const instr = "Decide how to model the next system.";
-    const [msg] = buildSimulatorInput({ renderedChunk: chunk, harnessInstruction: instr });
+    const [msg] = buildSimulatorInput({ transcript: chunk, harnessInstruction: instr });
     const body = bodyOf(msg);
     expect(body).toContain(chunk);
     expect(body).toContain(instr);
@@ -33,9 +33,9 @@ describe("buildSimulatorInput", () => {
     expect(body.indexOf(chunk)).toBeLessThan(body.indexOf(instr));
   });
 
-  it("empty renderedChunk (first turn — no agent output yet) → just the instruction", () => {
+  it("empty transcript (first turn — no session content yet) → just the instruction", () => {
     const [msg] = buildSimulatorInput({
-      renderedChunk: "",
+      transcript: "",
       harnessInstruction: "Start building: request your first system.",
     });
     const body = bodyOf(msg);
@@ -44,7 +44,7 @@ describe("buildSimulatorInput", () => {
   });
 
   it("returns AgentMessage[] (the shape runBenchStage.messages expects)", () => {
-    const msgs: AgentMessage[] = buildSimulatorInput({ renderedChunk: "x", harnessInstruction: "y" });
+    const msgs: AgentMessage[] = buildSimulatorInput({ transcript: "x", harnessInstruction: "y" });
     expect(Array.isArray(msgs)).toBe(true);
   });
 });
