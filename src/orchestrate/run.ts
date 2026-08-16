@@ -220,7 +220,10 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   if (resuming && configChanged && resume !== undefined) {
     deps.notify?.(
       `config changed since the crash (run cfg ${resume.cfgId}, current cfg ${cfgId}) — ` +
-        "continuing under the override; arms whose tool version changed re-compact under the new version",
+        "continuing under the override; " +
+        (resume.reuseBases === true
+          ? "arms whose tool version changed reuse their committed base when one exists (--reuse-bases), else re-compact"
+          : "arms whose tool version changed re-compact under the new version"),
     );
   }
   log.info(

@@ -821,12 +821,30 @@ describe("startRun — crash resume with --allow-config-change (config-change ov
     // phases receive the NAMESPACE cfg (branch detection under cfg-oldid)
     expect(phase1.mock.calls[0]?.[0].cfgId).toBe("cfg-oldid");
     expect(phase1.mock.calls[0]?.[0].resume).toBe(true);
-    // the operator was warned about the mixed conditions
+    // the operator was warned about the mixed conditions (default-override wording)
     expect(notify).toHaveBeenCalledWith(
-      expect.stringMatching(/config changed since the crash.*continuing under the override/),
+      expect.stringMatching(
+        /config changed since the crash.*continuing under the override.*re-compact under the new version/,
+      ),
     );
     // BOTH config snapshots exist: the current one under its own id, the original untouched
     expect(existsSync(join(root, "configs", "cfg-oldid.json"))).toBe(false); // never written under the OLD id
+  });
+
+  it("the override warning states the --reuse-bases behavior when the flag is set", async () => {
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const notify = vi.fn();
+    const deps = makeDeps({ arms: ["A1"], root, notify, phase1, continuations });
+    deps.resume = { runId: "2026-08-11-1", cfgId: "cfg-oldid", allowConfigChange: true, reuseBases: true };
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /config changed since the crash.*continuing under the override.*reuse their committed base when one exists \(--reuse-bases\), else re-compact/,
+      ),
+    );
   });
 
   it("a mismatch WITHOUT the override still refuses (hard guard intact)", async () => {
