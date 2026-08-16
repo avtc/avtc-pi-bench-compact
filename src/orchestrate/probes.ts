@@ -335,6 +335,10 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       // question so the agent re-sees the forbid-peek instruction before answering.
       await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
         currentCtx = sessionCtx;
+        // pi clears ALL extension widgets on every switchSession (teardownCurrent →
+        // clearExtensionWidgets) and probes have no background event stream to
+        // re-publish ours — repaint here so the widget stays up for the whole turn.
+        deps.widget?.show();
         const pi: ExtensionAPI = getBenchPi();
         // Re-isolate the arm IN-PLACE (same as Phase-1/2): switchSession resets the active
         // tool set + the prior arm's memory config may still be live, so re-write THIS arm's

@@ -212,6 +212,35 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     }
   });
 
+  it("repaints the widget after each probe's session switch (pi clears all extension widgets on switchSession)", async () => {
+    const ops = makeFakeProbeOps();
+    const widget = {
+      show: vi.fn(),
+      startPhase: vi.fn(),
+      setStatus: vi.fn(),
+      setArm: vi.fn(),
+      setDetail: vi.fn(),
+      setCtxWindow: vi.fn(),
+      onEvent: vi.fn(),
+      hide: vi.fn(),
+    };
+    await runProbes({
+      cmdCtx,
+      armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
+      manifest: makeManifest(PROBES),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      widget,
+      ops: ops as unknown as ProbeOps,
+    });
+
+    // one repaint per probe, INSIDE the withSession callback (post-switchSession —
+    // pi's teardownCurrent → clearExtensionWidgets wiped it at the fork)
+    expect(widget.show).toHaveBeenCalledTimes(PROBES.length);
+  });
+
   it("injects ANTI_PEEK_PROMPT + the probe question as a followUp on the FRESH pi", async () => {
     const ops = makeFakeProbeOps();
     await runProbes({

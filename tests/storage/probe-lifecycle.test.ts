@@ -23,6 +23,10 @@ const ASSISTANT_TOOL = (t: string) =>
   `{"type":"message","id":"a-${t}","message":{"role":"assistant","content":[{"type":"text","text":""},{"type":"toolCall","name":"read","args":{}}]}}`;
 const TOOL_RESULT = (t: string) =>
   `{"type":"message","id":"r-${t}","message":{"role":"toolResult","content":[{"type":"text","text":"${t}"}]}}`;
+/** A user-global extension's cache entry (e.g. avtc-pi-portrait's `portrait-cache`) —
+ *  appended to EVERY forked session by extensions outside the bench's control. */
+const CUSTOM_CACHE = (customType: string) =>
+  `{"type":"custom","customType":"${customType}","data":{"content":"cached"}}`;
 
 describe("isQaOnlyBranch (real git + two session files)", () => {
   let repo: string;
@@ -97,6 +101,16 @@ describe("isQaOnlyBranch (real git + two session files)", () => {
   it("false when an added session line is unparseable (defensive keep — Issue #1)", () => {
     const probeFile = probeBranch("p-bad", ["this is not valid json"], false);
     expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-bad", baseSessionFile, probeFile)).toBe(false);
+  });
+
+  it("true when the probe added only Q&A + user-global *-cache custom entries (the cache extensions append to every fork)", () => {
+    const probeFile = probeBranch("p-cache", [CUSTOM_CACHE("portrait-cache"), CUSTOM_CACHE("user-decisions-cache"), ASSISTANT_TEXT("ans")], false);
+    expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-cache", baseSessionFile, probeFile)).toBe(true);
+  });
+
+  it("false when the probe added a NON-cache custom entry (unknown custom shape — conservative keep)", () => {
+    const probeFile = probeBranch("p-custom", [CUSTOM_CACHE("tool-artifact"), ASSISTANT_TEXT("ans")], false);
+    expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-custom", baseSessionFile, probeFile)).toBe(false);
   });
 });
 

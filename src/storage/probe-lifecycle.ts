@@ -30,7 +30,17 @@ interface SessionEntry {
 function isMutatingEntry(entry: SessionEntry): boolean {
   // Conservative: anything that isn't a clean user/assistant text+thinking message is "mutating"
   // (a tool call, a tool result, a custom/compaction entry, or an unexpected shape) → keep the branch.
-  if (entry.type !== "message") return true;
+  if (entry.type !== "message") {
+    // EXCEPTION: user-global cache extensions (portrait, user-decisions…) append a
+    // `*-cache` custom entry to EVERY forked session — bench-external noise present on
+    // every probe branch, not agent activity. Treat those as non-mutating so clean
+    // Q&A probe branches still get the delete lifecycle.
+    const customType = (entry as { customType?: unknown }).customType;
+    if (entry.type === "custom" && typeof customType === "string" && customType.endsWith("-cache")) {
+      return false;
+    }
+    return true;
+  }
   const msg = entry.message;
   if (msg === undefined) return true;
   if (msg.role === "toolResult") return true;
