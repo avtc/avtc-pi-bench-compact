@@ -31,6 +31,7 @@ import {
   type AuthorProbe,
   type AuthorRecallFact,
   type AuthorSupersession,
+  type AuthorTailConflict,
   DONE_OP_ITEM_SCHEMA,
   type DoneOp,
   type Lane,
@@ -42,6 +43,7 @@ import {
   type ScenarioManifest,
   SUPERSESSION_ITEM_SCHEMA,
   type Supersession,
+  TAIL_CONFLICT_ITEM_SCHEMA,
   TASK_OBJECTIVE_SCHEMA,
 } from "./schema.js";
 
@@ -66,7 +68,14 @@ export interface RunAuthoringAgentDeps {
   readonly seams: AuthoringSeams;
   /** Working directory the authoring tools operate in (the scenario repo). */
   readonly cwd: string;
-  /** Path to the pre-sliced compacted-away JSONL the agent reads. */
+  /** Path to the FULL backup JSONL the agent reads (span + kept tail; the prompt
+   *  marks the tail boundary via {@link tailStartsAtEntryId}). */
+  readonly fullJsonlPath: string;
+  /** The kept-tail boundary entry id (firstKeptEntryId of the trial compaction):
+   *  this entry and everything after it stays raw in the agent's context. */
+  readonly tailStartsAtEntryId: string;
+  /** Path to the pre-sliced compacted-away JSONL — citation sanitization input
+   *  (the agent itself reads {@link fullJsonlPath}). */
   readonly preSlicedJsonlPath: string;
   /** Build-mode anchors, or omit for extract mode (open discovery). */
   readonly knownConditions?: readonly KnownCondition[];
@@ -97,6 +106,8 @@ const ADD_ABSTENTION_DESCRIPTION =
   "Record ONE question that was deliberately left OPEN (never decided). Call as soon as you confirm it; call again per question.";
 const ADD_PROBE_DESCRIPTION =
   "Record ONE direct probe question (accept list for a recallable answer, or correctRefusal with no accept list for a stale/open answer). Call as soon as you author it; call again per probe.";
+const ADD_TAIL_CONFLICT_DESCRIPTION =
+  "Record ONE conflict between a finding and the kept tail: kind 'answerable' (the tail restates the answer — a probe would pass from raw context) or 'superseded' (the tail changes the fact). Cite the finding's SPAN entryIds. Call once per conflicted finding.";
 const FINALIZE_MANIFEST_DESCRIPTION =
   "Finalize the manifest with the task objective (what was built + how to test it). Call ONCE when you have recorded everything — this ends the manifest authoring.";
 
@@ -131,6 +142,9 @@ function deriveLanes(
  *  phantom tails into the clamp; validation would also reject them on proceed.
  *  Returns the cleaned manifest; logs every drop (observability). */
 export function sanitizeCitations(manifest: ScenarioManifest, spanEntryIds: ReadonlySet<string>): ScenarioManifest {
+  // Pull the original tailConflicts out of the spread base — the cleaned value (or
+  // absence) below must fully own the field, never the unsanitized original.
+  const { tailConflicts: originalConflicts, ...manifestBase } = manifest;
   const drops = { conditions: 0, ids: 0, probes: 0 };
   const cleanIds = (ids: readonly string[]): readonly string[] => {
     const kept = ids.filter((id) => spanEntryIds.has(id));
@@ -161,13 +175,28 @@ export function sanitizeCitations(manifest: ScenarioManifest, spanEntryIds: Read
     }
     return [kept.length === p.targets.length ? p : { ...p, targets: kept }];
   });
+  // Tail conflicts cite the finding's span entryIds — clean them the same way; a
+  // conflict left with no resolvable id cannot match any condition and is dropped.
+  const tailConflicts = (originalConflicts ?? []).flatMap((c) => {
+    const kept = cleanIds(c.entryIds);
+    if (kept.length === 0) return [];
+    return [kept.length === c.entryIds.length ? c : { ...c, entryIds: kept }];
+  });
   if (drops.conditions > 0 || drops.ids > 0 || drops.probes > 0) {
     log.warn(
       `author citations sanitized against the span: dropped ${drops.conditions} condition(s), ` +
         `${drops.ids} citation id(s), ${drops.probes} probe(s) — unresolvable (hallucinated) entry ids`,
     );
   }
-  return { ...manifest, recallFacts, doneOps, supersessions, abstentions, probes };
+  return {
+    ...manifestBase,
+    recallFacts,
+    doneOps,
+    supersessions,
+    abstentions,
+    probes,
+    ...(tailConflicts.length > 0 ? { tailConflicts } : {}),
+  };
 }
 
 export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext): ScenarioManifest {
@@ -233,21 +262,29 @@ export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext):
     supersessions,
     abstentions,
     probes,
+    ...(author.tailConflicts !== undefined && author.tailConflicts.length > 0
+      ? { tailConflicts: author.tailConflicts }
+      : {}),
   };
 }
 
 /**
  * Build the authoring system prompt: the authoring prompt with `<PATH>` substituted
- * by the pre-sliced JSONL path, plus the `knownConditions` list appended when the
- * session was designed with anchors (build mode). Extract mode omits the data.
+ * by the FULL backup JSONL path and `<TAIL_START>` by the kept-tail boundary entry
+ * id, plus the `knownConditions` list appended when the session was designed with
+ * anchors (build mode). Extract mode omits the data.
  */
 export function buildAuthoringSystemPrompt(deps: {
-  preSlicedJsonlPath: string;
+  fullJsonlPath: string;
+  tailStartsAtEntryId: string;
   knownConditions?: readonly KnownCondition[];
 }): string {
   // Use a replacement function (not a replacement string) so `$` in the JSONL path
   // is treated literally — String.replace's replacement string mangles `$&`/`$1`/etc.
-  let prompt = AUTHORING_SYSTEM_PROMPT.replaceAll("<PATH>", () => deps.preSlicedJsonlPath);
+  let prompt = AUTHORING_SYSTEM_PROMPT.replaceAll("<PATH>", () => deps.fullJsonlPath).replaceAll(
+    "<TAIL_START>",
+    () => deps.tailStartsAtEntryId,
+  );
   if (deps.knownConditions && deps.knownConditions.length > 0) {
     const list = deps.knownConditions.map((kc) => `- ${kc.name} — entry ${kc.entryId}`).join("\n");
     prompt += `\n\nKNOWN CONDITIONS (the session was designed to contain these — use as anchors):\n${list}\nRead each cited entry and extract the exact content.`;
@@ -271,6 +308,7 @@ export interface AuthorAccumulators {
   supersessions: AuthorSupersession[];
   abstentions: AuthorAbstention[];
   probes: AuthorProbe[];
+  tailConflicts: AuthorTailConflict[];
 }
 
 /**
@@ -292,6 +330,7 @@ export function buildAuthoringTools(
     supersessions: [],
     abstentions: [],
     probes: [],
+    tailConflicts: [],
   };
   const notify = (): void =>
     onAdd({
@@ -329,6 +368,12 @@ export function buildAuthoringTools(
     ),
     makeAccumulatingTool("add_abstention", ADD_ABSTENTION_DESCRIPTION, ABSTENTION_ITEM_SCHEMA, sink(acc.abstentions)),
     makeAccumulatingTool("add_probe", ADD_PROBE_DESCRIPTION, PROBE_ITEM_SCHEMA, sink(acc.probes)),
+    makeAccumulatingTool(
+      "add_tail_conflict",
+      ADD_TAIL_CONFLICT_DESCRIPTION,
+      TAIL_CONFLICT_ITEM_SCHEMA,
+      sink(acc.tailConflicts),
+    ),
     finalizeManifest,
   ];
   return { tools, finalizeManifest, acc };
@@ -348,7 +393,8 @@ const JSONL_NEWLINE = "\n";
 export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<ScenarioManifest> {
   const { tools, finalizeManifest, acc } = buildAuthoringTools(deps.cwd, deps.onAdd);
   const systemPrompt = buildAuthoringSystemPrompt({
-    preSlicedJsonlPath: deps.preSlicedJsonlPath,
+    fullJsonlPath: deps.fullJsonlPath,
+    tailStartsAtEntryId: deps.tailStartsAtEntryId,
     knownConditions: deps.knownConditions,
   });
 
@@ -363,7 +409,7 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     systemPrompt,
     terminalTool: finalizeManifest,
     label: "authoring",
-    userMessageContent: `Read the session file at ${deps.preSlicedJsonlPath} and produce the manifest. Use your tools to read it, record each finding with its add_* tool as you confirm it, then call finalize_manifest with the task objective when done.`,
+    userMessageContent: `Read the FULL session file at ${deps.fullJsonlPath} and produce the manifest. The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId} — everything before that entry is the compacted-away span (find facts there); validate each finding against the tail per the instructions. Use your tools to read it, record each finding with its add_* tool as you confirm it, then call finalize_manifest with the task objective when done.`,
     maxTokens: deps.maxTokens,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,
@@ -374,6 +420,7 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     supersessions: acc.supersessions,
     abstentions: acc.abstentions,
     probes: acc.probes,
+    ...(acc.tailConflicts.length > 0 ? { tailConflicts: acc.tailConflicts } : {}),
     taskObjective: finalizePayload,
   };
   const manifest = postProcessManifest(author, deps.scenarioCtx);

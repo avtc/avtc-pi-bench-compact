@@ -108,7 +108,14 @@ describe("buildAuthorSeam", () => {
       compactionBoundary: { phaseATokenBudget: 140000, plan: "build" },
     };
     const signal = new AbortController().signal;
-    const captured = { cwd: "", preSlicedJsonlPath: "", resolveCtx: fakeCtx, modelSetting: "x" as string | null };
+    const captured = {
+      cwd: "",
+      preSlicedJsonlPath: "",
+      fullJsonlPath: "",
+      tailStartsAtEntryId: "",
+      resolveCtx: fakeCtx,
+      modelSetting: "x" as string | null,
+    };
     const manifest = {
       id: "sc1",
       recallFacts: [],
@@ -131,15 +138,19 @@ describe("buildAuthorSeam", () => {
       runAuthor: async (deps) => {
         captured.cwd = deps.cwd;
         captured.preSlicedJsonlPath = deps.preSlicedJsonlPath;
+        captured.fullJsonlPath = deps.fullJsonlPath;
+        captured.tailStartsAtEntryId = deps.tailStartsAtEntryId;
         await deps.seams.resolveModel();
         return manifest;
       },
     });
 
-    const result = await author("/tmp/slice/sliced-0.jsonl");
+    const result = await author("/tmp/slice/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
     expect(result).toBe(manifest);
     expect(captured.cwd).toBe("/tmp/slice");
     expect(captured.preSlicedJsonlPath).toBe("/tmp/slice/sliced-0.jsonl");
+    expect(captured.fullJsonlPath).toBe("/tmp/backup.jsonl"); // the agent reads the FULL backup (span + tail)
+    expect(captured.tailStartsAtEntryId).toBe("cut-1");
     expect(captured.resolveCtx).toBe(fakeCtx);
     expect(captured.modelSetting).toBe("provider/model-a");
   });
@@ -156,7 +167,7 @@ describe("buildAuthorSeam", () => {
         ({ id: "sc1", recallFacts: [], doneOps: [], supersessions: [], probes: [] }) as unknown as ScenarioManifest,
       widget,
     });
-    await author("/tmp/sliced-0.jsonl");
+    await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
     expect(widget.phases).toContain("extract");
   });
 });
@@ -737,7 +748,7 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
     // Drive the buildBackup order: driveAndCapture(0) → trialCompact → author.
     await driveAndCapture(0);
     await trialCompact("/tmp/build.jsonl");
-    await author("/tmp/slice/sliced-0.jsonl");
+    await author("/tmp/slice/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
 
     // driveAndCapture got the initial ctx; trialCompact got drive's fresh-1 (the holder threads).
     expect(fromCtxs).toEqual(["initial", "fresh-1"]);
@@ -1081,7 +1092,7 @@ describe("extractDetailFromCounts (extract-phase widget coverage)", () => {
         } as unknown as ScenarioManifest;
       }) as unknown as RunAuthor,
     });
-    await author("/tmp/sliced-0.jsonl");
+    await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
     expect(details).toEqual(["topics 1/4 · 1 pts", "topics 4/4 · 5 pts"]);
   });
 });

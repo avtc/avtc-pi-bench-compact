@@ -74,6 +74,7 @@ export interface AuthorOutput {
   readonly supersessions: readonly AuthorSupersession[];
   readonly abstentions: readonly AuthorAbstention[];
   readonly probes: readonly AuthorProbe[];
+  readonly tailConflicts?: readonly AuthorTailConflict[];
   readonly taskObjective: AuthorTaskObjective;
 }
 
@@ -116,6 +117,18 @@ export const PROBE_ITEM_SCHEMA: TSchema = Type.Object({
   accept: Type.Optional(NonEmptyStringArray),
   correctRefusal: Type.Optional(Type.Literal(true)),
   targets: NonEmptyStringArray,
+});
+/** A tail conflict: the kept tail either RESTATES a finding's answer (the probe
+ *  becomes answerable from raw context) or CHANGES it (the accept/latest value is
+ *  stale). `entryIds` cite the finding's SPAN entries — the same ids its condition
+ *  cites — so the landing classifier can map the conflict to its topic. */
+export interface AuthorTailConflict {
+  readonly entryIds: readonly string[];
+  readonly kind: TailConflictKind;
+}
+export const TAIL_CONFLICT_ITEM_SCHEMA: TSchema = Type.Object({
+  entryIds: NonEmptyStringArray,
+  kind: Type.Union([Type.Literal("answerable"), Type.Literal("superseded")]),
 });
 /** The finalize_manifest payload: the task objective (the only structured piece
  *  NOT carried by a per-item tool). */
@@ -163,6 +176,7 @@ export const AUTHOR_OUTPUT_SCHEMA: TSchema = Type.Object({
       targets: NonEmptyStringArray,
     }),
   ),
+  tailConflicts: Type.Optional(Type.Array(TAIL_CONFLICT_ITEM_SCHEMA)),
   taskObjective: Type.Object({
     description: NonEmptyString,
     testSpec: Type.String(), // may be empty (no tests → no embedded-test lane)
@@ -231,6 +245,17 @@ export interface ScenarioContext {
   readonly compactionBoundary: CompactionBoundary;
 }
 
+/** How the kept tail conflicts with a span finding: `answerable` = the tail
+ *  restates the answer (a probe would pass from raw context — no memory tested);
+ *  `superseded` = the tail changes the fact (the accept/latest value is stale). */
+export type TailConflictKind = "answerable" | "superseded";
+
+/** One author-reported tail conflict, matched to its condition by span entry ids. */
+export interface TailConflict {
+  readonly entryIds: readonly string[];
+  readonly kind: TailConflictKind;
+}
+
 /** The full `scenario-manifest-v1`. */
 export interface ScenarioManifest {
   readonly id: string;
@@ -242,4 +267,7 @@ export interface ScenarioManifest {
   readonly abstentions: readonly Abstention[];
   readonly taskObjective: TaskObjective;
   readonly probes: readonly Probe[];
+  /** Author-reported tail conflicts (validation of the kept tail against each
+   *  finding). Absent = authored without tail validation (or none found). */
+  readonly tailConflicts?: readonly TailConflict[];
 }

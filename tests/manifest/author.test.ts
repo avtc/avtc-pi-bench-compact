@@ -193,6 +193,8 @@ describe("runAuthoringAgent", () => {
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/sliced.jsonl",
+      fullJsonlPath: "/tmp/backup.jsonl",
+      tailStartsAtEntryId: "tail-start",
       scenarioCtx,
       signal: new AbortController().signal,
       maxTokens: 2000,
@@ -221,6 +223,8 @@ describe("runAuthoringAgent", () => {
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
+        fullJsonlPath: "/tmp/x-full.jsonl",
+        tailStartsAtEntryId: "tail-start",
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
@@ -245,6 +249,8 @@ describe("runAuthoringAgent", () => {
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
+        fullJsonlPath: "/tmp/x-full.jsonl",
+        tailStartsAtEntryId: "tail-start",
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
@@ -282,6 +288,8 @@ describe("runAuthoringAgent", () => {
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
+        fullJsonlPath: "/tmp/x-full.jsonl",
+        tailStartsAtEntryId: "tail-start",
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
@@ -318,6 +326,8 @@ describe("runAuthoringAgent", () => {
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
+        fullJsonlPath: "/tmp/x-full.jsonl",
+        tailStartsAtEntryId: "tail-start",
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
@@ -352,6 +362,8 @@ describe("runAuthoringAgent", () => {
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/x.jsonl",
+      fullJsonlPath: "/tmp/x-full.jsonl",
+      tailStartsAtEntryId: "tail-start",
       scenarioCtx,
       signal: new AbortController().signal,
       maxTokens: 2000,
@@ -399,6 +411,8 @@ describe("runAuthoringAgent", () => {
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/x.jsonl",
+      fullJsonlPath: "/tmp/x-full.jsonl",
+      tailStartsAtEntryId: "tail-start",
       scenarioCtx,
       signal: new AbortController().signal,
       maxTokens: 2000,
@@ -459,5 +473,41 @@ describe("sanitizeCitations", () => {
       probes: [{ question: "q?", accept: ["a"], targets: ["e1"], lanes: ["direct-probe" as const] }],
     } as unknown as import("../../src/manifest/schema.js").ScenarioManifest;
     expect(sanitizeCitations(m, span)).toEqual(m);
+  });
+});
+
+describe("tail conflicts (author-side tail validation)", () => {
+  it("buildAuthoringTools includes add_tail_conflict (validated accumulation)", async () => {
+    const { tools, acc } = buildAuthoringTools(process.cwd(), () => {});
+    expect(tools.some((t) => t.name === "add_tail_conflict")).toBe(true);
+    const tool = tools.find((t) => t.name === "add_tail_conflict");
+    expect(tool).toBeDefined();
+  });
+
+  it("postProcessManifest carries authored tailConflicts into the manifest", () => {
+    const manifest = postProcessManifest(
+      {
+        ...cannedAuthor,
+        tailConflicts: [{ entryIds: ["e1"], kind: "answerable" }],
+      },
+      scenarioCtx,
+    );
+    expect(manifest.tailConflicts).toEqual([{ entryIds: ["e1"], kind: "answerable" }]);
+  });
+
+  it("postProcessManifest omits the field when none were authored", () => {
+    const manifest = postProcessManifest(cannedAuthor, scenarioCtx);
+    expect(manifest.tailConflicts).toBeUndefined();
+  });
+
+  it("sanitizeCitations keeps resolvable conflict ids, drops conflicts with none", () => {
+    const base = postProcessManifest(
+      { ...cannedAuthor, tailConflicts: [{ entryIds: ["e1", "ghost"], kind: "superseded" }] },
+      scenarioCtx,
+    );
+    const cleaned = sanitizeCitations(base, new Set(["e1", "e2", "e3", "e4", "e5"]));
+    expect(cleaned.tailConflicts).toEqual([{ entryIds: ["e1"], kind: "superseded" }]);
+    const emptied = sanitizeCitations(base, new Set(["e2", "e3", "e4", "e5"])); // e1 unresolvable → conflict dropped (field absent)
+    expect(emptied.tailConflicts).toBeUndefined();
   });
 });

@@ -172,7 +172,11 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
   const resolve = deps.resolveModel ?? resolveBenchModel;
   const runStage = deps.runStage ?? runBenchStage;
   const runAuthor = deps.runAuthor ?? runAuthoringAgent;
-  return async (preSlicedJsonlPath: string): Promise<ScenarioManifest> => {
+  return async (
+    preSlicedJsonlPath: string,
+    backupPath: string,
+    firstKeptEntryId: string,
+  ): Promise<ScenarioManifest> => {
     deps.widget?.startPhase("extract", NO_DETAIL);
     const hooks = widgetStageHooks(deps.widget);
     const seams: AuthoringSeams = {
@@ -184,6 +188,8 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
     const manifest = await runAuthor({
       seams,
       cwd: dirname(preSlicedJsonlPath),
+      fullJsonlPath: backupPath,
+      tailStartsAtEntryId: firstKeptEntryId,
       preSlicedJsonlPath,
       scenarioCtx: deps.scenarioCtx,
       onAdd: (counts): void => {
@@ -196,7 +202,10 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
     log.info(
       `prepare: manifest authored — ${manifest.recallFacts.length} recallFacts, ` +
         `${manifest.doneOps.length} doneOps, ${manifest.supersessions.length} supersessions, ` +
-        `${manifest.probes.length} probes`,
+        `${manifest.probes.length} probes` +
+        (manifest.tailConflicts !== undefined && manifest.tailConflicts.length > 0
+          ? `, ${manifest.tailConflicts.length} tail conflict(s)`
+          : ""),
     );
     return manifest;
   };

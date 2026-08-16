@@ -150,7 +150,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
     }
     const trial = await deps.seams.trialCompact(backupPath);
     const preSliced = preSlice(backupPath, trial.firstKeptEntryId, join(deps.preSliceDir, "extract-sliced.jsonl"));
-    manifest = await deps.seams.author(preSliced.jsonlPath);
+    manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId);
     // Structural validation gate (extract: stricter since ground truth is
     // discovered). Failures stop-and-surface.
     validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);

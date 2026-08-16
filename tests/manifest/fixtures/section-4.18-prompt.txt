@@ -16,9 +16,15 @@ user and a coding agent. Each line is one entry — a JSON object with fields su
 - content   — the actual text (what the user said, what the agent replied, tool inputs/outputs)
 Read it with your tools. The conversation is in chronological order.
 
+The compaction splits this file in two:
+- COMPACTED-AWAY SPAN — every entry BEFORE the entry with id <TAIL_START>. This content is
+  replaced by a short summary; remembering it is what we test.
+- KEPT TAIL — the entry with id <TAIL_START> and everything after it. This content stays in
+  the agent's context raw after compaction.
+
 WHAT TO FIND
 
-Go through the session and find these kinds of things. For each, note the entry-id(s) where
+Go through the COMPACTED-AWAY SPAN and find these kinds of things. For each, note the entry-id(s) where
 it actually occurs.
 
 1. A decision or technical detail the user stated, that later work depends on
@@ -54,6 +60,18 @@ Rules for probes:
   (e.g. ["~/.scores.json", "a scores.json file", "a JSON file under the home dir"]).
 - For stale-value and open-question probes, set `correctRefusal: true` instead of an accept list.
 
+TAIL VALIDATION
+
+After recording a finding, check it against the KEPT TAIL (the entries from <TAIL_START> on):
+- If the tail RESTATES the finding's answer (the same fact or value appears there too), a
+  probe would be answerable from raw context without any memory — report a conflict with
+  kind "answerable".
+- If the tail CHANGES the fact (a later decision or reversal, or an open question that got
+  decided in the tail), the recorded value is stale — report a conflict with kind "superseded".
+- Otherwise record nothing.
+The kept tail is context for validation only — never cite it in `targets`, never phrase
+`accept` from it.
+
 KNOWN CONDITIONS (if provided)
 
 You may also be given `knownConditions`: a list naming conditions the session was designed to
@@ -80,6 +98,8 @@ confirm it from the session (never re-send earlier findings):
   "accept": ["...", "..."],          // for recall / supersession-latest
   "correctRefusal": true,            // for abstention + supersession stale-value (omit accept)
   "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }
+- add_tail_conflict: { "entryIds": ["<the finding's SPAN entryIds — the same ids you cited on that finding>"],
+  "kind": "answerable" }              // or "superseded" (see TAIL VALIDATION)
 
 When everything is recorded, call finalize_manifest exactly once:
 { "description": "<what was built / the project's goal, as a short statement>",
@@ -88,7 +108,8 @@ When everything is recorded, call finalize_manifest exactly once:
 CONSTRAINTS
 
 - Every entryId you list must be a real id from the file, on an entry that actually contains
-  that condition — read it before you cite it.
+  that condition — read it before you cite it. add_tail_conflict cites the finding's SPAN
+  entries (where you found the fact), never tail entries.
 - If a kind of condition does not occur in the session (e.g. no reversal happened), leave
   that list empty. Do not invent one.
 - Prefer conditions that matter for continuing the work; skip trivia.

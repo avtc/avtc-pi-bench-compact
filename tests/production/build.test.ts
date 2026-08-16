@@ -68,6 +68,7 @@ function writeBackup(dir: string, n: number): { path: string; entries: { id: str
 describe("buildBackup", () => {
   it("proceeds when all conditions land in-span → returns the authored manifest", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bench-build-"));
+    const authorArgs: Array<{ preSlicedPath: string; backupPath: string; firstKeptEntryId: string }> = [];
     try {
       const backup = writeBackup(dir, 5);
       const seams: BuildSeams = {
@@ -77,7 +78,8 @@ describe("buildBackup", () => {
         async trialCompact() {
           return { firstKeptEntryId: "e4", summary: "cut at e4" };
         },
-        async author() {
+        async author(preSlicedPath: string, backupPath: string, firstKeptEntryId: string) {
+          authorArgs.push({ preSlicedPath, backupPath, firstKeptEntryId });
           return manifestWith("e1", "e2", "e3", "e3"); // all < e4 → landed
         },
       };
@@ -89,6 +91,11 @@ describe("buildBackup", () => {
       });
       expect(result.manifest.recallFacts[0].id).toBe("rf1");
       expect(result.backupPath).toBe(backup.path);
+      // the author seam receives the FULL backup + the cut (tail validation input)
+      expect(authorArgs).toHaveLength(1);
+      expect(authorArgs[0]?.backupPath).toBe(backup.path);
+      expect(authorArgs[0]?.firstKeptEntryId).toBe("e4");
+      expect(authorArgs[0]?.preSlicedPath).toContain("sliced-");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
