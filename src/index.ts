@@ -19,6 +19,7 @@ import { setMemoryProxies } from "./arms/proxies.js";
 import { registerBenchCommands } from "./commands/index.js";
 import { initBenchConfig } from "./config/accessor.js";
 import { registerBenchSettings } from "./config/schema.js";
+import { registerCrashWitness } from "./crash-guard.js";
 import { log } from "./log.js";
 import { setBenchPi } from "./orchestrate/bench-ctx.js";
 import { subscribeToDialogCoordinator } from "./snippets/vendored/subscribe-to-dialog-coordinator.js";
@@ -32,6 +33,10 @@ export default function activate(pi: ExtensionAPI): void {
   // Stash the fresh pi FIRST — re-activation on switchSession invalidates the prior
   // pi; re-stashing here keeps globalThis current for runPhase1's withSession reads.
   setBenchPi(pi);
+
+  // Crash black box: persist the exit code + any uncaught exception to the bench
+  // log at the moment of death (silent exits leave a forensic record).
+  registerCrashWitness();
 
   const handle = registerBenchSettings(pi);
   initBenchConfig(handle);

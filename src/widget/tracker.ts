@@ -16,6 +16,7 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { log } from "../log.js";
 import { deltaTextOf, deltaTokens, messageEndUsage, streamedOutputUsage } from "../runtime/streaming-tokens.js";
 import { getTermWidth } from "./fitline.js";
 import { fitThemedRenderedLine, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
@@ -29,6 +30,9 @@ export const NO_DETAIL: string | null = null;
 /** The widget key + placement (above the editor). */
 export const WIDGET_KEY = "bench_compact_progress";
 export const WIDGET_PLACEMENT = "aboveEditor" as const;
+
+/** The safe-degrade blank painted when the themed render throws. */
+const WIDGET_FALLBACK_LINE = "";
 
 /** `setWidget` is not on the no-bare-literals allowlist → a bare `undefined`
  *  2nd arg fails lint; pass this named constant to hide the line. */
@@ -212,9 +216,22 @@ export function makeTuiWidgetDeps(ctx: {
     publish: (render) => {
       // The TUI hands the live theme to the renderFn on every paint — the fitted
       // line is computed (and colored) per render (the sibling widgets' pattern).
-      ctx.ui.setWidget(WIDGET_KEY, (_tui: unknown, theme: Theme) => new Text(render(theme), 0, 0), {
-        placement: WIDGET_PLACEMENT,
-      });
+      // A throwing render (bad state, theme shape drift) must not kill the TUI
+      // paint loop: log the fault and paint a blank line instead.
+      ctx.ui.setWidget(
+        WIDGET_KEY,
+        (_tui: unknown, theme: Theme) => {
+          try {
+            return new Text(render(theme), 0, 0);
+          } catch (err) {
+            log.error("bench widget render threw (painting blank)", err);
+            return new Text(WIDGET_FALLBACK_LINE, 0, 0);
+          }
+        },
+        {
+          placement: WIDGET_PLACEMENT,
+        },
+      );
     },
     hide: () => {
       ctx.ui.setWidget(WIDGET_KEY, HIDE_WIDGET, { placement: WIDGET_PLACEMENT });

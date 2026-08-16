@@ -3,6 +3,7 @@
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { _setBaseLoggerForTest } from "../../src/log.js";
 import {
   makeTuiWidgetDeps,
   WIDGET_KEY,
@@ -277,5 +278,38 @@ describe("WidgetController(null deps) — inert", () => {
       c.hide();
     }).not.toThrow();
     // nothing to assert beyond no-throw — null deps publishes nothing.
+  });
+});
+
+describe("makeTuiWidgetDeps publish — paint safe-degrade", () => {
+  it("a throwing themed render logs the fault and paints a blank Text (no TUI death)", async () => {
+    const lines: string[] = [];
+    const prev = _setBaseLoggerForTest({
+      info: () => {},
+      warn: () => {},
+      error: (m: string) => lines.push(m),
+      debug: () => {},
+    });
+    try {
+      const calls: { content: unknown }[] = [];
+      const ctx = {
+        mode: "tui",
+        hasUI: true,
+        ui: { setWidget: (_k: string, content: unknown) => void calls.push({ content }) },
+      };
+      const deps = makeTuiWidgetDeps(ctx as unknown as Parameters<typeof makeTuiWidgetDeps>[0]);
+      if (deps === null) throw new Error("expected TUI deps");
+      deps.publish((theme) => {
+        void theme;
+        throw new Error("render boom");
+      });
+      expect(calls).toHaveLength(1);
+      const renderFn = calls[0]?.content as (tui: unknown, theme: unknown) => { render(): string[] };
+      const painted = renderFn({}, { fg: () => "x" });
+      expect(painted.render()).toEqual([]); // blank, not a crash
+      expect(lines.some((m) => m.includes("widget render threw"))).toBe(true);
+    } finally {
+      _setBaseLoggerForTest(prev);
+    }
   });
 });

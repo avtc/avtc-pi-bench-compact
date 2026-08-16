@@ -19,6 +19,7 @@
 // result — so the bench never interferes with `session_before_*` aggregation.
 
 import type { ExtensionAPI, MessageEndEvent, TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import { log } from "../log.js";
 import { type MessageUsage, messageEndUsage } from "../runtime/streaming-tokens.js";
 
 /** `pi.on`'s typed per-event overloads cannot accept a dynamic event name, so this
@@ -35,7 +36,16 @@ export function subscribeAgentEvent(pi: ExtensionAPI, event: string, handler: (d
   let disposed = false;
   const onByName = pi.on as PiOnByName;
   onByName(event, (data: unknown) => {
-    if (!disposed) handler(data);
+    if (disposed) return;
+    // Crash black box: a throwing handler propagates into pi's emit and can kill
+    // the process (uncaughtCrash). Persist the fault BEFORE rethrowing so the
+    // bench log carries the event name + stack even when the TUI shows nothing.
+    try {
+      handler(data);
+    } catch (err) {
+      log.error(`bench event handler threw (event=${event})`, err);
+      throw err;
+    }
   });
   return () => {
     disposed = true;
