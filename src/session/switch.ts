@@ -39,16 +39,29 @@ export async function loadSession<T>(
   path: string,
   withSession: (ctx: ExtensionCommandContext) => Promise<T>,
 ): Promise<T> {
-  const slot: { value?: T } = {};
+  const slot: { value?: T; error?: unknown } = {};
   let ran = false;
   const outcome = await cmdCtx.switchSession(path, {
+    // REJECTION-SAFE wrapper: a rejecting withSession callback propagates into pi's
+    // switchSession, whose catch treats ANY error as a fatal resume failure and
+    // process.exit(1)s the whole process (observed killing pi mid-compaction — the
+    // bench's stop-and-surface never ran). Stash the error instead, let the switch
+    // settle cleanly, and rethrow it HERE where the bench's normal failure paths
+    // (Phase stop-and-surface / executeRun) handle it and pi survives.
     withSession: async (newCtx) => {
       ran = true;
-      slot.value = await withSession(newCtx);
+      try {
+        slot.value = await withSession(newCtx);
+      } catch (err) {
+        slot.error = err;
+      }
     },
   });
   if (!ran || outcome?.cancelled) {
     throw new SessionSwitchCancelledError(path);
+  }
+  if (slot.error !== undefined) {
+    throw slot.error;
   }
   return slot.value as T;
 }

@@ -47,4 +47,24 @@ describe("loadSession", () => {
       }),
     ).rejects.toThrow(/work inside withSession failed/);
   });
+
+  it("a throwing withSession callback never rejects the switchSession call (pi treats that as fatal + exits)", async () => {
+    const newCtx = { id: "new-ctx" } as unknown as ExtensionCommandContext;
+    let switchSettled = false;
+    const cmdCtx = {
+      switchSession: async (_path: string, o?: { withSession?: (c: ExtensionCommandContext) => Promise<void> }) => {
+        // pi's handleResumeSession: a REJECTION here becomes handleFatalRuntimeError +
+        // process.exit(1). Model it: reject only if the callback passed to pi rejects.
+        await o?.withSession?.(newCtx);
+        switchSettled = true;
+        return { cancelled: false };
+      },
+    } as unknown as ExtensionCommandContext;
+    await expect(
+      loadSession(cmdCtx, "/p.jsonl", async () => {
+        throw new Error("mid-compaction failure");
+      }),
+    ).rejects.toThrow(/mid-compaction failure/);
+    expect(switchSettled).toBe(true); // the switch resolved — pi never saw the error
+  });
 });
