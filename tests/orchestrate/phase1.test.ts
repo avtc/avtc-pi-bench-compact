@@ -113,6 +113,9 @@ interface FakeOps {
   branchExists: ReturnType<typeof vi.fn>;
   copySeed: ReturnType<typeof vi.fn>;
   appendAntiPeek: ReturnType<typeof vi.fn>;
+  commitCountAhead: ReturnType<typeof vi.fn>;
+  deleteBranch: ReturnType<typeof vi.fn>;
+  exists: ReturnType<typeof vi.fn>;
   /** The fresh pi stashed per loadSession call (one per arm) — for assertions. */
   freshPis: FakePi[];
   /** The fresh proxies stashed per loadSession call (one per arm) — for assertions. */
@@ -154,6 +157,9 @@ function makeFakeOps(): FakeOps {
     branchExists: vi.fn(() => false),
     copySeed: vi.fn(),
     appendAntiPeek: vi.fn(),
+    commitCountAhead: vi.fn(() => 0),
+    deleteBranch: vi.fn(),
+    exists: vi.fn(() => false),
     freshPis,
     freshProxies,
     freshCtxs,
@@ -167,6 +173,7 @@ function makeDeps(opts: {
   armsEnabled: BenchConfig["armsEnabled"];
   cmdCtx?: ExtensionCommandContext;
   widget?: WidgetPort | null;
+  resume?: boolean;
 }): Phase1Deps {
   return {
     cmdCtx: opts.cmdCtx ?? ({ id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext),
@@ -179,6 +186,7 @@ function makeDeps(opts: {
     omFullReflectionThresholdTokens: 4000,
     armsEnabled: opts.armsEnabled,
     widget: opts.widget,
+    resume: opts.resume ?? false,
     ops: opts.ops as unknown as Phase1Ops,
   };
 }
@@ -419,6 +427,128 @@ describe("runPhase1 — stop-and-surface", () => {
     ).rejects.toBeDefined();
     // configureArm(A3) set the env before the cancel; Phase-1's (now-removed) finally did not clear it.
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("0");
+  });
+});
+
+// --- crash resume ----------------------------------------------------------
+
+describe("runPhase1 — crash resume (skip committed arm bases)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-phase1-resume-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("skips an arm whose branch is committed + session file exists: base reconstructed, NO fork/seed/compact/commit", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.exists = vi.fn(() => true);
+    const sessionsDir = join(repo, "sessions");
+    const { bases, finalCtx } = await runPhase1(
+      makeDeps({ ops, scenarioRepo: repo, sessionsDir, armsEnabled: ["A1", "A2"], resume: true }),
+    );
+
+    expect(bases).toHaveLength(2);
+    for (const base of bases) {
+      expect(base.branch).toBe(
+        buildArmBaseBranch({
+          date: "2026-08-11",
+          id: 1,
+          cfgId: "cfg-test1",
+          tool: base.tool,
+          ver: base.ver,
+        }),
+      );
+      expect(base.wallMs).toBe(0);
+      expect(base.usage).toBeUndefined();
+      expect(base.cfgId).toBe("cfg-test1");
+    }
+    // none of the compact-path ops fire
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.copySeed).not.toHaveBeenCalled();
+    expect(ops.appendAntiPeek).not.toHaveBeenCalled();
+    expect(ops.loadSession).not.toHaveBeenCalled();
+    expect(ops.trigger).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+    expect(ops.deleteBranch).not.toHaveBeenCalled();
+    // no switchSession ran — the original command ctx stays threaded
+    expect(finalCtx).toEqual({ id: "cmd-handler-ctx" });
+  });
+
+  it("deletes + re-compacts an arm whose branch exists but is NOT committed (crash mid-arm)", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 0);
+    const sessionsDir = join(repo, "sessions");
+    const { bases } = await runPhase1(
+      makeDeps({ ops, scenarioRepo: repo, sessionsDir, armsEnabled: ["A1"], resume: true }),
+    );
+
+    const branch = buildArmBaseBranch({
+      date: "2026-08-11",
+      id: 1,
+      cfgId: "cfg-test1",
+      tool: "bare-pi",
+      ver: undefined,
+    });
+    expect(ops.deleteBranch).toHaveBeenCalledWith(repo, branch);
+    // the stale branch was deleted BEFORE the re-fork
+    expect(ops.deleteBranch.mock.invocationCallOrder[0]).toBeLessThan(ops.fork.mock.invocationCallOrder[0]);
+    expect(ops.fork).toHaveBeenCalledWith(repo, "main", branch);
+    expect(ops.trigger).toHaveBeenCalledTimes(1);
+    expect(ops.commit).toHaveBeenCalledTimes(1);
+    expect(bases[0]?.wallMs).toBe(4200); // the fresh compaction's timing is carried
+  });
+
+  it("deletes + re-compacts an arm whose committed branch lost its session file (incomplete artifact)", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.exists = vi.fn(() => false); // session file missing
+    await runPhase1(
+      makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1"], resume: true }),
+    );
+    expect(ops.deleteBranch).toHaveBeenCalledTimes(1);
+    expect(ops.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it("mixed: a committed arm is skipped, an unstarted arm compacts normally (no branch)", async () => {
+    const ops = makeFakeOps();
+    const sessionsDir = join(repo, "sessions");
+    ops.branchExists = vi.fn((_repo: string, branch: string) => branch.includes("arm-bare-pi"));
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.exists = vi.fn(() => true);
+    const { bases } = await runPhase1(
+      makeDeps({ ops, scenarioRepo: repo, sessionsDir, armsEnabled: ["A1", "A3"], resume: true }),
+    );
+    expect(bases).toHaveLength(2);
+    // A1 skipped (no compact ops), A3 compacted fresh
+    expect(ops.trigger).toHaveBeenCalledTimes(1);
+    expect(ops.loadSession).toHaveBeenCalledTimes(1);
+    expect(ops.loadSession.mock.calls[0]?.[1]).toBe(
+      branchSessionFile(
+        sessionsDir,
+        buildArmBaseBranch({
+          date: "2026-08-11",
+          id: 1,
+          cfgId: "cfg-test1",
+          tool: "memkeeper-builder",
+          ver: undefined,
+        }),
+      ),
+    );
+    expect(ops.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  it("a pre-existing branch on the NON-resume path is still a hard conflict", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    await expect(
+      runPhase1(makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1"] })),
+    ).rejects.toMatchObject({ name: "Phase1StoppedError", reason: "branch-conflict" });
   });
 });
 

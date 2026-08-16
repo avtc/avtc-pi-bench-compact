@@ -7,6 +7,7 @@ import type { PrepareArgs } from "../../src/commands/parse.js";
 import { computeScenarioId } from "../../src/commands/prepare-scenario.js";
 import type { RunHandlerContext } from "../../src/commands/run-shared.js";
 import {
+  detectIncompleteRunHint,
   executeRun,
   guardPreflight,
   invokeShorthand,
@@ -169,6 +170,7 @@ describe("executeRun", () => {
       config,
       scenarioRepo: "/repo",
       manifest: MANIFEST,
+      resume: { runId: "2026-08-16-4", cfgId: "cfg-bd0f9a" },
       startRun: async (deps) => {
         captured.push(deps);
         return {
@@ -182,10 +184,18 @@ describe("executeRun", () => {
     });
     expect(result.kind).toBe("done");
     expect(notifies.some((n) => n.msg.includes("done") && n.msg.includes("/runs/r1/results.json"))).toBe(true);
-    const deps = captured[0] as { cmdCtx: unknown; config: unknown; scenarioRepo: string; manifest: ScenarioManifest };
+    const deps = captured[0] as {
+      cmdCtx: unknown;
+      config: unknown;
+      scenarioRepo: string;
+      manifest: ScenarioManifest;
+      resume?: { runId: string; cfgId: string };
+    };
     expect(deps.scenarioRepo).toBe("/repo");
     expect(deps.manifest.id).toBe("scen-1");
     expect(deps.cmdCtx).toBe(ctx);
+    // the --resume target threads through to the run driver
+    expect(deps.resume).toEqual({ runId: "2026-08-16-4", cfgId: "cfg-bd0f9a" });
   });
 
   it("on stopped → surfaces startRun's detailed stop notify (no double-notify)", async () => {
@@ -567,5 +577,35 @@ describe("prepareThenRun — surfaced prepare asks the operator (modal dialog re
       expect(calls).toBe(1); // no recovery round
       expect(notifies.some((n) => n.msg.includes("--plant"))).toBe(true); // guidance carries the commands
     }
+  });
+});
+
+describe("detectIncompleteRunHint (status crash-recovery hint)", () => {
+  const CONFIG = { scenario: "s1", outputDir: "root" } as unknown as BenchConfig;
+
+  it("hints the latest incomplete run when branches exist but results.json does not", () => {
+    const hint = detectIncompleteRunHint(CONFIG, {
+      listBranches: () => [
+        "bench-compact/run-2026-08-16-3/cfg-bd0f9a/arm-om-default", // complete
+        "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default", // crashed mid-run
+      ],
+      exists: (p) => p === S1_REPO || p === join("root", "runs", "2026-08-16-3", "results.json"),
+    });
+    expect(hint).toBe("incomplete run detected: 2026-08-16-4 — /bench-compact:run-scenario <folder> --resume");
+  });
+
+  it("returns null when every branched run is complete", () => {
+    const hint = detectIncompleteRunHint(CONFIG, {
+      listBranches: () => ["bench-compact/run-2026-08-16-3/cfg-bd0f9a/arm-om-default"],
+      exists: (p) => p === S1_REPO || p === join("root", "runs", "2026-08-16-3", "results.json"),
+    });
+    expect(hint).toBeNull();
+  });
+
+  it("returns null without a configured scenario or an existing repo dir", () => {
+    expect(
+      detectIncompleteRunHint({ scenario: null } as unknown as BenchConfig, { listBranches: () => [] }),
+    ).toBeNull();
+    expect(detectIncompleteRunHint(CONFIG, { listBranches: () => [], exists: () => false })).toBeNull();
   });
 });

@@ -37,7 +37,7 @@ import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendProbeAttempt } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
 import { isQaOnlyBranch } from "../storage/probe-lifecycle.js";
-import { branchExists, checkout, commitAll, forkBranch, resetBranch } from "../storage/repo.js";
+import { branchExists, checkout, commitAll, commitCountAhead, forkBranch, resetBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { getBenchPi } from "./bench-ctx.js";
 import type { ArmBase } from "./phase1.js";
@@ -108,6 +108,9 @@ export interface ProbeOps {
   fork: typeof forkBranch;
   checkout: typeof checkout;
   branchExists: typeof branchExists;
+  /** How many commits a branch has beyond its fork point — the crash-resume completion
+   *  discriminator (a committed probe finished; a bare fork crashed mid-probe). */
+  commitCountAhead: typeof commitCountAhead;
   commit: typeof commitAll;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
   copySeed: (src: string, dest: string) => void;
@@ -138,6 +141,11 @@ export interface ProbeDeps {
   /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Each
    *  probe's session file is seeded from its arm base's + appended to by the probe turn. */
   readonly sessionsDir: string;
+  /** Crash resume: a committed probe branch is SKIPPED (its answer re-read off the
+   *  session file + the lifecycle re-checked); an uncommitted leftover is deleted +
+   *  re-run. Q&A-only probes completed pre-crash left NO branch (deleted at completion)
+   *  — they re-run as a fresh independent sample. */
+  readonly resume?: boolean;
   /** Run signal (default = a never-aborting signal). */
   readonly signal?: AbortSignal;
   /** The live-progress widget (TUI-only; null/absent → no-op). */
@@ -211,6 +219,7 @@ const DEFAULT_OPS: ProbeOps = {
   fork: forkBranch,
   checkout,
   branchExists,
+  commitCountAhead,
   commit: commitAll,
   copySeed: (src, dest) => copyFileSync(src, dest),
   awaitSettled: awaitAgentSettled,
@@ -246,11 +255,56 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       deps.widget?.setDetail(`probe ${i + 1}/${deps.manifest.probes.length} · attempt ${attempt}/${deps.N}`);
       const probeId = String(i + ONE_BASED_OFFSET); // 1-based positional (probes carry no id in the schema)
       const probeBranch = appendProbeAttempt(baseBranch, probeId, attempt);
+      const sessionPath = branchSessionFile(deps.sessionsDir, probeBranch);
 
-      // A pre-existing probe branch is a CONFLICT (branch names embed the runId; a
+      // Crash resume: an existing probe branch was either KEPT at completion (its
+      // answer is re-read off the session file + the Q&A-only lifecycle re-checked, so
+      // a crash between the commit + the delete still deletes) or is an uncommitted
+      // half-finished probe (deleted + re-run below). Probes that completed Q&A-only
+      // left NO branch — they re-run as a fresh independent sample of the same
+      // distribution (probes rate over N samples, so mixing pre/post-crash samples is sound).
+      // Capture the answer off the probe branch's session file, apply the Q&A-only
+      // lifecycle, and record the trace entry. Shared by the fresh-probe path and
+      // crash resume (a committed probe branch re-settles identically).
+      const settleProbe = (branch: string, sessionPath: string): { answer: string; kept: boolean } => {
+        const answer = ops.readAnswer(sessionPath);
+        // Probe-lifecycle: a Q&A-only branch (diff is exclusively message entries) is
+        // DELETED (clean repo); a branch the agent tool-called/edited is KEPT. The session
+        // transcript is compared by reading the base + probe session FILES directly.
+        const kept = !ops.isQaOnly(
+          deps.repo,
+          baseBranch,
+          branch,
+          branchSessionFile(deps.sessionsDir, baseBranch),
+          sessionPath,
+        );
+        if (!kept) {
+          ops.deleteBranch(deps.repo, branch);
+        }
+        traces.push({ arm, attempt, probeId, branch, answer, kept });
+        return { answer, kept };
+      };
+
+      const preexisting = ops.branchExists(deps.repo, probeBranch);
+      if (preexisting && deps.resume === true) {
+        if (ops.commitCountAhead(deps.repo, probeBranch, baseBranch) > 0) {
+          const { kept } = settleProbe(probeBranch, sessionPath);
+          log.info(
+            `phase-2b: arm ${arm} probe ${probeId} (attempt ${attempt}) already settled (resumed) — skip ${probeBranch} (kept=${kept})`,
+          );
+          continue;
+        }
+        ops.deleteBranch(deps.repo, probeBranch);
+        log.info(
+          `phase-2b: arm ${arm} probe ${probeId} (attempt ${attempt}) branch ${probeBranch} exists but is not committed — re-running`,
+        );
+      }
+
+      // A pre-existing probe branch (on a non-resume path — resume deleted its
+      // leftover above) is a CONFLICT (branch names embed the runId; a
       // fresh run never reuses one within an output root — an existing branch means a
       // prior run derived the same id against this shared scenario repo). Stop+surface.
-      if (ops.branchExists(deps.repo, probeBranch)) {
+      if (preexisting && deps.resume !== true) {
         throw new ProbeStoppedError(
           arm,
           probeId,
@@ -264,7 +318,6 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       // Seed this probe's session file from its arm base's (parallel to forking the git
       // branch): the transcript lives in the sessions store (outside the repo), so each
       // probe gets its OWN file, appended to by the probe turn below.
-      const sessionPath = branchSessionFile(deps.sessionsDir, probeBranch);
       ops.copySeed(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
 
       // Load the arm base in-place + drive the single probe turn. switchSession
@@ -306,24 +359,8 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       });
 
       // Capture the answer off the probe branch's session file, then commit the probe boundary.
-      const answer = ops.readAnswer(sessionPath);
       ops.commit(deps.repo, `phase-2b: probe ${probeId} (attempt ${attempt}) for arm ${arm} (${tool})`);
-
-      // Probe-lifecycle: a Q&A-only branch (diff is exclusively message entries) is
-      // DELETED (clean repo); a branch the agent tool-called/edited is KEPT. The session
-      // transcript is compared by reading the base + probe session FILES directly.
-      const kept = !ops.isQaOnly(
-        deps.repo,
-        baseBranch,
-        probeBranch,
-        branchSessionFile(deps.sessionsDir, baseBranch),
-        sessionPath,
-      );
-      if (!kept) {
-        ops.deleteBranch(deps.repo, probeBranch);
-      }
-
-      traces.push({ arm, attempt, probeId, branch: probeBranch, answer, kept });
+      const { kept } = settleProbe(probeBranch, sessionPath);
       log.info(`phase-2b: arm ${arm} probe ${probeId} (attempt ${attempt}) settled → ${probeBranch} (kept=${kept})`);
     }
   }

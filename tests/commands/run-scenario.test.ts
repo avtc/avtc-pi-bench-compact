@@ -90,3 +90,116 @@ describe("makeRunScenarioHandler", () => {
     expect(notifies.some((n) => n.msg.includes("manifest"))).toBe(true);
   });
 });
+
+describe("makeRunScenarioHandler — --resume", () => {
+  const FOLDER = "/scen/repo";
+  const PARENT_MANIFEST = join(dirname(FOLDER), "manifest.json");
+  // The crashed run's arm-base branches (A1-A4 committed; A5 mid-arm).
+  const RUN4_BRANCHES = [
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-memkeeper-builder",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-memkeeper-pruner",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-memkeeper-full",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-full-g9785fb",
+    // an OLDER complete run — its results.json exists (see completeRunIds)
+    "bench-compact/run-2026-08-16-3/cfg-bd0f9a/arm-om-default",
+  ];
+
+  /** Standard fixture: folder + manifest resolve; branches listable; completion settable. */
+  function makeResumeFixture(completeRunIds: readonly string[]) {
+    const executeRun = vi.fn().mockResolvedValue({ kind: "done" });
+    const capturedRepos: string[] = [];
+    const handler = makeRunScenarioHandler({
+      executeRun,
+      exists: (p: string): boolean =>
+        p === FOLDER ||
+        p === PARENT_MANIFEST ||
+        p === join(FOLDER, "repo") ||
+        completeRunIds.some((id) => p.replaceAll("\\", "/").endsWith(`runs/${id}/results.json`)),
+      readManifest: (): string => JSON.stringify(VALID_MANIFEST),
+      listBranches: (repo, pattern): string[] => {
+        capturedRepos.push(`${repo} ${pattern}`);
+        return RUN4_BRANCHES;
+      },
+    });
+    return { handler, executeRun, capturedRepos };
+  }
+
+  it("bare --resume auto-detects the latest incomplete run → resume target + info notify", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture(["2026-08-16-3"]); // run-3 complete, run-4 incomplete
+    await handler(`${FOLDER} --resume`, ctx);
+    expect(executeRun).toHaveBeenCalledOnce();
+    const arg = executeRun.mock.calls[0][0] as { resume?: { runId: string; cfgId: string } };
+    expect(arg.resume).toEqual({ runId: "2026-08-16-4", cfgId: "cfg-bd0f9a" });
+    expect(notifies.some((n) => n.level === "info" && n.msg.includes("resuming run 2026-08-16-4"))).toBe(true);
+  });
+
+  it("bare --resume with no incomplete run → warning, no executeRun", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture(["2026-08-16-3", "2026-08-16-4"]); // both complete
+    await handler(`${FOLDER} --resume`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(
+      notifies.some(
+        (n) => n.level === "warning" && n.msg.includes("no incomplete bench run found in") && n.msg.includes(FOLDER),
+      ),
+    ).toBe(true);
+  });
+
+  it("explicit --resume=<runId> resolves its namespace → resume target", async () => {
+    const { ctx } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --resume=2026-08-16-4`, ctx);
+    const arg = executeRun.mock.calls[0][0] as { resume?: { runId: string; cfgId: string } };
+    expect(arg.resume).toEqual({ runId: "2026-08-16-4", cfgId: "cfg-bd0f9a" });
+  });
+
+  it("--allow-config-change threads the override onto the resume target", async () => {
+    const { ctx } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --resume --allow-config-change`, ctx);
+    const arg = executeRun.mock.calls[0][0] as {
+      resume?: { runId: string; cfgId: string; allowConfigChange?: boolean };
+    };
+    expect(arg.resume).toEqual({ runId: "2026-08-16-4", cfgId: "cfg-bd0f9a", allowConfigChange: true });
+  });
+
+  it("--allow-config-change without --resume → parse warning, no executeRun", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --allow-config-change`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(
+      notifies.some((n) => n.level === "warning" && n.msg.includes("--allow-config-change requires --resume")),
+    ).toBe(true);
+  });
+
+  it("explicit --resume=<complete runId> → already-complete warning, no executeRun", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture(["2026-08-16-3"]);
+    await handler(`${FOLDER} --resume=2026-08-16-3`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(notifies.some((n) => n.level === "warning" && n.msg.includes("already complete"))).toBe(true);
+  });
+
+  it("explicit --resume=<unknown runId> → no-branches warning, no executeRun", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --resume=2026-01-01-9`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(
+      notifies.some(
+        (n) => n.level === "warning" && n.msg.includes("no bench-compact branches found for run 2026-01-01-9"),
+      ),
+    ).toBe(true);
+  });
+
+  it("unknown flag → parse warning, no executeRun", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --frobnicate`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(notifies.some((n) => n.level === "warning")).toBe(true);
+  });
+});

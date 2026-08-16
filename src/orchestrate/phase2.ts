@@ -42,7 +42,7 @@ import {
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
-import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
+import { branchExists, checkout, commitAll, commitCountAhead, forkBranch, resetBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { widgetStageHooks } from "../widget/tracker.js";
 import { getBenchPi } from "./bench-ctx.js";
@@ -121,6 +121,11 @@ export interface Phase2Ops {
    *  silently reused). Injectable
    * so unit tests avoid real git + can exercise the exists-skip path. */
   branchExists: typeof branchExists;
+  /** How many commits a branch has beyond its fork point — the crash-resume completion
+   *  discriminator (a committed attempt settled; a bare fork crashed mid-attempt). */
+  commitCountAhead: typeof commitCountAhead;
+  /** Delete a branch ref (crash-resume: discard an uncommitted leftover before re-fork). */
+  deleteBranch: typeof resetBranch;
   commit: typeof commitAll;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
   copySeed: (src: string, dest: string) => void;
@@ -150,6 +155,9 @@ export interface Phase2Deps {
   readonly sessionsDir: string;
   /** Continuation attempts per arm (the bench's N). */
   readonly N: number;
+  /** Crash resume: a committed attempt branch is SKIPPED (its trace re-captured off
+   *  the session file); an uncommitted leftover is deleted + re-driven. */
+  readonly resume?: boolean;
   /** Run/compaction signal (default = a never-aborting signal). */
   readonly signal?: AbortSignal;
   /** The live-progress widget (TUI-only; null/absent → no-op). */
@@ -267,6 +275,8 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
     fork: deps.ops?.fork ?? forkBranch,
     checkout: deps.ops?.checkout ?? checkout,
     branchExists: deps.ops?.branchExists ?? branchExists,
+    commitCountAhead: deps.ops?.commitCountAhead ?? commitCountAhead,
+    deleteBranch: deps.ops?.deleteBranch ?? resetBranch,
     commit: deps.ops?.commit ?? commitAll,
     copySeed: deps.ops?.copySeed ?? ((src, dest) => copyFileSync(src, dest)),
     awaitSettled: deps.ops?.awaitSettled ?? awaitAgentSettled,
@@ -285,12 +295,32 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
       deps.widget?.setDetail(`${attempt}/${deps.N}`);
       // Attempt branch = arm-base branch + the -{attemptN} suffix (single source in branches.ts).
       const attemptBranch = appendAttempt(base.branch, attempt);
-      // A pre-existing attempt branch is a CONFLICT (branch names embed the runId; a
+      // Crash resume: a committed attempt branch = the attempt SETTLED before the
+      // crash. Re-capture its trace off the EXISTING session file (bench-timed wall
+      // is lost with the crashed process — the map is empty; tokens/entries are exact)
+      // and skip fork/drive/commit. An uncommitted branch is a half-finished attempt
+      // (crash mid-drive) — delete the leftover + fall through to the normal path.
+      const preexisting = ops.branchExists(deps.repo, attemptBranch);
+      if (preexisting && deps.resume === true) {
+        const sessionPath = branchSessionFile(deps.sessionsDir, attemptBranch);
+        if (ops.commitCountAhead(deps.repo, attemptBranch, base.branch) > 0) {
+          const trace = ops.captureTrace(sessionPath, attemptBranch, new Map());
+          traces.push({ ...trace, arm: base.arm, attempt });
+          log.info(`phase-2: arm ${base.arm} attempt ${attempt} already settled (resumed) — skip ${attemptBranch}`);
+          continue;
+        }
+        ops.deleteBranch(deps.repo, attemptBranch);
+        log.info(
+          `phase-2: arm ${base.arm} attempt ${attempt} branch ${attemptBranch} exists but is not committed — re-running`,
+        );
+      }
+      // A pre-existing attempt branch (on a non-resume path — resume deleted its
+      // leftover above) is a CONFLICT (branch names embed the runId; a
       // fresh run never reuses one within an output root — an existing branch means a
       // prior run derived the same id against this shared scenario repo). Stop+surface:
       // silently re-seeding the session + stacking commits on foreign work would
       // corrupt both runs' traces.
-      if (ops.branchExists(deps.repo, attemptBranch)) {
+      if (preexisting && deps.resume !== true) {
         throw new Phase2StoppedError(
           base.arm,
           attempt,

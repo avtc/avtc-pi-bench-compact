@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -9,13 +9,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArmId, BenchConfig } from "../../src/config/types.js";
 import { BenchJudgeError } from "../../src/judge/errors.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
-import { type ArmBase, type Phase1Deps, type Phase1Result, Phase1StoppedError } from "../../src/orchestrate/phase1.js";
+import {
+  type ArmBase,
+  buildRunConfig,
+  type Phase1Deps,
+  type Phase1Result,
+  Phase1StoppedError,
+} from "../../src/orchestrate/phase1.js";
 import { type Phase2Deps, type Phase2Result, Phase2StoppedError } from "../../src/orchestrate/phase2.js";
 import { ProbeStoppedError } from "../../src/orchestrate/probes.js";
 import { type BuildScoreDepsArgs, type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
+import { buildCfgId } from "../../src/storage/branches.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 import { setActiveWidget } from "../../src/widget/active-widget.js";
 
@@ -731,5 +738,100 @@ describe("startRun — testSpec harness fault", () => {
     expect(result.phase).toBe("probe");
     expect(result.reason).toBe("testspec-fault");
     expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*testSpec/i));
+  });
+});
+
+// --- crash resume (--resume) ------------------------------------------------
+
+describe("startRun — crash resume (identity reuse + cfg guard + threading)", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-resume-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** The cfgId the deps' config + resolver produce (the guard's "current" side). */
+  function currentCfgId(arms: BenchConfig["armsEnabled"]): string {
+    const resolver = { resolveRoot: () => "/fake", gitHead: () => "abcdef1234567890", npmVersion: () => null };
+    return buildCfgId(buildRunConfig(makeConfig(arms), resolver));
+  }
+
+  it("resumes reuse the runId's date+id (no nextRunId) and thread resume into the phases", async () => {
+    // the crashed run's dir already exists under the SAME date (a fresh start would pick id 2)
+    const runPath = join(root, "runs", "2026-08-11-1");
+    mkdirSync(runPath, { recursive: true });
+    const bases = fakeBases(["A1", "A3"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1", "A3"]), finalCtx: FINAL_CTX }));
+    const deps = makeDeps({ arms: ["A1", "A3"], root, phase1, continuations });
+    deps.resume = { runId: "2026-08-11-1", cfgId: currentCfgId(["A1", "A3"]) };
+
+    const result = await startRun(deps);
+
+    expect(result.kind).toBe("done");
+    if (result.kind !== "done") return;
+    expect(result.runId).toBe("2026-08-11-1"); // identity reused, NOT nextRunId's -2
+    expect(result.resultsPath).toContain(join("runs", "2026-08-11-1", "results.json"));
+    expect(existsSync(join(root, "runs", "2026-08-11-2"))).toBe(false); // no fresh run dir
+    // every phase received resume=true
+    expect(phase1.mock.calls[0]?.[0].resume).toBe(true);
+    expect(continuations.mock.calls[0]?.[0].resume).toBe(true);
+    // run-state carries the resumed identity
+    expect(getRunState()).toBeNull(); // done clears it — identity checked via result above
+  });
+
+  it("a cfg mismatch refuses the resume (config changed since the crash)", async () => {
+    const deps = makeDeps({ arms: ["A1"], root });
+    deps.resume = { runId: "2026-08-11-1", cfgId: "cfg-zzzzzz" };
+    await expect(startRun(deps)).rejects.toThrow(/config changed since the crash/);
+  });
+
+  it("a malformed runId refuses the resume", async () => {
+    const deps = makeDeps({ arms: ["A1"], root });
+    deps.resume = { runId: "not-a-run-id", cfgId: currentCfgId(["A1"]) };
+    await expect(startRun(deps)).rejects.toThrow(/is not a run id/);
+  });
+});
+
+describe("startRun — crash resume with --allow-config-change (config-change override)", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-resume-override-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("a mismatch + allowConfigChange proceeds: original namespace kept, override logged + notified, phases see the namespace cfg", async () => {
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const notify = vi.fn();
+    const deps = makeDeps({ arms: ["A1"], root, notify, phase1, continuations });
+    deps.resume = { runId: "2026-08-11-1", cfgId: "cfg-oldid", allowConfigChange: true };
+
+    const result = await startRun(deps);
+
+    expect(result.kind).toBe("done");
+    if (result.kind !== "done") return;
+    expect(result.runId).toBe("2026-08-11-1");
+    expect(result.cfgId).toBe("cfg-oldid"); // the run keeps its original namespace
+    // phases receive the NAMESPACE cfg (branch detection under cfg-oldid)
+    expect(phase1.mock.calls[0]?.[0].cfgId).toBe("cfg-oldid");
+    expect(phase1.mock.calls[0]?.[0].resume).toBe(true);
+    // the operator was warned about the mixed conditions
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringMatching(/config changed since the crash.*continuing under the override/),
+    );
+    // BOTH config snapshots exist: the current one under its own id, the original untouched
+    expect(existsSync(join(root, "configs", "cfg-oldid.json"))).toBe(false); // never written under the OLD id
+  });
+
+  it("a mismatch WITHOUT the override still refuses (hard guard intact)", async () => {
+    const deps = makeDeps({ arms: ["A1"], root });
+    deps.resume = { runId: "2026-08-11-1", cfgId: "cfg-oldid" };
+    await expect(startRun(deps)).rejects.toThrow(/config changed since the crash/);
   });
 });

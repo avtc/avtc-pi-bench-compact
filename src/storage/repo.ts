@@ -112,3 +112,23 @@ export function branchExists(repo: string, branch: string): boolean {
 export function resetBranch(repo: string, branch: string): void {
   runGit(repo, ["update-ref", "-d", `refs/heads/${branch}`]);
 }
+
+/** List local branch names matching a glob pattern (e.g. `bench-compact/run-*`).
+ *  The crash-resume flow scans the run namespace off the branch list. */
+export function listBranches(repo: string, pattern: string): string[] {
+  const out = runGit(repo, ["branch", "--list", pattern, "--format=%(refname:short)"]);
+  return out
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** How many commits `branch` has beyond `base` — the crash-resume completion
+ *  discriminator: a phase commits its boundary on completion, so >0 ahead of the
+ *  fork point means the work finished (a crash mid-work leaves a bare fork = 0). */
+export function commitCountAhead(repo: string, branch: string, base: string): number {
+  const out = runGit(repo, ["rev-list", "--count", branch, `^${base}`]);
+  const count = Number.parseInt(out.trim(), 10);
+  if (Number.isNaN(count)) throw new Error(`git rev-list returned a non-numeric count (${out.trim()})`);
+  return count;
+}

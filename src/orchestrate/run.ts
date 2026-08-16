@@ -31,6 +31,7 @@ import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
 import { assertNotInRepo, benchRoot, configPath, runDir, scenarioManifest } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
+import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
 import {
@@ -124,6 +125,11 @@ export interface StartRunDeps {
   versionResolver?: VersionResolver;
   /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
   modelsPath?: string;
+  /** Crash resume: continue the named run instead of starting a fresh identity. The
+   *  runId's date+id are REUSED (no nextRunId); the cfgId must equal the resumed run's
+   *  namespace cfg (a config change since the crash refuses the resume). Committed
+   *  phase artifacts (arm bases, attempts, probes) are skipped by the phases. */
+  resume?: ResumeTarget;
 }
 
 /** The production ScoreRunDeps builder's inputs. */
@@ -157,8 +163,15 @@ const JSON_INDENT = 2;
 export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const root = deps.root ?? benchRoot(deps.config.outputDir);
   const now = deps.now ?? (() => new Date());
-  const date = utcDate(now());
-  const id = nextRunId(root, date);
+  // Crash resume REUSES the crashed run's identity (date+id parsed from its runId —
+  // nextRunId is skipped so the resumed run lands back in its own run dir); a fresh
+  // start derives the identity from the clock as before.
+  const identity =
+    deps.resume !== undefined
+      ? parseResumeRunId(deps.resume.runId)
+      : { date: utcDate(now()), id: nextRunId(root, utcDate(now())) };
+  const date = identity.date;
+  const id = identity.id;
   const runId = `${date}-${id}`;
   const runPath = runDir(root, runId);
   const runAbort = new AbortController();
@@ -169,6 +182,24 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
   const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER);
   const cfgId = buildCfgId(runConfig);
+  // Hard cfg guard: the resumed namespace's cfg segment IS the crashed run's run
+  // conditions; a mismatch means the config (model / N / arm tool versions / …)
+  // changed since the crash — resuming would mix run conditions across arms.
+  // Refuse unless the operator explicitly overrode (--allow-config-change).
+  const configChanged = deps.resume !== undefined && cfgId !== deps.resume.cfgId;
+  const resume = deps.resume;
+  if (configChanged && resume !== undefined && resume.allowConfigChange !== true) {
+    throw new Error(
+      `cannot resume run ${runId}: config changed since the crash ` +
+        `(run cfg ${resume.cfgId}, current cfg ${cfgId}) — restore the config or start a fresh run`,
+    );
+  }
+  // On an overridden config change the run KEEPS its original namespace (one cfg
+  // dir per runId — branch detection + attempt derivation stay sound); the CURRENT
+  // config snapshot is still written under its own id, so both configurations are
+  // on disk. Arms whose tool version changed find no base branch (branch names
+  // embed the version) and re-compact under the new version.
+  const nsCfgId = deps.resume?.cfgId ?? cfgId;
   // Contamination guard: the run config is a bench artifact — it must never land
   // inside the agent-visible scenario repo. Defense-in-depth (the default layout is safe).
   assertNotInRepo(configPath(root, cfgId), deps.scenarioRepo);
@@ -178,14 +209,25 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     runId,
     date,
     id,
-    cfgId,
+    cfgId: nsCfgId,
     scenarioRepo: deps.scenarioRepo,
     phase: "phase-1",
     currentArm: null,
     currentAttempt: null,
     lastStopReason: null,
   });
-  log.info(`run ${runId} started: cfg ${cfgId}, arms [${deps.config.armsEnabled.join(", ")}]`);
+  const resuming = deps.resume !== undefined;
+  if (resuming && configChanged && resume !== undefined) {
+    deps.notify?.(
+      `config changed since the crash (run cfg ${resume.cfgId}, current cfg ${cfgId}) — ` +
+        "continuing under the override; arms whose tool version changed re-compact under the new version",
+    );
+  }
+  log.info(
+    resuming
+      ? `run ${runId} resumed: cfg ${nsCfgId}${configChanged ? " (config-change override: current cfg " + cfgId + ")" : ""}, arms [${deps.config.armsEnabled.join(", ")}]`
+      : `run ${runId} started: cfg ${nsCfgId}, arms [${deps.config.armsEnabled.join(", ")}]`,
+  );
 
   const widget = deps.widget ?? null;
   setActiveWidget(widget);
@@ -208,10 +250,11 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       sessionsDir,
       date,
       id,
-      cfgId,
+      cfgId: nsCfgId,
       toolVersions: runConfig.toolVersions,
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
       armsEnabled: deps.config.armsEnabled,
+      resume: resuming,
       widget,
       ops: deps.ops,
     });
@@ -227,6 +270,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       repo: deps.scenarioRepo,
       sessionsDir,
       N: deps.config.N,
+      resume: resuming,
       widget,
       signal,
     });
@@ -247,6 +291,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         repo: deps.scenarioRepo,
         sessionsDir,
         omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
+        resume: resuming,
         widget,
         signal,
         ops: deps.probeOps,
@@ -277,7 +322,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     widget?.startPhase("score", NO_DETAIL);
     updateRunState({ phase: "score", currentArm: null, currentAttempt: null });
     const input = buildScoreRunInput(bases, contResult.traces, probeTraces, testSpecByBranch, deps.scenarioRepo);
-    const meta = buildScoreMeta(deps, runConfig, bases, contResult.traces, runId, cfgId, root, runPath, now);
+    const meta = buildScoreMeta(deps, runConfig, bases, contResult.traces, runId, nsCfgId, root, runPath, now);
     const scoreDeps = buildScoreDeps({
       ctx: probeCtx,
       runConfig,
@@ -301,7 +346,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // back to "not started" (stop-and-surface states persist so the stop stays queryable).
     clearRunState();
     log.info(`run ${runId} done: ${resultsPath}`);
-    return { kind: "done", runId, cfgId, resultsPath, reportPath };
+    return { kind: "done", runId, cfgId: nsCfgId, resultsPath, reportPath };
   } catch (err) {
     return handleRunStop(err, deps, widget, runId);
   } finally {

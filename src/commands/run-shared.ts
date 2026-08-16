@@ -11,7 +11,7 @@
 // executeRun. The prepare live-seams (build/extract) are shared with the
 // `prepare-scenario` command via its `buildDeps` seam.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
@@ -24,7 +24,9 @@ import { beginPrepare, endPrepare, isPrepareInFlight, isRunInFlight } from "../o
 import { SurfaceConditionsError } from "../production/build.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
-import { benchRoot, scenarioDir } from "../storage/paths.js";
+import { benchRoot, runDir, scenarioDir, scenarioRepo } from "../storage/paths.js";
+import { listBranches } from "../storage/repo.js";
+import { detectLatestIncompleteRun, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
 import type { PrepareArgs } from "./parse.js";
@@ -111,6 +113,8 @@ export interface ExecuteRunOptions {
   readonly scenarioRepo: string;
   /** The loaded scenario manifest. */
   readonly manifest: ScenarioManifest;
+  /** Crash resume: the crashed run's identity + cfg (from --resume; absent = fresh). */
+  readonly resume?: ResumeTarget;
   /** Override the run driver (tests inject a fake; default = real `startRun`). */
   readonly startRun?: (deps: StartRunDeps) => Promise<RunResult>;
 }
@@ -266,6 +270,33 @@ export function notifyOf(ctx: RunHandlerContext): (msg: string, level: "info" | 
   };
 }
 
+/** The crash-recovery hint shown by `/bench-compact:status` when idle: the scenario
+ *  repo holds bench-compact branches for a run whose results.json never landed.
+ *  Returns the operator-facing hint line, or null when there is nothing to resume.
+ *  Injectable seams (default = real git + fs). */
+export type IncompleteRunHintIo = {
+  readonly listBranches?: typeof listBranches;
+  readonly exists?: (path: string) => boolean;
+};
+
+/** `io` for the real seams (no injection). */
+export const NO_HINT_IO: IncompleteRunHintIo | null = null;
+
+export function detectIncompleteRunHint(config: BenchConfig, io: IncompleteRunHintIo | null): string | null {
+  if (config.scenario === null) return null;
+  const exists = io?.exists ?? existsSync;
+  const branchList = io?.listBranches ?? listBranches;
+  const root = benchRoot(config.outputDir);
+  const repoPath = scenarioRepo(root, config.scenario);
+  if (!exists(repoPath)) return null;
+  const target = detectLatestIncompleteRun(branchList(repoPath, "bench-compact/run-*"), (runId) =>
+    exists(join(runDir(root, runId), "results.json")),
+  );
+  return target === null
+    ? null
+    : `incomplete run detected: ${target.runId} — /bench-compact:run-scenario <folder> --resume`;
+}
+
 /** Register a command handler on `pi` (shared registerCommand boilerplate). */
 export function registerHandler(
   pi: ExtensionAPI,
@@ -330,6 +361,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     config: opts.config,
     scenarioRepo: opts.scenarioRepo,
     manifest: opts.manifest,
+    resume: opts.resume,
     widget,
     notify: (message: string): void => {
       ui.notify(message, "warning");

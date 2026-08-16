@@ -228,3 +228,71 @@ export function parsePositional(args: string): { value: string | undefined; erro
   const value = args.trim().length > 0 ? args.trim() : undefined;
   return { value, error: undefined };
 }
+
+/** Parsed `run-scenario` args: one scenario folder + optional crash-resume flags. */
+export interface RunScenarioArgs {
+  /** The scenario folder path (the one positional). */
+  folder: string | undefined;
+  /** `--resume` crash recovery: true = auto-detect the latest incomplete run;
+   *  a string = the explicit runId (from `--resume=<runId>`). */
+  resume: string | true | undefined;
+  /** `--allow-config-change`: proceed with a resumed run whose config fingerprint
+   *  changed since the crash (arms whose tool version changed re-compact). */
+  allowConfigChange: boolean;
+  /** Set when a flag is malformed (e.g. `--resume=` with no id). */
+  error: string | undefined;
+}
+
+/** The `--resume` flag names (bare + inline-value forms — hoisted like the prepare flags). */
+const RESUME_FLAG = "--resume";
+const RESUME_EQ = "--resume=";
+const ALLOW_CONFIG_CHANGE_FLAG = "--allow-config-change";
+
+/** Parse `run-scenario` args: one positional scenario folder + `--resume` (bare —
+ *  auto-detect the latest incomplete run) or `--resume=<runId>` (explicit). The
+ *  explicit id uses the inline `=` form ONLY (a separate-token id would be ambiguous
+ *  with the folder positional). `--allow-config-change` overrides the resume cfg
+ *  guard (only meaningful alongside --resume). Completeness (folder present) is
+ *  preflight's job. */
+export function parseRunScenarioArgs(args: string): RunScenarioArgs {
+  const tokens = tokenize(args);
+  const positionals: string[] = [];
+  let resume: string | true | undefined;
+  let allowConfigChange = false;
+  let error: string | undefined;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok === RESUME_FLAG) {
+      resume = true;
+    } else if (tok.startsWith(RESUME_EQ)) {
+      const runId = tok.slice(RESUME_EQ.length);
+      if (runId.length === 0) {
+        error = "--resume= requires a non-empty runId";
+        break;
+      }
+      resume = runId;
+    } else if (tok === ALLOW_CONFIG_CHANGE_FLAG) {
+      allowConfigChange = true;
+    } else if (tok.startsWith("--")) {
+      error = `unknown flag "${tok}"`;
+      break;
+    } else {
+      positionals.push(tok);
+    }
+  }
+
+  if (error === undefined && positionals.length > 1) {
+    error = `expected one scenario folder path, got ${positionals.length} tokens`;
+  }
+  if (error === undefined && allowConfigChange && resume === undefined) {
+    error = "--allow-config-change requires --resume";
+  }
+
+  return {
+    folder: positionals.length === 1 ? positionals[0] : undefined,
+    resume,
+    allowConfigChange,
+    error,
+  };
+}

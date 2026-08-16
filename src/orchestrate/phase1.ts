@@ -20,7 +20,7 @@
 // summary HALTS the run — the operator inspects + decides. No auto-retry, no silent
 // skip. Surfaced via {@link Phase1StoppedError}; the run driver catches + notifies.
 
-import { copyFileSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { ARM_DEFS } from "../arms/definitions.js";
 import { isolateArmOrStop } from "../arms/switch.js";
@@ -34,7 +34,7 @@ import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
-import { branchExists, checkout, commitAll, forkBranch } from "../storage/repo.js";
+import { branchExists, checkout, commitAll, commitCountAhead, forkBranch, resetBranch } from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
 import { getBenchPi } from "./bench-ctx.js";
@@ -85,6 +85,13 @@ export interface Phase1Ops {
   /** Check whether a branch already exists (foreign-branch conflict detection). Injectable
    *  for testing; default is the real implementation. */
   branchExists: typeof branchExists;
+  /** How many commits a branch has beyond its fork point — the crash-resume completion
+   *  discriminator (a committed arm base finished; a bare fork crashed mid-arm). */
+  commitCountAhead: typeof commitCountAhead;
+  /** Delete a branch ref (crash-resume: discard an uncommitted leftover before re-fork). */
+  deleteBranch: typeof resetBranch;
+  /** Path-existence checker (crash-resume: the arm's session file must exist to skip). */
+  exists: (path: string) => boolean;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
   copySeed: (src: string, dest: string) => void;
   /** Append the anti-peek user entry to the arm session file (post-copy, pre-load —
@@ -99,6 +106,9 @@ const DEFAULT_OPS: Phase1Ops = {
   checkout,
   commit: commitAll,
   branchExists,
+  commitCountAhead,
+  deleteBranch: resetBranch,
+  exists: existsSync,
   copySeed: (src, dest) => copyFileSync(src, dest),
   appendAntiPeek: (sessionPath, text) => appendUserEntry(sessionPath, text, {}),
 };
@@ -135,6 +145,10 @@ export interface Phase1Deps {
   omFullReflectionThresholdTokens: number;
   /** Enabled arms in processing order. */
   armsEnabled: ArmId[];
+  /** Crash resume: an arm whose base branch is committed + session file exists is
+   *  SKIPPED (the base entry reconstructed from the branch) instead of treated as a
+   *  foreign-branch conflict. Uncommitted leftovers are deleted + re-compacted. */
+  resume?: boolean;
   /** The live-progress widget (TUI-only; null/absent → no-op). */
   widget?: WidgetPort | null;
   /** Injectable seams (defaults = real implementations). */
@@ -191,6 +205,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     toolVersions,
     omFullReflectionThresholdTokens,
     armsEnabled,
+    resume,
   } = deps;
   log.info(`phase-1: run ${date}-${id} cfg ${cfgId} arms [${armsEnabled.join(", ")}]`);
 
@@ -206,13 +221,33 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     const ver = tv?.commit;
     const branch = buildArmBaseBranch({ date, id, cfgId, tool: def.tool, ver });
 
-    // Fork main → arm-base. A pre-existing branch of this name is a CONFLICT, not a
+    // Crash resume: a committed base branch + its session file = the arm's Phase-1
+    // artifact SURVIVED the crash. Reconstruct the base entry from the branch (the
+    // compaction's wallMs/usage live in the crashed process — the boundary data is
+    // re-read from the session file by Phase-2 trace capture, so 0/undefined here
+    // degrades nothing the metrics read) and skip fork/compact/commit. An
+    // UNcommitted branch (or a missing session file) is a half-finished arm —
+    // delete the leftover + fall through to the normal compact path.
+    const preexisting = ops.branchExists(scenarioRepo, branch);
+    if (preexisting && resume === true) {
+      const sessionPath = branchSessionFile(sessionsDir, branch);
+      if (ops.commitCountAhead(scenarioRepo, branch, "main") > 0 && ops.exists(sessionPath)) {
+        bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs: 0, usage: undefined });
+        log.info(`phase-1: arm ${arm} already compacted (resumed) — skip ${branch}`);
+        continue;
+      }
+      ops.deleteBranch(scenarioRepo, branch);
+      log.info(`phase-1: arm ${arm} branch ${branch} exists but is not committed — deleted, re-compacting`);
+    }
+
+    // Fork main → arm-base. A pre-existing branch of this name (on a non-resume
+    // path — resume deleted its leftover above) is a CONFLICT, not a
     // reusable artifact: branch names embed the runId, and a fresh run never reuses
     // a runId within an output root — an existing branch means a DIFFERENT run
     // derived the same id against this shared scenario repo (e.g. an outputDir
     // change reset the same-day id counter). Stop+surface: silently re-seeding the
     // session + stacking commits on foreign work would corrupt both runs' traces.
-    if (ops.branchExists(scenarioRepo, branch)) {
+    if (preexisting && resume !== true) {
       throw new Phase1StoppedError(
         arm,
         "branch-conflict",

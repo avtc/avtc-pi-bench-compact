@@ -11,10 +11,14 @@
 // both.
 
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
-import { parsePositional } from "./parse.js";
+import { benchRoot, runDir } from "../storage/paths.js";
+import { listBranches } from "../storage/repo.js";
+import { detectLatestIncompleteRun, findRunNamespace, type ResumeTarget } from "../storage/resume.js";
+import { parseRunScenarioArgs } from "./parse.js";
 import {
   type ExecuteRunOptions,
   executeRun,
@@ -34,6 +38,8 @@ export interface RunScenarioHandlerOptions {
   readonly exists?: (path: string) => boolean;
   /** Manifest reader (default = fs.readFileSync). */
   readonly readManifest?: (path: string, opts: { encoding: "utf-8" }) => string;
+  /** Branch lister for --resume resolution (default = real `listBranches`). */
+  readonly listBranches?: (repo: string, pattern: string) => string[];
 }
 
 /** Build the handler for `/bench-compact:run-scenario`. */
@@ -41,13 +47,18 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
   const exists = opts.exists ?? existsSync;
   const readManifest = opts.readManifest ?? readFileSync;
   const run = opts.executeRun ?? executeRun;
+  const branchList = opts.listBranches ?? listBranches;
   return async (args: string, ctx: unknown): Promise<void> => {
     const handlerCtx = ctx as RunHandlerContext;
     const notify = notifyOf(handlerCtx);
 
-    const parsed = parsePositional(args);
-    if (!guardPreflight(handlerCtx, "run-scenario", { value: parsed.value }, exists)) return;
-    const folder = parsed.value ?? ""; // preflight rejected undefined above
+    const parsed = parseRunScenarioArgs(args);
+    if (parsed.error !== undefined) {
+      notify(parsed.error, "warning");
+      return;
+    }
+    if (!guardPreflight(handlerCtx, "run-scenario", { value: parsed.folder }, exists)) return;
+    const folder = parsed.folder ?? ""; // preflight rejected undefined above
 
     const layout = resolveScenarioLayout(folder, exists);
     if (!layout.ok) {
@@ -64,11 +75,57 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
       return;
     }
 
+    // --resume: resolve WHICH crashed run to continue from the scenario repo's
+    // bench-compact/* branches (the committed phase artifacts ARE the resume state).
+    // Bare --resume auto-detects the latest run with branches but no results.json;
+    // --resume=<runId> names one explicitly (refused when already complete or unknown).
+    // The cfgId mismatch + malformed-id guards live in the run driver (startRun) and
+    // surface through executeRun's run-fault path.
+    let resume: ResumeTarget | undefined;
+    if (parsed.resume !== undefined) {
+      const config = getBenchConfig();
+      const resultsExist = (runId: string): boolean =>
+        exists(join(runDir(benchRoot(config.outputDir), runId), "results.json"));
+      const branches = branchList(layout.repoPath, "bench-compact/run-*");
+      if (parsed.resume === true) {
+        // Bare --resume: the latest run with branches but no results.json.
+        const target = detectLatestIncompleteRun(branches, resultsExist);
+        if (target === null) {
+          notify(`no incomplete bench run found in ${layout.repoPath} — nothing to resume`, "warning");
+          return;
+        }
+        resume = target;
+      } else {
+        // Explicit runId: refuse an already-complete run, then resolve its namespace.
+        if (resultsExist(parsed.resume)) {
+          notify(`run ${parsed.resume} is already complete (results.json exists) — nothing to resume`, "warning");
+          return;
+        }
+        const target = findRunNamespace(branches, parsed.resume);
+        if (target === null) {
+          notify(
+            `no bench-compact branches found for run ${parsed.resume} in ${layout.repoPath} — cannot resume`,
+            "warning",
+          );
+          return;
+        }
+        resume = target;
+      }
+      if (parsed.allowConfigChange) {
+        resume = { ...resume, allowConfigChange: true };
+      }
+      notify(
+        `resuming run ${resume.runId} (cfg ${resume.cfgId}) — completed arms, attempts, and probes are skipped`,
+        "info",
+      );
+    }
+
     await run({
       ctx: handlerCtx,
       config: getBenchConfig(),
       scenarioRepo: layout.repoPath,
       manifest,
+      resume,
     });
   };
 }
@@ -78,7 +135,7 @@ export function registerRunScenarioCommand(pi: ExtensionAPI): void {
   registerHandler(
     pi,
     "bench-compact:run-scenario",
-    "Run every enabled arm from a prepared scenario folder.",
+    "Run every enabled arm from a prepared scenario folder (--resume [runId] continues an interrupted run).",
     makeRunScenarioHandler({}),
   );
 }

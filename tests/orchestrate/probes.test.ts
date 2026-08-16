@@ -76,6 +76,7 @@ interface FakeProbeOps {
   checkout: ReturnType<typeof vi.fn>;
   branchExists: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
+  commitCountAhead: ReturnType<typeof vi.fn>;
   copySeed: ReturnType<typeof vi.fn>;
   awaitSettled: ReturnType<typeof vi.fn>;
   isQaOnly: ReturnType<typeof vi.fn>;
@@ -114,6 +115,7 @@ function makeFakeProbeOps(opts: { qaOnly?: boolean; answer?: string; reject?: Er
     checkout: vi.fn(),
     branchExists: vi.fn(() => false),
     commit: vi.fn(),
+    commitCountAhead: vi.fn(() => 0),
     copySeed: vi.fn(),
     awaitSettled: vi.fn(async (): Promise<void> => {
       if (reject !== undefined) throw reject;
@@ -410,6 +412,115 @@ describe("runProbes — stop-and-surface (probe failure / hang)", () => {
     expect(err.reason).toBe("probe-hung");
     expect(err.message).toBe("agent never settled");
     expect(err.name).toBe("ProbeStoppedError");
+  });
+});
+
+describe("runProbes — crash resume (skip committed probes)", () => {
+  let repo: string;
+  let cmdCtx: ExtensionCommandContext;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-probes-resume-"));
+    cmdCtx = { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext;
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+    clearBenchPi();
+    clearMemoryProxies();
+  });
+
+  it("skips a committed probe branch: answer re-read off the session file, lifecycle re-checked, NO fork/load/commit", async () => {
+    const ops = makeFakeProbeOps({ answer: "the remembered answer" });
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.isQaOnly = vi.fn(() => false); // the existing branch was KEPT at completion
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces, finalCtx } = await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 1,
+      manifest: makeManifest(PROBES),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      resume: true,
+      ops: ops as unknown as ProbeOps,
+    });
+
+    expect(traces).toHaveLength(2);
+    for (const trace of traces) {
+      expect(trace).toMatchObject({ arm: "A1", attempt: 1, answer: "the remembered answer", kept: true });
+      // the answer is re-read off the probe's EXISTING session file
+      expect(ops.readAnswer).toHaveBeenCalledWith(branchSessionFile(join(repo, "sessions"), trace.branch));
+      // the lifecycle is re-checked against the base (so a crash between commit + Q&A delete still deletes)
+      expect(ops.isQaOnly).toHaveBeenCalled();
+    }
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.loadSession).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+    expect(finalCtx).toEqual({ id: "cmd-handler-ctx" }); // no switchSession ran
+  });
+
+  it("a resumed probe that turns out Q&A-only is deleted on resume (kept=false, lifecycle faithful)", async () => {
+    const ops = makeFakeProbeOps();
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.isQaOnly = vi.fn(() => true); // crash landed between the commit + the Q&A delete
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces } = await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 1,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      resume: true,
+      ops: ops as unknown as ProbeOps,
+    });
+    expect(traces[0]?.kept).toBe(false);
+    expect(ops.deleteBranch).toHaveBeenCalledWith(repo, appendProbeAttempt(base.branch, "1", 1));
+  });
+
+  it("deletes + re-runs a probe branch that exists but is NOT committed (crash mid-probe)", async () => {
+    const ops = makeFakeProbeOps({ answer: "fresh answer" });
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 0);
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces } = await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 1,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      resume: true,
+      ops: ops as unknown as ProbeOps,
+    });
+
+    expect(ops.deleteBranch).toHaveBeenCalledWith(repo, appendProbeAttempt(base.branch, "1", 1));
+    expect(ops.deleteBranch.mock.invocationCallOrder[0]).toBeLessThan(ops.fork.mock.invocationCallOrder[0]);
+    expect(ops.fork).toHaveBeenCalledTimes(1);
+    expect(ops.loadSession).toHaveBeenCalledTimes(1);
+    expect(ops.commit).toHaveBeenCalledTimes(1);
+    expect(traces[0]?.answer).toBe("fresh answer");
+  });
+
+  it("a pre-existing probe branch on the NON-resume path is still a hard conflict", async () => {
+    const ops = makeFakeProbeOps();
+    ops.branchExists = vi.fn(() => true);
+    await expect(
+      runProbes({
+        cmdCtx,
+        armBase: makeArmBase("A1", "bare-pi", undefined),
+        N: 1,
+        manifest: makeManifest([PROBES[0]]),
+        repo,
+        sessionsDir: join(repo, "sessions"),
+        omFullReflectionThresholdTokens: 4000,
+        ops: ops as unknown as ProbeOps,
+      }),
+    ).rejects.toMatchObject({ arm: "A1", probeId: "1", reason: "branch-conflict" });
   });
 });
 

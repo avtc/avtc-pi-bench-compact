@@ -12,9 +12,11 @@ import {
   branchExists,
   checkout,
   commitAll,
+  commitCountAhead,
   diffNameOnly,
   forkBranch,
   initScenarioRepo,
+  listBranches,
   resetBranch,
 } from "../../src/storage/repo.js";
 
@@ -111,6 +113,36 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     // checkout a non-existent branch -> git fails; runGit must surface the command + failure
     expect(() => checkout(repo, "no-such-branch")).toThrow(/failed/i);
     expect(() => checkout(repo, "no-such-branch")).toThrow(/checkout no-such-branch/);
+  });
+
+  it("listBranches returns only branches matching the pattern (resume namespace scan)", () => {
+    initScenarioRepo(repo);
+    const armA = "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-bare-pi";
+    const armB = "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-full-g9785fb";
+    forkBranch(repo, "main", armA);
+    forkBranch(repo, "main", armB);
+    forkBranch(repo, "main", "unrelated-feature");
+    expect(listBranches(repo, "bench-compact/run-*").sort()).toEqual([armA, armB]);
+    expect(listBranches(repo, "*")).toContain("main");
+  });
+
+  it("commitCountAhead distinguishes a committed completion from a bare fork (the resume discriminator)", () => {
+    initScenarioRepo(repo);
+    const base = "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-bare-pi";
+    forkBranch(repo, "main", base);
+    checkout(repo, base);
+    commitAll(repo, "phase-1: compacted base for arm A1");
+    expect(commitCountAhead(repo, base, "main")).toBe(1);
+
+    // an attempt forked but never committed (crashed mid-attempt) is 0 ahead
+    const attempt = `${base}-1`;
+    forkBranch(repo, base, attempt);
+    expect(commitCountAhead(repo, attempt, base)).toBe(0);
+
+    // a completed attempt carries its boundary commit
+    checkout(repo, attempt);
+    commitAll(repo, "phase-2: continuation attempt 1");
+    expect(commitCountAhead(repo, attempt, base)).toBe(1);
   });
 });
 

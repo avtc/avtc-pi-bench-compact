@@ -84,6 +84,8 @@ interface FakeOps {
   checkout: ReturnType<typeof vi.fn>;
   branchExists: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
+  commitCountAhead: ReturnType<typeof vi.fn>;
+  deleteBranch: ReturnType<typeof vi.fn>;
   copySeed: ReturnType<typeof vi.fn>;
   awaitSettled: ReturnType<typeof vi.fn>;
   makeMonitor: ReturnType<typeof vi.fn>;
@@ -133,6 +135,8 @@ function makeFakeOps(opts: { stopAfter?: number; emitCompaction?: boolean } = {}
     checkout: vi.fn(),
     branchExists: vi.fn(() => false),
     commit: vi.fn(),
+    commitCountAhead: vi.fn(() => 0),
+    deleteBranch: vi.fn(),
     copySeed: vi.fn(),
     awaitSettled: vi.fn(async () => {}),
     makeMonitor: vi.fn((pi: ExtensionAPI, ctx: ExtensionCommandContext) => {
@@ -653,5 +657,98 @@ describe("runContinuations — stop-and-surface (run failure / hang)", () => {
     };
     const driver: ContinuationDriver = factory(args);
     expect(typeof driver.onAgentSettled).toBe("function");
+  });
+});
+
+// --- crash resume ----------------------------------------------------------
+
+describe("runContinuations — crash resume (skip committed attempts)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-phase2-resume-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("skips a committed attempt: trace re-captured off the session file, NO fork/load/commit", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn(() => 1);
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces, finalCtx } = await runContinuations({
+      cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+      armBases: [base],
+      config: makeConfig(2),
+      manifest: MANIFEST,
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      N: 2,
+      resume: true,
+      ops: ops as unknown as Phase2Ops,
+    });
+
+    expect(traces).toHaveLength(2);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const attemptBranch = appendAttempt(base.branch, attempt);
+      expect(traces[attempt - 1]).toMatchObject({ arm: "A1", attempt, branch: attemptBranch });
+      // the trace is re-captured off the attempt's EXISTING session file with an empty wall map
+      expect(ops.captureTrace).toHaveBeenCalledWith(
+        branchSessionFile(join(repo, "sessions"), attemptBranch),
+        attemptBranch,
+        new Map(),
+      );
+    }
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.loadSession).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+    expect(ops.deleteBranch).not.toHaveBeenCalled();
+    expect(finalCtx).toEqual({ id: "cmd-handler-ctx" }); // no switchSession ran
+  });
+
+  it("deletes + re-runs an attempt branch that exists but is NOT committed (crash mid-attempt)", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    ops.commitCountAhead = vi.fn((_repo: string, branch: string) => (branch.endsWith("-1") ? 1 : 0));
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces } = await runContinuations({
+      cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+      armBases: [base],
+      config: makeConfig(2),
+      manifest: MANIFEST,
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      N: 2,
+      resume: true,
+      ops: ops as unknown as Phase2Ops,
+    });
+
+    expect(ops.deleteBranch).toHaveBeenCalledTimes(1);
+    expect(ops.deleteBranch).toHaveBeenCalledWith(repo, appendAttempt(base.branch, 2));
+    // attempt 1 skipped (re-captured), attempt 2 fully re-driven
+    expect(ops.loadSession).toHaveBeenCalledTimes(1);
+    expect(ops.loadSession.mock.calls[0]?.[1]).toBe(
+      branchSessionFile(join(repo, "sessions"), appendAttempt(base.branch, 2)),
+    );
+    expect(ops.commit).toHaveBeenCalledTimes(1);
+    expect(ops.fork).toHaveBeenCalledTimes(1);
+    expect(traces).toHaveLength(2);
+  });
+
+  it("a pre-existing attempt branch on the NON-resume path is still a hard conflict", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => true);
+    await expect(
+      runContinuations({
+        cmdCtx: { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext,
+        armBases: [makeArmBase("A1", "bare-pi", undefined)],
+        config: makeConfig(1),
+        manifest: MANIFEST,
+        repo,
+        sessionsDir: join(repo, "sessions"),
+        N: 1,
+        ops: ops as unknown as Phase2Ops,
+      }),
+    ).rejects.toMatchObject({ arm: "A1", attempt: 1, reason: "branch-conflict" });
   });
 });

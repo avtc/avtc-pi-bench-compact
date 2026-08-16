@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { describe, expect, it } from "vitest";
-import { parsePositional, parsePrepareArgs, parseResultsArgs } from "../../src/commands/parse.js";
+import { parsePositional, parsePrepareArgs, parseResultsArgs, parseRunScenarioArgs } from "../../src/commands/parse.js";
 
 describe("parsePrepareArgs", () => {
   it("treats a bare string as the build idea", () => {
@@ -199,5 +199,75 @@ describe("parsePrepareArgs — eq-forms + unknown flags", () => {
   it("rejects a lone unknown flag token", () => {
     const r = parsePrepareArgs("--idea=x");
     expect(r.error).toContain("unknown flag");
+  });
+});
+
+describe("parseRunScenarioArgs", () => {
+  it("parses a bare folder (no flags)", () => {
+    const r = parseRunScenarioArgs("~/.pi/bench-compact/scenarios/ae2d92c1");
+    expect(r).toEqual({
+      folder: "~/.pi/bench-compact/scenarios/ae2d92c1",
+      resume: undefined,
+      allowConfigChange: false,
+      error: undefined,
+    });
+  });
+
+  it("parses --resume (bare — auto-detect)", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resume");
+    expect(r.folder).toBe("/scen/abc");
+    expect(r.resume).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it("parses --resume=<runId> (explicit) in either position", () => {
+    const a = parseRunScenarioArgs("/scen/abc --resume=2026-08-16-4");
+    const b = parseRunScenarioArgs("--resume=2026-08-16-4 /scen/abc");
+    expect(a).toEqual({ folder: "/scen/abc", resume: "2026-08-16-4", allowConfigChange: false, error: undefined });
+    expect(b).toEqual({ folder: "/scen/abc", resume: "2026-08-16-4", allowConfigChange: false, error: undefined });
+  });
+
+  it("parses --allow-config-change alongside --resume (either order)", () => {
+    const a = parseRunScenarioArgs("/scen/abc --resume --allow-config-change");
+    const b = parseRunScenarioArgs("--allow-config-change --resume=2026-08-16-4 /scen/abc");
+    expect(a.resume).toBe(true);
+    expect(a.allowConfigChange).toBe(true);
+    expect(a.error).toBeUndefined();
+    expect(b.resume).toBe("2026-08-16-4");
+    expect(b.allowConfigChange).toBe(true);
+    expect(b.error).toBeUndefined();
+  });
+
+  it("rejects --allow-config-change without --resume", () => {
+    const r = parseRunScenarioArgs("/scen/abc --allow-config-change");
+    expect(r.error).toContain("--allow-config-change requires --resume");
+  });
+
+  it("allows --resume with no folder yet (completeness is preflight's job)", () => {
+    const r = parseRunScenarioArgs("--resume");
+    expect(r.folder).toBeUndefined();
+    expect(r.resume).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it("rejects --resume= with an empty id", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resume=");
+    expect(r.error).toContain("--resume= requires a non-empty runId");
+  });
+
+  it("rejects an unknown flag", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resum");
+    expect(r.error).toContain('unknown flag "--resum"');
+  });
+
+  it("rejects multiple positionals (a folder path with spaces must be quoted)", () => {
+    const r = parseRunScenarioArgs("/scen/with spaces --resume");
+    expect(r.error).toContain("expected one scenario folder path, got 2 tokens");
+    expect(r.folder).toBeUndefined();
+  });
+
+  it("last --resume form wins on repetition", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resume --resume=2026-08-16-4");
+    expect(r.resume).toBe("2026-08-16-4");
   });
 });

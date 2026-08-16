@@ -26,6 +26,7 @@ import { registerResultsCommand } from "./results.js";
 import { registerRunCommand } from "./run.js";
 import { registerRunScenarioCommand } from "./run-scenario.js";
 import { registerRunSessionFileCommand } from "./run-session-file.js";
+import { detectIncompleteRunHint, NO_HINT_IO } from "./run-shared.js";
 
 /** Register all bench-compact commands (except settings) on `pi`. Called from activate. */
 export function registerBenchCommands(pi: ExtensionAPI): void {
@@ -86,13 +87,20 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
   pi.registerCommand("bench-compact:status", {
     description: "Show current run state (arm / attempt / phase / ctx) + last config validity.",
     handler: async (_args, ctx) => {
-      const v = validateBenchConfig(getBenchConfig());
+      const config = getBenchConfig();
+      const v = validateBenchConfig(config);
       const validity = v.ok ? "config OK" : `config invalid: ${v.reason}`;
       // The run-state singleton survives `/reload` (globalThis) — null when no run
       // is active or after a run completed cleanly; stop-and-surface states persist
       // (lastStopReason) so the operator can query WHY a run stopped.
       const run = getRunState() === null ? "not started" : statusString();
       ctx.ui.notify(`${validity} · ${run}`, "info");
+      // Idle + a configured scenario: point the operator at an interrupted run
+      // (branches without results.json) — the crash-recovery entry point.
+      const hint = detectIncompleteRunHint(config, NO_HINT_IO);
+      if (hint !== null) {
+        ctx.ui.notify(hint, "info");
+      }
     },
   });
 }

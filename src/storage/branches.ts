@@ -84,6 +84,33 @@ export function appendProbeAttempt(baseBranch: string, probeId: string, attemptN
   return `${appendProbe(baseBranch, probeId)}-${attemptN}`;
 }
 
+// --- run-namespace parsing (crash resume) ----------------------------------
+
+/** A run's identity recovered from its branch namespace: the runId + the run-config
+ *  fingerprint segment every branch of the run carries. */
+export interface RunNamespace {
+  /** `<date>-<id>` (e.g. `2026-08-16-4`). */
+  readonly runId: string;
+  /** The `cfg-<hex>` segment (the run-condition fingerprint at run start). */
+  readonly cfgId: string;
+}
+
+/** `bench-compact/run-<date>-<id>/cfg-<hex>/<arm-segment>…` — the namespace shape every
+ *  run branch carries (arm base, attempt, probe). Dates are strict YYYY-MM-DD; ids are
+ *  1+ digits; the cfg segment is `cfg-` + hex. */
+const RUN_NAMESPACE_PATTERN = /^bench-compact\/run-(\d{4}-\d{2}-\d{2})-(\d+)\/(cfg-[0-9a-f]+)\/.+$/;
+
+/** Parse a branch name into its run namespace, or null when the branch is not a
+ *  bench-compact run branch (main, unrelated branches, malformed names). Pure. */
+export function parseRunNamespace(branch: string): RunNamespace | null {
+  const match = RUN_NAMESPACE_PATTERN.exec(branch);
+  if (match === null) return null;
+  const date = match[1] as string;
+  const id = match[2] as string;
+  const cfgId = match[3] as string;
+  return { runId: `${date}-${id}`, cfgId };
+}
+
 // --- cfgId (run-condition fingerprint) -------------------------------------
 /**
  * Deterministic short id of the FULL run config. Same config ⇒ same cfgId; differing in ANY

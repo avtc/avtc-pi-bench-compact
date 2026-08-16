@@ -30,6 +30,8 @@ The frozen scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (`repo/` +
 
 The live-progress widget tracks the phases (`build` → `extract` → `compact` → `eval` → `probe` → `score`). The bench **stops and surfaces** any failure via notification (never auto-retries) — inspect the cause, then `/bench-compact:resume`.
 
+If pi itself dies mid-run (a crash or force-quit), restart pi and continue via `/bench-compact:run-scenario <folder> --resume`. A half-finished arm or attempt re-runs from scratch; scoring always re-runs. Bench-timed compaction wall-clock is not recoverable (reported as `0` in the compaction-cost metric); token usage is re-read from the session transcripts. If a config or arm-tool version changed since the crash (e.g. an extension fix landed), the resume is refused — add `--allow-config-change` to continue anyway: arms whose tool version changed re-compact under the new version, unchanged arms skip.
+
 ### 3. Read the report
 
 `/bench-compact:results <runId>` renders the headline report; `/bench-compact:results <runId>:A1,A3` restricts to an arm subset; `/bench-compact:results <runId1> <runId2>` compares two runs. See the README "How to read a report" + [COMMANDS.md](COMMANDS.md) for conventions.
