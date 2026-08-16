@@ -16,9 +16,12 @@ import { parseRunNamespace, type RunNamespace } from "./branches.js";
  *  (the hard cfgId guard in the run driver compares it against the CURRENT config).
  *  `allowConfigChange` (`--allow-config-change`) overrides that guard: the run keeps
  *  its original namespace, and arms whose tool version changed re-compact under the
- *  new version (branch names embed the version). */
+ *  new version (branch names embed the version). `reuseBases` (`--reuse-bases`)
+ *  additionally reuses committed arm bases built under OLDER tool versions (for tool
+ *  fixes that did not change compaction behavior). */
 export interface ResumeTarget extends RunNamespace {
   readonly allowConfigChange?: boolean;
+  readonly reuseBases?: boolean;
 }
 
 /** Group a branch list into unique namespaces keyed by runId. One runId normally

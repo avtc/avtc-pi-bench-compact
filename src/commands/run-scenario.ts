@@ -111,8 +111,12 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
         }
         resume = target;
       }
-      if (parsed.allowConfigChange) {
-        resume = { ...resume, allowConfigChange: true };
+      if (parsed.allowConfigChange || parsed.reuseBases) {
+        resume = {
+          ...resume,
+          ...(parsed.allowConfigChange ? { allowConfigChange: true } : {}),
+          ...(parsed.reuseBases ? { reuseBases: true } : {}),
+        };
       }
       notify(
         `resuming run ${resume.runId} (cfg ${resume.cfgId}) — completed arms, attempts, and probes are skipped`,

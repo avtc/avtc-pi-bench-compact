@@ -255,6 +255,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
       armsEnabled: deps.config.armsEnabled,
       resume: resuming,
+      reuseBases: deps.resume?.reuseBases === true,
       widget,
       ops: deps.ops,
     });

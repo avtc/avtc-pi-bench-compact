@@ -335,6 +335,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
       commitCountAhead: () => 0,
       deleteBranch: () => {},
       exists: () => false,
+      newestBranches: () => [],
       copySeed: () => {},
       appendAntiPeek: (_p, text) => {
         injectedTexts.push(text);

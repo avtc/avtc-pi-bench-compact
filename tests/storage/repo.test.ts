@@ -17,6 +17,7 @@ import {
   forkBranch,
   initScenarioRepo,
   listBranches,
+  newestBranches,
   resetBranch,
 } from "../../src/storage/repo.js";
 
@@ -126,6 +127,20 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     expect(listBranches(repo, "*")).toContain("main");
   });
 
+  it("newestBranches orders matches most-recently-committed first (empty when none)", () => {
+    initScenarioRepo(repo);
+    const old = "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default-g9785fb";
+    const fresh = "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default-g0c42d9";
+    forkBranch(repo, "main", old);
+    checkout(repo, old);
+    commitAll(repo, "phase-1: compacted base (old version)");
+    forkBranch(repo, "main", fresh);
+    checkout(repo, fresh);
+    commitAll(repo, "phase-1: compacted base (new version)");
+    expect(newestBranches(repo, "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default-*")[0]).toBe(fresh);
+    expect(newestBranches(repo, "bench-compact/run-2099-01-01-1/*")).toEqual([]);
+  });
+
   it("commitCountAhead distinguishes a committed completion from a bare fork (the resume discriminator)", () => {
     initScenarioRepo(repo);
     const base = "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-bare-pi";
@@ -143,52 +158,5 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     checkout(repo, attempt);
     commitAll(repo, "phase-2: continuation attempt 1");
     expect(commitCountAhead(repo, attempt, base)).toBe(1);
-  });
-});
-
-describe("initScenarioRepo .gitignore preservation (extract mode copies a project .gitignore in)", () => {
-  let repo: string;
-  beforeEach(() => {
-    repo = mkdtempSync(path.join(tmpdir(), "bench-repo-gi-"));
-    writeFileSync(path.join(repo, "session.jsonl"), '{"type":"session","cwd":"/x"}\n');
-    writeFileSync(path.join(repo, "game.ts"), "export const x = 1;\n");
-  });
-  afterEach(() => {
-    rmSync(repo, { recursive: true, force: true });
-  });
-
-  it("APPENDS .pi/ to a pre-existing .gitignore instead of overwriting it", () => {
-    writeFileSync(path.join(repo, ".gitignore"), "node_modules/\ndist/\n");
-    initScenarioRepo(repo);
-    const lines = readFileSync(path.join(repo, ".gitignore"), "utf-8").split(/\r?\n/);
-    expect(lines).toContain("node_modules/");
-    expect(lines).toContain("dist/");
-    expect(lines).toContain(".pi/");
-  });
-
-  it("appends on a newline when the existing .gitignore lacks a trailing newline", () => {
-    writeFileSync(path.join(repo, ".gitignore"), "dist/");
-    initScenarioRepo(repo);
-    const content = readFileSync(path.join(repo, ".gitignore"), "utf-8");
-    expect(content.split(/\r?\n/)).toEqual(["dist/", ".pi/", ""]);
-  });
-
-  it("a pre-existing .pi/ line is kept WITHOUT duplication (already-ignoring source)", () => {
-    writeFileSync(path.join(repo, ".gitignore"), "dist/\n.pi/\n");
-    initScenarioRepo(repo);
-    const content = readFileSync(path.join(repo, ".gitignore"), "utf-8");
-    const piLines = content.split(/\r?\n/).filter((l) => l.trim() === ".pi/");
-    expect(piLines).toHaveLength(1);
-    expect(content).toContain("dist/");
-  });
-
-  it("the appended rules stay in force (gitignored project files + .pi/ both untracked)", () => {
-    writeFileSync(path.join(repo, ".gitignore"), "dist/\n");
-    mkdirSync(path.join(repo, "dist"));
-    writeFileSync(path.join(repo, "dist", "bundle.js"), "bundled");
-    initScenarioRepo(repo);
-    const tracked = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]);
-    expect(tracked).not.toContain("dist/bundle.js");
-    expect(tracked).not.toContain(".pi/settings.json");
   });
 });

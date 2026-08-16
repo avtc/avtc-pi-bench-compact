@@ -209,6 +209,7 @@ describe("parseRunScenarioArgs", () => {
       folder: "~/.pi/bench-compact/scenarios/ae2d92c1",
       resume: undefined,
       allowConfigChange: false,
+      reuseBases: false,
       error: undefined,
     });
   });
@@ -223,8 +224,20 @@ describe("parseRunScenarioArgs", () => {
   it("parses --resume=<runId> (explicit) in either position", () => {
     const a = parseRunScenarioArgs("/scen/abc --resume=2026-08-16-4");
     const b = parseRunScenarioArgs("--resume=2026-08-16-4 /scen/abc");
-    expect(a).toEqual({ folder: "/scen/abc", resume: "2026-08-16-4", allowConfigChange: false, error: undefined });
-    expect(b).toEqual({ folder: "/scen/abc", resume: "2026-08-16-4", allowConfigChange: false, error: undefined });
+    expect(a).toEqual({
+      folder: "/scen/abc",
+      resume: "2026-08-16-4",
+      allowConfigChange: false,
+      reuseBases: false,
+      error: undefined,
+    });
+    expect(b).toEqual({
+      folder: "/scen/abc",
+      resume: "2026-08-16-4",
+      allowConfigChange: false,
+      reuseBases: false,
+      error: undefined,
+    });
   });
 
   it("parses --allow-config-change alongside --resume (either order)", () => {
@@ -236,6 +249,19 @@ describe("parseRunScenarioArgs", () => {
     expect(b.resume).toBe("2026-08-16-4");
     expect(b.allowConfigChange).toBe(true);
     expect(b.error).toBeUndefined();
+  });
+
+  it("parses --reuse-bases alongside --resume --allow-config-change", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resume --allow-config-change --reuse-bases");
+    expect(r.resume).toBe(true);
+    expect(r.allowConfigChange).toBe(true);
+    expect(r.reuseBases).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it("rejects --reuse-bases without --resume", () => {
+    const r = parseRunScenarioArgs("/scen/abc --reuse-bases");
+    expect(r.error).toContain("--reuse-bases requires --resume");
   });
 
   it("rejects --allow-config-change without --resume", () => {

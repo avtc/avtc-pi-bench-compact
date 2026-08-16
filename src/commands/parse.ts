@@ -239,6 +239,10 @@ export interface RunScenarioArgs {
   /** `--allow-config-change`: proceed with a resumed run whose config fingerprint
    *  changed since the crash (arms whose tool version changed re-compact). */
   allowConfigChange: boolean;
+  /** `--reuse-bases`: on resume, reuse a committed arm base built under an OLDER
+   *  tool version when the current version's base is absent (skip re-compaction
+   *  after a tool fix that did not change compaction behavior). */
+  reuseBases: boolean;
   /** Set when a flag is malformed (e.g. `--resume=` with no id). */
   error: string | undefined;
 }
@@ -247,6 +251,7 @@ export interface RunScenarioArgs {
 const RESUME_FLAG = "--resume";
 const RESUME_EQ = "--resume=";
 const ALLOW_CONFIG_CHANGE_FLAG = "--allow-config-change";
+const REUSE_BASES_FLAG = "--reuse-bases";
 
 /** Parse `run-scenario` args: one positional scenario folder + `--resume` (bare —
  *  auto-detect the latest incomplete run) or `--resume=<runId>` (explicit). The
@@ -259,6 +264,7 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
   const positionals: string[] = [];
   let resume: string | true | undefined;
   let allowConfigChange = false;
+  let reuseBases = false;
   let error: string | undefined;
 
   for (let i = 0; i < tokens.length; i++) {
@@ -274,6 +280,8 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
       resume = runId;
     } else if (tok === ALLOW_CONFIG_CHANGE_FLAG) {
       allowConfigChange = true;
+    } else if (tok === REUSE_BASES_FLAG) {
+      reuseBases = true;
     } else if (tok.startsWith("--")) {
       error = `unknown flag "${tok}"`;
       break;
@@ -288,11 +296,15 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
   if (error === undefined && allowConfigChange && resume === undefined) {
     error = "--allow-config-change requires --resume";
   }
+  if (error === undefined && reuseBases && resume === undefined) {
+    error = "--reuse-bases requires --resume";
+  }
 
   return {
     folder: positionals.length === 1 ? positionals[0] : undefined,
     resume,
     allowConfigChange,
+    reuseBases,
     error,
   };
 }

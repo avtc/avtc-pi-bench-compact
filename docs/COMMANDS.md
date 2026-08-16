@@ -50,12 +50,12 @@ Run every enabled arm from a **prepared** scenario folder (skips prepare). The f
 ### `/bench-compact:run-scenario <folder> --resume [runId]` *(crash recovery)*
 Continue an interrupted run. Completed arms (Phase 1), continuation attempts (Phase 2a), and kept probe branches (Phase 2b) are detected from the scenario repo's committed `bench-compact/*` branches and skipped; unfinished leftovers re-run; scoring (Phase 3) always re-runs. Bare `--resume` auto-detects the latest incomplete run (a run is complete once `runs/<runId>/results.json` exists). The run-config fingerprint must be unchanged — a config or arm-tool-version change since the crash refuses the resume.
 
-Add `--allow-config-change` to continue anyway after a config or arm-tool-version change (e.g. a crash fix landed in an arm's extension): the run keeps its original branch namespace and config snapshot on disk, arms whose tool version changed re-compact under the new version (branch names embed it), and unchanged arms skip as before.
+Add `--allow-config-change` to continue anyway after a config or arm-tool-version change (e.g. a crash fix landed in an arm's extension): the run keeps its original branch namespace and config snapshot on disk, arms whose tool version changed re-compact under the new version (branch names embed it), and unchanged arms skip as before. Add `--reuse-bases` to also reuse a committed arm base built under an older tool version when the new version's base is absent — for fixes that did not change compaction behavior (prompts/logic); each reused base is logged with the version it was built under.
 
 ```
 /bench-compact:run-scenario ~/.pi/bench-compact/scenarios/2026-08-09-1 --resume
 /bench-compact:run-scenario ~/.pi/bench-compact/scenarios/2026-08-09-1 --resume=2026-08-14-1
-/bench-compact:run-scenario ~/.pi/bench-compact/scenarios/2026-08-09-1 --resume --allow-config-change
+/bench-compact:run-scenario ~/.pi/bench-compact/scenarios/2026-08-09-1 --resume --allow-config-change --reuse-bases
 ```
 
 ### `/bench-compact:run <idea>` *(shorthand)*

@@ -34,7 +34,15 @@ import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
-import { branchExists, checkout, commitAll, commitCountAhead, forkBranch, resetBranch } from "../storage/repo.js";
+import {
+  branchExists,
+  checkout,
+  commitAll,
+  commitCountAhead,
+  forkBranch,
+  newestBranches,
+  resetBranch,
+} from "../storage/repo.js";
 import type { WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
 import { getBenchPi } from "./bench-ctx.js";
@@ -92,6 +100,9 @@ export interface Phase1Ops {
   deleteBranch: typeof resetBranch;
   /** Path-existence checker (crash-resume: the arm's session file must exist to skip). */
   exists: (path: string) => boolean;
+  /** Branch matches for a glob, newest-commit first (the --reuse-bases fallback
+   *  scans older-version base candidates; the caller shape-filters base branches). */
+  newestBranches: typeof newestBranches;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
   copySeed: (src: string, dest: string) => void;
   /** Append the anti-peek user entry to the arm session file (post-copy, pre-load —
@@ -109,6 +120,7 @@ const DEFAULT_OPS: Phase1Ops = {
   commitCountAhead,
   deleteBranch: resetBranch,
   exists: existsSync,
+  newestBranches,
   copySeed: (src, dest) => copyFileSync(src, dest),
   appendAntiPeek: (sessionPath, text) => appendUserEntry(sessionPath, text, {}),
 };
@@ -149,6 +161,10 @@ export interface Phase1Deps {
    *  SKIPPED (the base entry reconstructed from the branch) instead of treated as a
    *  foreign-branch conflict. Uncommitted leftovers are deleted + re-compacted. */
   resume?: boolean;
+  /** --reuse-bases: also reuse a committed base built under an OLDER tool version
+   *  when the current version's base branch is absent (skip re-compaction after a
+   *  tool fix that did not change compaction behavior). */
+  reuseBases?: boolean;
   /** The live-progress widget (TUI-only; null/absent → no-op). */
   widget?: WidgetPort | null;
   /** Injectable seams (defaults = real implementations). */
@@ -206,6 +222,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     omFullReflectionThresholdTokens,
     armsEnabled,
     resume,
+    reuseBases,
   } = deps;
   log.info(`phase-1: run ${date}-${id} cfg ${cfgId} arms [${armsEnabled.join(", ")}]`);
 
@@ -238,6 +255,41 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
       }
       ops.deleteBranch(scenarioRepo, branch);
       log.info(`phase-1: arm ${arm} branch ${branch} exists but is not committed — deleted, re-compacting`);
+    }
+
+    // --reuse-bases fallback: the CURRENT version's base is absent (the tool version
+    // changed since the base was built), but an OLDER-version base for the same arm
+    // is committed in this run's namespace — reuse it instead of re-compacting. For
+    // tool fixes that did not change compaction behavior the old base is a draw from
+    // the same distribution; the reused branch name keeps recording the version it
+    // was actually built under. Candidates are newest-commit-first; the shape check
+    // keeps only true base branches (attempt `-N` and probe `-probe-N-M` suffixed
+    // branches carry later committer dates than their base and must never qualify).
+    if (resume === true && reuseBases === true) {
+      const baseShape = new RegExp(`^arm-${def.tool}(-g[0-9a-f]+|-npm[0-9][w.]*)?$`);
+      const candidates = ops.newestBranches(scenarioRepo, `bench-compact/run-${date}-${id}/${cfgId}/arm-${def.tool}*`);
+      const reusable = candidates.find((c) => baseShape.test(c.split("/").pop() ?? ""));
+      if (reusable !== undefined) {
+        const segment = reusable.split("/").pop() ?? "";
+        const reusableVer =
+          segment === `arm-${def.tool}` ? undefined : (segment.slice(`arm-${def.tool}-`.length) as string);
+        const reusableSession = branchSessionFile(sessionsDir, reusable);
+        if (ops.commitCountAhead(scenarioRepo, reusable, "main") > 0 && ops.exists(reusableSession)) {
+          bases.push({
+            arm,
+            tool: def.tool,
+            ver: reusableVer,
+            cfgId,
+            branch: reusable,
+            wallMs: 0,
+            usage: undefined,
+          });
+          log.info(
+            `phase-1: arm ${arm} reusing base ${reusable} (built under ${reusableVer ?? "unversioned"}) — skip compaction`,
+          );
+          continue;
+        }
+      }
     }
 
     // Fork main → arm-base. A pre-existing branch of this name (on a non-resume

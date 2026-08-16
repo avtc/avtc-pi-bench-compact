@@ -132,3 +132,20 @@ export function commitCountAhead(repo: string, branch: string, base: string): nu
   if (Number.isNaN(count)) throw new Error(`git rev-list returned a non-numeric count (${out.trim()})`);
   return count;
 }
+
+/** Branch names matching a glob pattern, most-recently-committed first (empty when
+ *  none). The `--reuse-bases` resume fallback scans arm candidates across tool
+ *  versions this way (newest commit first; the caller shape-checks base vs
+ *  attempt/probe branches — an attempt carries a later committer date than its base). */
+export function newestBranches(repo: string, pattern: string): string[] {
+  const out = runGit(repo, [
+    "for-each-ref",
+    "--sort=-committerdate",
+    "--format=%(refname:short)",
+    `refs/heads/${pattern}`,
+  ]);
+  return out
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}

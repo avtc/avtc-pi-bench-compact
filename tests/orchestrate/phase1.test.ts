@@ -116,6 +116,7 @@ interface FakeOps {
   commitCountAhead: ReturnType<typeof vi.fn>;
   deleteBranch: ReturnType<typeof vi.fn>;
   exists: ReturnType<typeof vi.fn>;
+  newestBranches: ReturnType<typeof vi.fn>;
   /** The fresh pi stashed per loadSession call (one per arm) — for assertions. */
   freshPis: FakePi[];
   /** The fresh proxies stashed per loadSession call (one per arm) — for assertions. */
@@ -160,6 +161,7 @@ function makeFakeOps(): FakeOps {
     commitCountAhead: vi.fn(() => 0),
     deleteBranch: vi.fn(),
     exists: vi.fn(() => false),
+    newestBranches: vi.fn(() => []),
     freshPis,
     freshProxies,
     freshCtxs,
@@ -174,6 +176,7 @@ function makeDeps(opts: {
   cmdCtx?: ExtensionCommandContext;
   widget?: WidgetPort | null;
   resume?: boolean;
+  reuseBases?: boolean;
 }): Phase1Deps {
   return {
     cmdCtx: opts.cmdCtx ?? ({ id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext),
@@ -187,6 +190,7 @@ function makeDeps(opts: {
     armsEnabled: opts.armsEnabled,
     widget: opts.widget,
     resume: opts.resume ?? false,
+    reuseBases: opts.reuseBases ?? false,
     ops: opts.ops as unknown as Phase1Ops,
   };
 }
@@ -602,3 +606,83 @@ function makeConfig(armsEnabled: BenchConfig["armsEnabled"]): BenchConfig {
     armsEnabled,
   } as BenchConfig;
 }
+
+// --- --reuse-bases (older-version base fallback) -----------------------------
+
+describe("runPhase1 — --reuse-bases (older-version base fallback)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-p1-reuse-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("reuses the newest committed older-version base when the current version's branch is absent", async () => {
+    const ops = makeFakeOps();
+    // current-version branch (arm-om-default-gabc123) does NOT exist → branchExists false
+    ops.branchExists = vi.fn(() => false);
+    // candidates include an attempt branch (later committer date) — must be shape-skipped
+    const oldBase = "bench-compact/run-2026-08-11-1/cfg-test1/arm-om-default-g999888";
+    ops.newestBranches = vi.fn(() => [
+      "bench-compact/run-2026-08-11-1/cfg-test1/arm-om-default-g999888-attempt1", // wrong shape
+      "bench-compact/run-2026-08-11-1/cfg-test1/arm-om-default-g999888-probe-1-1", // wrong shape
+      oldBase, // ← the reusable base
+    ]);
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.exists = vi.fn(() => true);
+    const { bases } = await runPhase1(
+      makeDeps({
+        ops,
+        scenarioRepo: repo,
+        sessionsDir: join(repo, "sessions"),
+        armsEnabled: ["A2"],
+        resume: true,
+        reuseBases: true,
+      }),
+    );
+    expect(bases).toHaveLength(1);
+    expect(bases[0]?.branch).toBe(oldBase);
+    expect(bases[0]?.ver).toBe("g999888"); // records the version the base was BUILT under
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.trigger).not.toHaveBeenCalled();
+    expect(ops.newestBranches).toHaveBeenCalledWith(repo, "bench-compact/run-2026-08-11-1/cfg-test1/arm-om-default*");
+  });
+
+  it("does NOT reuse without the flag (version change → re-compact)", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => false);
+    ops.newestBranches = vi.fn(() => ["bench-compact/run-2026-08-11-1/cfg-test1/arm-om-default-g999888"]);
+    ops.commitCountAhead = vi.fn(() => 1);
+    ops.exists = vi.fn(() => true);
+    const { bases } = await runPhase1(
+      makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A2"], resume: true }),
+    );
+    expect(bases[0]?.branch).toBe(
+      buildArmBaseBranch({ date: "2026-08-11", id: 1, cfgId: "cfg-test1", tool: "om-default", ver: "gabc123" }),
+    );
+    expect(ops.fork).toHaveBeenCalled(); // fresh compact under the CURRENT version
+  });
+
+  it("an uncommitted older-version base is not reusable → re-compact", async () => {
+    const ops = makeFakeOps();
+    ops.branchExists = vi.fn(() => false);
+    ops.newestBranches = vi.fn(() => ["bench-compact/run-2026-08-11-1/cfg-test1/arm-om-default-g999888"]);
+    ops.commitCountAhead = vi.fn(() => 0); // bare fork — crashed before its boundary commit
+    ops.exists = vi.fn(() => true);
+    const { bases } = await runPhase1(
+      makeDeps({
+        ops,
+        scenarioRepo: repo,
+        sessionsDir: join(repo, "sessions"),
+        armsEnabled: ["A2"],
+        resume: true,
+        reuseBases: true,
+      }),
+    );
+    expect(bases[0]?.branch).toBe(
+      buildArmBaseBranch({ date: "2026-08-11", id: 1, cfgId: "cfg-test1", tool: "om-default", ver: "gabc123" }),
+    );
+    expect(ops.fork).toHaveBeenCalled();
+  });
+});

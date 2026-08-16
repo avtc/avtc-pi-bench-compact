@@ -165,6 +165,21 @@ describe("makeRunScenarioHandler — --resume", () => {
     expect(arg.resume).toEqual({ runId: "2026-08-16-4", cfgId: "cfg-bd0f9a", allowConfigChange: true });
   });
 
+  it("--reuse-bases threads onto the resume target", async () => {
+    const { ctx } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --resume --allow-config-change --reuse-bases`, ctx);
+    const arg = executeRun.mock.calls[0][0] as {
+      resume?: { runId: string; cfgId: string; reuseBases?: boolean };
+    };
+    expect(arg.resume).toEqual({
+      runId: "2026-08-16-4",
+      cfgId: "cfg-bd0f9a",
+      allowConfigChange: true,
+      reuseBases: true,
+    });
+  });
+
   it("--allow-config-change without --resume → parse warning, no executeRun", async () => {
     const { ctx, notifies } = fakeCommandCtx();
     const { handler, executeRun } = makeResumeFixture([]);

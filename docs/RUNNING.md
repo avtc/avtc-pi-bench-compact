@@ -30,7 +30,7 @@ The frozen scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (`repo/` +
 
 The live-progress widget tracks the phases (`build` → `extract` → `compact` → `eval` → `probe` → `score`). The bench **stops and surfaces** any failure via notification (never auto-retries) — inspect the cause, then `/bench-compact:resume`.
 
-If pi itself dies mid-run (a crash or force-quit), restart pi and continue via `/bench-compact:run-scenario <folder> --resume`. A half-finished arm or attempt re-runs from scratch; scoring always re-runs. Bench-timed compaction wall-clock is not recoverable (reported as `0` in the compaction-cost metric); token usage is re-read from the session transcripts. If a config or arm-tool version changed since the crash (e.g. an extension fix landed), the resume is refused — add `--allow-config-change` to continue anyway: arms whose tool version changed re-compact under the new version, unchanged arms skip.
+If pi itself dies mid-run (a crash or force-quit), restart pi and continue via `/bench-compact:run-scenario <folder> --resume`. A half-finished arm or attempt re-runs from scratch; scoring always re-runs. Bench-timed compaction wall-clock is not recoverable (reported as `0` in the compaction-cost metric); token usage is re-read from the session transcripts. If a config or arm-tool version changed since the crash (e.g. an extension fix landed), the resume is refused — add `--allow-config-change` to continue anyway: arms whose tool version changed re-compact under the new version, unchanged arms skip. If the fix did not change compaction behavior (prompts/logic), also add `--reuse-bases` to reuse their already-compacted bases instead of re-compacting.
 
 ### 3. Read the report
 
