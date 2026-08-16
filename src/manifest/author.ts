@@ -199,6 +199,45 @@ export function sanitizeCitations(manifest: ScenarioManifest, spanEntryIds: Read
   };
 }
 
+/** Drop findings the author marked as tail-conflicted. A conflicted condition (its
+ *  entryIds intersect a reported conflict) cannot be tested — the tail either gives
+ *  its answer away raw or changed the fact — so the condition AND every probe citing
+ *  it are removed; the conflicts themselves are consumed (field dropped). The author
+ *  is prompted to prefer an unconflicted alternative first, so a dropped condition is
+ *  the fallback, not the norm; a topic left EMPTY by drops lands as `missing` and the
+ *  existing landing machinery decides (surface / tail-content auto-continue).
+ *  Pure. */
+export function dropConflictedFindings(manifest: ScenarioManifest): ScenarioManifest {
+  const conflicts = manifest.tailConflicts ?? [];
+  if (conflicts.length === 0) return manifest;
+  const conflictedIds = new Set(conflicts.flatMap((c) => c.entryIds));
+  const isConflicted = (ids: readonly string[]): boolean => ids.some((id) => conflictedIds.has(id));
+  const filterList = <T extends { entryIds: readonly string[] }>(list: readonly T[]): readonly T[] =>
+    list.filter((c) => !isConflicted(c.entryIds));
+  const recallFacts = filterList(manifest.recallFacts);
+  const doneOps = filterList(manifest.doneOps);
+  const supersessions = filterList(manifest.supersessions);
+  const abstentions = filterList(manifest.abstentions);
+  const probes = manifest.probes.filter((p) => !isConflicted(p.targets));
+  const droppedConditions =
+    manifest.recallFacts.length -
+    recallFacts.length +
+    manifest.doneOps.length -
+    doneOps.length +
+    manifest.supersessions.length -
+    supersessions.length +
+    manifest.abstentions.length -
+    abstentions.length;
+  const droppedProbes = manifest.probes.length - probes.length;
+  if (droppedConditions > 0 || droppedProbes > 0) {
+    log.info(
+      `author tail validation: dropped ${droppedConditions} conflicted condition(s) + ${droppedProbes} probe(s) (answerable-from-tail or superseded by the tail)`,
+    );
+  }
+  const { tailConflicts: _consumed, ...rest } = manifest;
+  return { ...rest, recallFacts, doneOps, supersessions, abstentions, probes };
+}
+
 export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext): ScenarioManifest {
   const hasEmbedded = author.taskObjective.testSpec.length > 0;
   const targetedIds = new Set(author.probes.flatMap((p) => p.targets));
@@ -438,7 +477,7 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
         })
         .filter((id): id is string => id !== undefined),
     );
-    return sanitizeCitations(manifest, spanEntryIds);
+    return dropConflictedFindings(sanitizeCitations(manifest, spanEntryIds));
   } catch (err) {
     // The span file is unreadable (deleted/moved mid-run): skip sanitization —
     // the manifest pipeline's own file reads will surface the real fault.

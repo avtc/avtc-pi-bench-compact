@@ -20,6 +20,11 @@ export interface PrepareArgs {
   /** Skip-and-proceed recovery: the scenario folder of a FAILED prepare
    *  (`--from <folder>`, pairs with `--skip-topics`). */
   skipFrom: string | undefined;
+  /** Re-author an EXISTING scenario's manifest in place from its frozen backup
+   *  (`--re-author <folder>`): trial-compact → author (with tail validation) →
+   *  validate → replace manifest.json. The backup, repo, and committed arm bases
+   *  are untouched. */
+  reAuthorFrom: string | undefined;
   /** Condition-topic ids to drop (`--skip-topics a,b`, comma-separated). */
   skipTopics: string[] | undefined;
   /** `--force`: re-prepare over an existing scenario folder. */
@@ -37,6 +42,7 @@ export function parsePrepareArgs(args: string): PrepareArgs {
   let fromSession: string | undefined;
   let plantFrom: string | undefined;
   let skipFrom: string | undefined;
+  let reAuthorFrom: string | undefined;
   let skipTopics: string[] | undefined;
   let force = false;
   let error: string | undefined;
@@ -81,6 +87,14 @@ export function parsePrepareArgs(args: string): PrepareArgs {
         break;
       }
       skipFrom = r.value;
+      i = r.next;
+    } else if (tok === "--re-author" || tok.startsWith(RE_AUTHOR_EQ)) {
+      const r = tok.startsWith(RE_AUTHOR_EQ) ? eqValue(RE_AUTHOR_EQ, tok, i) : readValue(tok, i);
+      if ("error" in r) {
+        error = r.error;
+        break;
+      }
+      reAuthorFrom = r.value;
       i = r.next;
     } else if (tok === SKIP_TOPICS_FLAG || tok.startsWith(SKIP_TOPICS_EQ)) {
       const raw = tok.startsWith(SKIP_TOPICS_EQ) ? tok.slice(SKIP_TOPICS_EQ.length) : undefined;
@@ -130,6 +144,7 @@ export function parsePrepareArgs(args: string): PrepareArgs {
     fromSession,
     plantFrom,
     skipFrom,
+    reAuthorFrom,
     skipTopics,
     force,
     error,
@@ -155,6 +170,7 @@ const SKIP_TOPICS_FLAG = "--skip-topics";
 const SKIP_TOPICS_EQ = "--skip-topics=";
 const PLANT_EQ = "--plant=";
 const FROM_EQ = "--from=";
+const RE_AUTHOR_EQ = "--re-author=";
 const FROM_SESSION_EQ = "--from-session=";
 
 /** Split raw args into non-empty whitespace tokens (shared by the parsers). */

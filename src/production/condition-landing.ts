@@ -15,7 +15,7 @@ import type { ScenarioManifest } from "../manifest/schema.js";
 import type { ConditionTopic } from "../simulator/condition-topics.js";
 
 /** Per-topic landing status. */
-type LandingStatus = "landed" | "tail" | "missing" | "tail-answerable" | "tail-superseded";
+type LandingStatus = "landed" | "tail" | "missing";
 
 /** A topic's landing outcome (with its conditions' individual statuses). */
 export interface TopicLanding {
@@ -72,21 +72,6 @@ export function classifyLanding(
       // tail-check decides: content-in-tail → auto-continue; else → surface.
       return { topic, status: tail.has(topic.id) ? ("tail" as const) : ("missing" as const) };
     }
-    // Author-reported tail conflicts (the author validated each finding against the
-    // kept tail): a conflict on any condition of the topic makes its probes either
-    // trivially answerable from raw tail content or stale — both need the build to
-    // continue until the tail content slides before the boundary. `superseded` wins
-    // when both kinds are reported (the value changing is the more severe state).
-    const conflicts = manifest.tailConflicts ?? [];
-    const topicConflictKinds = conflicts
-      .filter((c) => conditions.some((cond) => cond.entryIds.some((id) => c.entryIds.includes(id))))
-      .map((c) => c.kind);
-    if (topicConflictKinds.includes("superseded")) {
-      return { topic, status: "tail-superseded" as const };
-    }
-    if (topicConflictKinds.includes("answerable")) {
-      return { topic, status: "tail-answerable" as const };
-    }
     // tail if ANY condition cites an entry at/after the cut (in the kept tail).
     const hasTail = conditions.some((c) =>
       c.entryIds.some((id) => {
@@ -106,9 +91,7 @@ export function decideLandingAction(classification: readonly TopicLanding[]): La
     const allMissingSafeToSkip = missing.every((c) => c.topic.tag === "safeToSkip");
     return { kind: "surface", skipOffered: allMissingSafeToSkip, missing: missing.map((c) => c.topic) };
   }
-  if (
-    classification.some((c) => c.status === "tail" || c.status === "tail-answerable" || c.status === "tail-superseded")
-  ) {
+  if (classification.some((c) => c.status === "tail")) {
     return { kind: "continue" };
   }
   return { kind: "proceed" };

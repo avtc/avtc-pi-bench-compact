@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import {
   surfaceConditionsMessage,
 } from "../../src/commands/prepare-scenario.js";
 import { SurfaceConditionsError } from "../../src/production/build.js";
-import type { PrepareDeps } from "../../src/production/prepare.js";
+import type { PrepareDeps, ReAuthorDeps } from "../../src/production/prepare.js";
 import { fakeCommandCtx } from "./helpers.js";
 
 describe("computeScenarioId", () => {
@@ -341,5 +341,69 @@ describe("prepare in-flight guard", () => {
     });
     await handler("some idea", ctx);
     expect(isPrepareInFlight()).toBe(false);
+  });
+});
+
+describe("makePrepareScenarioHandler — --re-author", () => {
+  it("re-authors in place: manifest.json replaced, previous preserved, notify carries the probe count", async () => {
+    const notified: { msg: string; level: string }[] = [];
+    const ctx = { ui: { notify: (msg: string, level: string) => void notified.push({ msg, level }) } };
+    const folder = mkdtempSync(join(tmpdir(), "bench-reauthor-"));
+    writeFileSync(join(folder, "manifest.json"), JSON.stringify({ id: "old", probes: [] }));
+    const newManifest = {
+      id: "scen",
+      description: "d",
+      compactionBoundary: { phaseATokenBudget: 140000, plan: "extract" },
+      recallFacts: [],
+      doneOps: [],
+      supersessions: [],
+      abstentions: [],
+      taskObjective: { description: "b", testSpec: "" },
+      probes: [{ question: "q1", accept: ["a"], targets: ["e1"], lanes: ["direct-probe"] }],
+    };
+    const fakePrepare = vi.fn();
+    const fakeBuildDeps = vi.fn();
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: fakePrepare,
+      buildDeps: fakeBuildDeps,
+      reAuthorDeps: () =>
+        ({
+          scenarioFolder: folder,
+          sessionsDir: join(folder, "sessions"),
+          preSliceDir: join(folder, "pre-slice"),
+          seams: {},
+        }) as unknown as ReAuthorDeps,
+      reAuthor: vi.fn().mockResolvedValue(newManifest),
+    });
+
+    await handler(`--re-author ${folder}`, ctx);
+
+    expect(fakePrepare).not.toHaveBeenCalled(); // no build/freeze path
+    const replaced = JSON.parse(readFileSync(join(folder, "manifest.json"), "utf8")) as { probes: unknown[] };
+    expect(replaced.probes).toHaveLength(1);
+    const previous = JSON.parse(readFileSync(join(folder, "manifest.pre-re-author.json"), "utf8")) as { id: string };
+    expect(previous.id).toBe("old");
+    expect(notified.some((n) => /re-authored manifest/.test(n.msg) && /1 probes/.test(n.msg))).toBe(true);
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("a re-author failure surfaces an error and leaves manifest.json untouched", async () => {
+    const notified: { msg: string; level: string }[] = [];
+    const ctx = { ui: { notify: (msg: string, level: string) => void notified.push({ msg, level }) } };
+    const folder = mkdtempSync(join(tmpdir(), "bench-reauthor-"));
+    writeFileSync(join(folder, "manifest.json"), JSON.stringify({ id: "old", probes: [] }));
+    const handler = makePrepareScenarioHandler({
+      prepareScenario: vi.fn(),
+      buildDeps: vi.fn(),
+      reAuthorDeps: () => ({ scenarioFolder: folder }) as unknown as ReAuthorDeps,
+      reAuthor: vi.fn().mockRejectedValue(new Error("manifest validation failed: boom")),
+    });
+
+    await handler(`--re-author ${folder}`, ctx);
+
+    const kept = JSON.parse(readFileSync(join(folder, "manifest.json"), "utf8")) as { id: string };
+    expect(kept.id).toBe("old");
+    expect(notified.some((n) => /re-author|prepare failed/.test(n.msg) && n.level === "error")).toBe(true);
+    rmSync(folder, { recursive: true, force: true });
   });
 });

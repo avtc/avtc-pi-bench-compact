@@ -64,11 +64,15 @@ TAIL VALIDATION
 
 After recording a finding, check it against the KEPT TAIL (the entries from <TAIL_START> on):
 - If the tail RESTATES the finding's answer (the same fact or value appears there too), a
-  probe would be answerable from raw context without any memory — report a conflict with
+  probe would be answerable from raw context without any memory — that is a conflict of
   kind "answerable".
 - If the tail CHANGES the fact (a later decision or reversal, or an open question that got
-  decided in the tail), the recorded value is stale — report a conflict with kind "superseded".
-- Otherwise record nothing.
+  decided in the tail), the recorded value is stale — that is a conflict of kind "superseded".
+- Either way, FIRST look for ANOTHER fact of the same kind in the span that the tail does
+  not reveal, and record that one instead. Record the conflict only for a finding you keep
+  because no unconflicted alternative exists — the harness drops conflicted findings
+  from the manifest.
+- If the tail neither reveals nor changes the finding, record nothing.
 The kept tail is context for validation only — never cite it in `targets`, never phrase
 `accept` from it.
 

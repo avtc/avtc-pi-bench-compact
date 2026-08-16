@@ -26,6 +26,9 @@ Open the settings panel: evaluated model + thinking level, judge model(s) + thin
 ### `/bench-compact:prepare-scenario <idea> --force`
 Re-prepare over an existing scenario folder (otherwise an existing folder is rejected).
 
+### `/bench-compact:prepare-scenario --re-author <folder>`
+**Re-author in place.** Re-runs ONLY the manifest authoring for an existing scenario: trial-compacts a copy of the frozen `main` backup at the current boundary, authors with tail validation (the author reads the full backup + drops findings the kept tail reveals or changes), validates, and replaces `manifest.json` (the previous manifest is preserved as `manifest.pre-re-author.json`). The frozen backup, the scenario repo, and any committed arm bases are untouched — only the probes/conditions change, so a fresh run after a re-author needs new probe work but reuses nothing else. A validation failure surfaces and leaves the manifest untouched.
+
 ### `/bench-compact:prepare-scenario --plant <folder>` *(recovery)*
 **Plant + continue.** When a build surfaces (condition topics did not land in the compacted-away span), the failed prepare persists `landing.json` in the scenario folder. This resumes the SAME build session ONE attempt past the surfaced one — the pacing target grows ~+20K above the already-reached usage, so the first resumed cycle continues the session while the simulator voices the missing topics — then re-trials → re-authors → re-validates. The resumed build runs with its own full attempt budget.
 

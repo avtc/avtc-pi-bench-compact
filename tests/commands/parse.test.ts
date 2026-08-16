@@ -297,3 +297,22 @@ describe("parseRunScenarioArgs", () => {
     expect(r.resume).toBe("2026-08-16-4");
   });
 });
+
+describe("parsePrepareArgs — --re-author <folder>", () => {
+  it("parses the space form", () => {
+    const r = parsePrepareArgs("--re-author ~/.pi/bench-compact/scenarios/ae2d92c1");
+    expect(r.error).toBeUndefined();
+    expect(r.reAuthorFrom).toBe("~/.pi/bench-compact/scenarios/ae2d92c1");
+  });
+
+  it("parses the inline = form", () => {
+    const r = parsePrepareArgs("--re-author=/tmp/scen");
+    expect(r.error).toBeUndefined();
+    expect(r.reAuthorFrom).toBe("/tmp/scen");
+  });
+
+  it("errors when the value is missing or another flag", () => {
+    expect(parsePrepareArgs("--re-author").error).toMatch(/requires a value/);
+    expect(parsePrepareArgs("--re-author --force").error).toMatch(/requires a value/);
+  });
+});

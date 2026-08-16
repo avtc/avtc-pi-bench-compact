@@ -52,13 +52,19 @@ export function preflight(
         a.fromSession !== undefined,
         a.plantFrom !== undefined,
         a.skipFrom !== undefined,
+        a.reAuthorFrom !== undefined,
       ].filter(Boolean).length;
       if (modes > 1) {
         return {
           ok: false,
           reason:
-            "provide exactly one of: a build idea, --from-session <path>, --plant <folder>, or --from <folder> (with --skip-topics)",
+            "provide exactly one of: a build idea, --from-session <path>, --plant <folder>, --from <folder> (with --skip-topics), or --re-author <folder>",
         };
+      }
+      if (a.reAuthorFrom !== undefined) {
+        if (a.skipTopics !== undefined) return { ok: false, reason: "--re-author does not take --skip-topics" };
+        if (!existsFn(a.reAuthorFrom)) return { ok: false, reason: `--re-author folder not found: ${a.reAuthorFrom}` };
+        return { ok: true };
       }
       if (a.fromSession !== undefined) {
         if (!existsFn(a.fromSession)) return { ok: false, reason: `--from-session path not found: ${a.fromSession}` };

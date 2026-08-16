@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
-import { assertNotInRepo } from "../storage/paths.js";
+import { assertNotInRepo, branchSessionFile } from "../storage/paths.js";
 import {
   type BuildResume,
   type BuildSeams,
@@ -229,4 +229,46 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
   });
   log.info(`prepare: scenario frozen — manifest ${frozen.manifestPath}`);
   return { ...frozen, liveCtx: deps.liveCtx };
+}
+
+/**
+ * Re-author an existing scenario's manifest IN PLACE from its frozen backup
+ * (`--re-author <folder>`): trial-compact a copy of the frozen `main` session at the
+ * current boundary → pre-slice → author (the agent reads the full backup + validates
+ * findings against the kept tail) → structural validation. The backup, the repo, and
+ * any committed arm bases are untouched — only `manifest.json` is replaced (the
+ * caller persists it, preserving the previous manifest as a sibling backup file).
+ *
+ * @throws on validation failure (stop-and-surface — the caller must NOT replace the
+ *  existing manifest).
+ */
+export interface ReAuthorDeps {
+  /** The scenario folder (holds `sessions/`, `pre-slice/`, `manifest.json`). */
+  readonly scenarioFolder: string;
+  /** The per-branch session store (the frozen backup lives at `main` inside it). */
+  readonly sessionsDir: string;
+  /** Where the re-author pre-slice is written (the scenario's `pre-slice/` dir). */
+  readonly preSliceDir: string;
+  /** The live trial-compaction + authoring seams (same seam pair the extract mode uses). */
+  readonly seams: Pick<BuildSeams, "trialCompact" | "author">;
+}
+
+/** The frozen-backup branch whose session file re-authoring reads. */
+const RE_AUTHOR_BACKUP_BRANCH = "main";
+/** The pre-slice output name inside the scenario's pre-slice dir. */
+const RE_AUTHOR_SLICE_NAME = "re-author-sliced.jsonl";
+
+export async function reAuthorManifest(deps: ReAuthorDeps): Promise<ScenarioManifest> {
+  const backupPath = branchSessionFile(deps.sessionsDir, RE_AUTHOR_BACKUP_BRANCH);
+  const trial = await deps.seams.trialCompact(backupPath);
+  const preSliced = preSlice(backupPath, trial.firstKeptEntryId, join(deps.preSliceDir, RE_AUTHOR_SLICE_NAME));
+  const manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId);
+  // Same structural gate as a fresh prepare — a failure must NOT replace the manifest.
+  validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
+  log.info(
+    `re-author: manifest re-authored for ${deps.scenarioFolder} — ${manifest.recallFacts.length} recallFacts, ` +
+      `${manifest.doneOps.length} doneOps, ${manifest.supersessions.length} supersessions, ` +
+      `${manifest.abstentions.length} abstentions, ${manifest.probes.length} probes`,
+  );
+  return manifest;
 }

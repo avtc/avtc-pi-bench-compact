@@ -44,6 +44,7 @@ describe("preflight — prepare (build idea)", () => {
     fromSession: undefined,
     plantFrom: undefined,
     skipFrom: undefined,
+    reAuthorFrom: undefined,
     skipTopics: undefined,
     force: false,
     error: undefined,
@@ -65,6 +66,7 @@ describe("preflight — prepare (extract --from-session)", () => {
       fromSession: "/s.jsonl",
       plantFrom: undefined,
       skipFrom: undefined,
+      reAuthorFrom: undefined,
       skipTopics: undefined,
       force: false,
       error: undefined,
@@ -77,6 +79,7 @@ describe("preflight — prepare (extract --from-session)", () => {
       fromSession: "/missing.jsonl",
       plantFrom: undefined,
       skipFrom: undefined,
+      reAuthorFrom: undefined,
       skipTopics: undefined,
       force: false,
       error: undefined,
@@ -91,6 +94,7 @@ describe("preflight — prepare (extract --from-session)", () => {
       fromSession: "/s.jsonl",
       plantFrom: undefined,
       skipFrom: undefined,
+      reAuthorFrom: undefined,
       skipTopics: undefined,
       force: false,
       error: undefined,
@@ -156,6 +160,7 @@ describe("preflight — recovery modes (--plant / --skip-topics --from)", () => 
     fromSession: undefined,
     plantFrom: undefined,
     skipFrom: undefined,
+    reAuthorFrom: undefined,
     skipTopics: undefined,
     force: false,
     error: undefined,
@@ -197,5 +202,39 @@ describe("preflight — recovery modes (--plant / --skip-topics --from)", () => 
   it("skip folder missing → refuse", () => {
     const r = preflight(cfg, "prepare", rec({ skipFrom: "/scen/x", skipTopics: ["change-mind"] }), () => false);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("preflight — prepare --re-author", () => {
+  const baseArgs = (idea: string): PrepareArgs => ({
+    idea,
+    fromSession: undefined,
+    plantFrom: undefined,
+    skipFrom: undefined,
+    reAuthorFrom: undefined,
+    skipTopics: undefined,
+    force: false,
+    error: undefined,
+  });
+  const reAuthorArgs = (folder: string, idea: string | null): PrepareArgs => ({
+    ...baseArgs(idea ?? ""),
+    reAuthorFrom: folder,
+  });
+  const folderSet = exists(new Set(["/scen"]));
+  it("ok for an existing folder", () => {
+    const r = preflight(validConfig({}), "prepare", reAuthorArgs("/scen", null), folderSet);
+    expect(r).toEqual({ ok: true });
+  });
+
+  it("refused when the folder does not exist", () => {
+    const r = preflight(validConfig({}), "prepare", reAuthorArgs("/nope", null), folderSet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/--re-author folder not found/);
+  });
+
+  it("refused alongside a build idea (mutually exclusive modes)", () => {
+    const r = preflight(validConfig({}), "prepare", reAuthorArgs("/scen", "build a game"), folderSet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/exactly one of/);
   });
 });

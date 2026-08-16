@@ -11,7 +11,7 @@
 // assembles the seams via `buildLiveSeams` (src/production/live-seams.ts).
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
@@ -25,7 +25,12 @@ import {
 import { SurfaceConditionsError } from "../production/build.js";
 import { LANDING_FILE, type LandingState, readLandingState } from "../production/landing-state.js";
 import { buildLiveSeams } from "../production/live-seams.js";
-import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
+import {
+  type PrepareDeps,
+  prepareScenario as prepareScenarioImpl,
+  type ReAuthorDeps,
+  reAuthorManifest,
+} from "../production/prepare.js";
 import { buildPlantInstruction } from "../simulator/condition-topics.js";
 import { benchRoot, scenarioDir } from "../storage/paths.js";
 import { askOperator } from "../ui/ask.js";
@@ -34,16 +39,24 @@ import { makeTuiWidgetDeps, NO_DETAIL, WidgetController } from "../widget/tracke
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
 import { preflight } from "./validate.js";
 
+/** Where the pre-re-author manifest is preserved inside the scenario folder. */
+const PREVIOUS_MANIFEST_NAME = "manifest.pre-re-author.json";
+
 /** Compute a deterministic scenario id from the parsed args. */
 export function computeScenarioId(parsed: {
   idea?: string;
   fromSession?: string;
   plantFrom?: string;
   skipFrom?: string;
+  reAuthorFrom?: string;
 }): string {
   if (parsed.plantFrom ?? parsed.skipFrom) {
     // recovery modes: the scenario folder of the surfaced prepare (its basename).
     return basename(parsed.plantFrom ?? parsed.skipFrom ?? "");
+  }
+  if (parsed.reAuthorFrom) {
+    // re-author: the EXISTING scenario folder's basename (the manifest keeps its id).
+    return basename(parsed.reAuthorFrom);
   }
   if (parsed.fromSession) {
     // extract: derive from the session file basename (strip extension).
@@ -65,6 +78,11 @@ export interface PrepareScenarioHandlerOptions {
    *  tests inject a fake. (The widget reaches the seams via the active-widget global,
    *  set by the handler before buildDeps runs.) */
   readonly buildDeps: (ctx: unknown, parsed: PrepareArgs, scenarioId: string) => PrepareDeps;
+  /** Build the ReAuthorDeps for `--re-author` (default: `defaultReAuthorDeps` — live
+   *  trial/author seams over the existing scenario folder; tests inject a fake). */
+  readonly reAuthorDeps?: (ctx: unknown, parsed: PrepareArgs) => ReAuthorDeps;
+  /** The re-author pipeline (default: the real `reAuthorManifest`; tests inject a fake). */
+  readonly reAuthor?: typeof reAuthorManifest;
   /** Construct the live-progress widget (default: {@link makePrepareWidget}). Tests inject a capturing widget. */
   readonly makeWidget?: (ctx: unknown) => WidgetPort;
   /** Construct the shorthand path's prepare widget (default: same {@link makePrepareWidget}). */
@@ -146,6 +164,22 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
     // genuinely stops a live prepare (its finally clears the guard).
     beginPrepare(); // registers the window's abort controller (read by defaultBuildPrepareDeps)
     try {
+      // --re-author <folder>: straight-line in-place manifest re-authoring (no build
+      // drive, no freeze — the frozen backup, repo, and committed arm bases stay
+      // untouched; only manifest.json is replaced, previous preserved alongside).
+      if (parsed.reAuthorFrom !== undefined) {
+        const deps = (opts.reAuthorDeps ?? defaultReAuthorDeps)(ctx, parsed);
+        const manifest = await (opts.reAuthor ?? reAuthorManifest)(deps);
+        const manifestPath = join(parsed.reAuthorFrom, "manifest.json");
+        copyFileSync(manifestPath, join(parsed.reAuthorFrom, PREVIOUS_MANIFEST_NAME));
+        writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+        widget.setStatus("prepared", `/bench-compact:run-scenario ${join(deps.scenarioFolder, "repo")}`);
+        notify(
+          `re-authored manifest for ${scenarioId}: ${manifest.probes.length} probes (previous saved as ${PREVIOUS_MANIFEST_NAME})`,
+          "info",
+        );
+        return;
+      }
       let current = parsed;
       for (let round = 0; round < MAX_SURFACE_ROUNDS; round += 1) {
         try {
@@ -349,6 +383,41 @@ export function defaultBuildPrepareDeps(ctx: unknown, parsed: PrepareArgs, scena
   return deps;
 }
 
+/** Build the ReAuthorDeps for `--re-author <folder>`: the scenario folder's own
+ *  layout + the live trial/author seams (the same seam pair extract mode uses; the
+ *  build drive is not needed). The scenario ctx reuses the EXISTING scenario id +
+ *  description (the manifest's) with the CURRENT config boundary — mirroring a fresh
+ *  prepare at today's settings. */
+export function defaultReAuthorDeps(ctx: unknown, parsed: PrepareArgs): ReAuthorDeps {
+  const config = getBenchConfig();
+  const scenarioFolder = parsed.reAuthorFrom ?? "";
+  const repo = join(scenarioFolder, "repo");
+  const sessionsDir = join(scenarioFolder, "sessions");
+  const preSliceDir = join(scenarioFolder, PRE_SLICE_DIR_NAME);
+  const scenarioId = computeScenarioId(parsed);
+  // The manifest's own description keeps the scenario brief stable across re-authors.
+  let description = scenarioId;
+  try {
+    description =
+      (JSON.parse(readFileSync(join(scenarioFolder, "manifest.json"), "utf8")) as { description?: string })
+        .description ?? scenarioId;
+  } catch {
+    // unreadable manifest — the author seam's scenarioCtx falls back to the folder id.
+  }
+  const { holder: _holder, ...seams } = buildLiveSeams({
+    cmdCtx: ctx as ExtensionCommandContext,
+    config,
+    repoPath: repo,
+    preSliceDir,
+    scenarioId,
+    scenarioDescription: description,
+    compactionPlan: EXTRACT_PLAN,
+    widget: getActiveWidget(),
+    signal: getPrepareAbortSignal(),
+  });
+  return { scenarioFolder, sessionsDir, preSliceDir, seams };
+}
+
 /** Sub-directory under the scenario dir for the pre-slice temp files (OUTSIDE the repo). */
 const PRE_SLICE_DIR_NAME = "pre-slice";
 /** Manifest compaction-boundary plan tag for build mode. */
@@ -361,7 +430,7 @@ const EXTRACT_BACKUP_NAME = "extract-backup.jsonl";
 /** Register the prepare-scenario command on `pi`. */
 export function registerPrepareScenarioCommand(pi: ExtensionAPI): void {
   pi.registerCommand("bench-compact:prepare-scenario", {
-    description: "Prepare a scenario (build from <idea> or extract --from-session).",
-    handler: makePrepareScenarioHandler({ buildDeps: defaultBuildPrepareDeps }),
+    description: "Prepare a scenario (build from <idea>, extract --from-session, or re-author --re-author <folder>).",
+    handler: makePrepareScenarioHandler({ buildDeps: defaultBuildPrepareDeps, reAuthorDeps: defaultReAuthorDeps }),
   });
 }

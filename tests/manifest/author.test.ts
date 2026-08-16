@@ -7,12 +7,13 @@ import type { RateLimitOptions } from "../../src/judge/rate-limit.js";
 import {
   type AuthoringSeams,
   buildAuthoringTools,
+  dropConflictedFindings,
   postProcessManifest,
   runAuthoringAgent,
   type ScenarioContext,
   sanitizeCitations,
 } from "../../src/manifest/author.js";
-import type { AuthorOutput } from "../../src/manifest/schema.js";
+import type { AuthorOutput, ScenarioManifest } from "../../src/manifest/schema.js";
 
 /** Minimal stand-in for a resolved bench model (only `id` is read by the seams). */
 const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
@@ -509,5 +510,37 @@ describe("tail conflicts (author-side tail validation)", () => {
     expect(cleaned.tailConflicts).toEqual([{ entryIds: ["e1"], kind: "superseded" }]);
     const emptied = sanitizeCitations(base, new Set(["e2", "e3", "e4", "e5"])); // e1 unresolvable → conflict dropped (field absent)
     expect(emptied.tailConflicts).toBeUndefined();
+  });
+});
+
+describe("dropConflictedFindings (tail-conflict filtering, not auto-continue)", () => {
+  const withConflicts: ScenarioManifest = {
+    ...postProcessManifest(
+      {
+        ...cannedAuthor,
+        tailConflicts: [
+          { entryIds: ["e1"], kind: "answerable" }, // recallFact rf1 — tail gives it away
+          { entryIds: ["e3"], kind: "superseded" }, // supersession ss1 — tail changed the value
+        ],
+      },
+      scenarioCtx,
+    ),
+  };
+
+  it("drops conflicted conditions + every probe citing them, keeps unconflicted ones", () => {
+    const m = dropConflictedFindings(withConflicts);
+    expect(m.recallFacts).toHaveLength(0); // rf1 conflicted
+    expect(m.supersessions).toHaveLength(0); // ss1 conflicted
+    expect(m.doneOps).toHaveLength(1); // do1 clean
+    expect(m.abstentions).toHaveLength(1); // ab1 clean
+    // probes: "scores?" targets e1 (conflicted) → dropped; "renderer?" targets e5 → kept
+    expect(m.probes).toHaveLength(1);
+    expect(m.probes[0]?.question).toBe("renderer?");
+    expect(m.tailConflicts).toBeUndefined(); // conflicts consumed
+  });
+
+  it("is a no-op (same reference) when no conflicts were reported", () => {
+    const m = postProcessManifest(cannedAuthor, scenarioCtx);
+    expect(dropConflictedFindings(m)).toBe(m);
   });
 });

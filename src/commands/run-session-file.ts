@@ -35,6 +35,7 @@ export function makeRunSessionFileHandler(opts: RunShorthandOptions) {
       skipFrom: undefined,
       skipTopics: undefined,
       force: false,
+      reAuthorFrom: undefined,
       error: undefined,
     };
     await invokeShorthand(handlerCtx, prepareArgs, opts);

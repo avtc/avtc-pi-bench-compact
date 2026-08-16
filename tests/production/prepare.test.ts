@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import type { BuildSeams } from "../../src/production/build.js";
 import { type LandingState, readLandingState } from "../../src/production/landing-state.js";
-import { prepareScenario } from "../../src/production/prepare.js";
+import { prepareScenario, reAuthorManifest } from "../../src/production/prepare.js";
 import { branchSessionFile } from "../../src/storage/paths.js";
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -444,3 +444,58 @@ function minimalSeams(): BuildSeams {
     },
   };
 }
+
+describe("reAuthorManifest (--re-author pipeline)", () => {
+  it("trial-compacts the frozen main session, authors from the full backup + cut, validates, returns the manifest", async () => {
+    const s = setup();
+    mkdirSync(s.sessionsDir, { recursive: true });
+    // frozen backup at sessions/main (un-compacted, header cwd = repo)
+    writeSession(join(s.sessionsDir, "main.jsonl"), s.repo, 5);
+    const calls: Array<{ trial: string; author: unknown[] }> = [];
+    const seams = {
+      async trialCompact(path: string) {
+        calls.push({ trial: path, author: [] });
+        return { firstKeptEntryId: "e4", summary: "cut" };
+      },
+      async author(slice: string, backup: string, cut: string) {
+        calls[calls.length - 1]?.author.push([slice, backup, cut]);
+        return cannedManifest("e1", "e2", "e3", "e3");
+      },
+    } as unknown as Pick<BuildSeams, "trialCompact" | "author">;
+
+    const manifest = await reAuthorManifest({
+      scenarioFolder: s.root,
+      sessionsDir: s.sessionsDir,
+      preSliceDir: s.preSliceDir,
+      seams,
+    });
+
+    expect(manifest.probes).toHaveLength(3);
+    expect(calls[0]?.trial).toBe(join(s.sessionsDir, "main.jsonl")); // the FROZEN backup
+    const authorCall = calls[0]?.author[0] as string[];
+    expect(authorCall[0]).toContain("re-author-sliced.jsonl");
+    expect(authorCall[1]).toBe(join(s.sessionsDir, "main.jsonl"));
+    expect(authorCall[2]).toBe("e4");
+    rmSync(s.root, { recursive: true, force: true });
+  });
+
+  it("throws on validation failure — the caller must NOT replace the manifest", async () => {
+    const s = setup();
+    mkdirSync(s.sessionsDir, { recursive: true });
+    writeSession(join(s.sessionsDir, "main.jsonl"), s.repo, 5);
+    const seams = {
+      async trialCompact() {
+        return { firstKeptEntryId: "e4", summary: "cut" };
+      },
+      // cites an id that is NOT in the span (e1..e3) → validation failure
+      async author() {
+        return cannedManifest("ghost", "e2", "e3", "e3");
+      },
+    } as unknown as Pick<BuildSeams, "trialCompact" | "author">;
+
+    await expect(
+      reAuthorManifest({ scenarioFolder: s.root, sessionsDir: s.sessionsDir, preSliceDir: s.preSliceDir, seams }),
+    ).rejects.toThrow(/validation failed/i);
+    rmSync(s.root, { recursive: true, force: true });
+  });
+});
