@@ -238,7 +238,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   }
   log.info(
     resuming
-      ? `run ${runId} resumed: cfg ${nsCfgId}${configChanged ? " (config-change override: current cfg " + cfgId + ")" : ""}, arms [${deps.config.armsEnabled.join(", ")}]`
+      ? `run ${runId} resumed: cfg ${nsCfgId}${configChanged ? ` (config-change override: current cfg ${cfgId})` : ""}, arms [${deps.config.armsEnabled.join(", ")}]`
       : `run ${runId} started: cfg ${nsCfgId}, arms [${deps.config.armsEnabled.join(", ")}]`,
   );
 

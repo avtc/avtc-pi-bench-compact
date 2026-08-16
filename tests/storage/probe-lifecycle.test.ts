@@ -104,7 +104,11 @@ describe("isQaOnlyBranch (real git + two session files)", () => {
   });
 
   it("true when the probe added only Q&A + user-global *-cache custom entries (the cache extensions append to every fork)", () => {
-    const probeFile = probeBranch("p-cache", [CUSTOM_CACHE("portrait-cache"), CUSTOM_CACHE("user-decisions-cache"), ASSISTANT_TEXT("ans")], false);
+    const probeFile = probeBranch(
+      "p-cache",
+      [CUSTOM_CACHE("portrait-cache"), CUSTOM_CACHE("user-decisions-cache"), ASSISTANT_TEXT("ans")],
+      false,
+    );
     expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-cache", baseSessionFile, probeFile)).toBe(true);
   });
 
