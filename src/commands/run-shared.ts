@@ -21,12 +21,21 @@ import { manifestStructureError } from "../manifest/validate.js";
 import type { RunResult, StartRunDeps } from "../orchestrate/run.js";
 import { startRun as startRunImpl } from "../orchestrate/run.js";
 import { beginPrepare, endPrepare, isPrepareInFlight, isRunInFlight } from "../orchestrate/run-state.js";
+import { SurfaceConditionsError } from "../production/build.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
+import { benchRoot, scenarioDir } from "../storage/paths.js";
 import { getActiveWidget, setActiveWidget } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, WidgetController } from "../widget/tracker.js";
 import type { PrepareArgs } from "./parse.js";
-import { computeScenarioId, defaultBuildPrepareDeps, makePrepareWidget } from "./prepare-scenario.js";
+import {
+  askRecoveryChoice,
+  computeScenarioId,
+  defaultBuildPrepareDeps,
+  makePrepareWidget,
+  surfaceConditionsMessage,
+  surfaceRecoveryArgs,
+} from "./prepare-scenario.js";
 import type { CommandArgs, CommandKind } from "./validate.js";
 import { preflight } from "./validate.js";
 
@@ -143,20 +152,49 @@ async function prepareThenRun(opts: PrepareThenRunOptions): Promise<void> {
   };
   const scenarioId = computeScenarioId(opts.parsed);
 
-  let repoPath: string;
-  let manifestPath: string;
+  let repoPath = "";
+  let manifestPath = "";
   let liveCtx: { readonly current: unknown } | undefined;
   // Guard the prepare window (same rule as the prepare handler): the run-state only
   // appears later, inside startRun — the flag is cleared BEFORE executeRun hands
   // over (startRun sets the run-state immediately after). The window registers a
   // real abort controller (/bench-compact:abort stops a live prepare).
+  const MAX_SURFACE_ROUNDS = 3;
+  let surfaceRounds = 0;
   beginPrepare();
   try {
-    const deps = opts.buildDeps(opts.ctx, opts.parsed, scenarioId);
-    const result = await (opts.prepareScenario ?? prepareScenarioImpl)(deps);
-    repoPath = result.repoPath;
-    manifestPath = result.manifestPath;
-    liveCtx = result.liveCtx;
+    let current = opts.parsed;
+    let retry = true;
+    while (retry) {
+      retry = false;
+      try {
+        const deps = opts.buildDeps(opts.ctx, current, scenarioId);
+        const result = await (opts.prepareScenario ?? prepareScenarioImpl)(deps);
+        repoPath = result.repoPath;
+        manifestPath = result.manifestPath;
+        liveCtx = result.liveCtx;
+      } catch (err) {
+        if (!(err instanceof SurfaceConditionsError)) throw err;
+        // A surfaced prepare ASKS the operator (modal dialog + attention ping when
+        // the TUI select surface exists; pi's single-slot notify is ephemeral and
+        // gets overwritten by pi's own banners while the prepare unwinds).
+        const choice = await askRecoveryChoice(opts.ctx as { mode?: string; ui?: Record<string, unknown> }, err);
+        if (choice === null || choice === "start-over") {
+          const folder = scenarioDir(benchRoot(getBenchConfig().outputDir), scenarioId);
+          notify(surfaceConditionsMessage(err, folder), "error");
+          getActiveWidget()?.setStatus("stopped", "/bench-compact:prepare-scenario");
+          return;
+        }
+        surfaceRounds += 1;
+        if (surfaceRounds > MAX_SURFACE_ROUNDS) {
+          notify("prepare stopped — too many recovery rounds; see the log", "error");
+          getActiveWidget()?.setStatus("stopped", "/bench-compact:prepare-scenario");
+          return;
+        }
+        current = surfaceRecoveryArgs(current, scenarioId, err, choice);
+        retry = true;
+      }
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     notify(`prepare failed: ${msg}`, "error");

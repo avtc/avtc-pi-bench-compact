@@ -28,6 +28,7 @@ import { buildLiveSeams } from "../production/live-seams.js";
 import { type PrepareDeps, prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
 import { buildPlantInstruction } from "../simulator/condition-topics.js";
 import { benchRoot, scenarioDir } from "../storage/paths.js";
+import { askOperator } from "../ui/ask.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, NO_DETAIL, WidgetController } from "../widget/tracker.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
@@ -145,23 +146,103 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
     // genuinely stops a live prepare (its finally clears the guard).
     beginPrepare(); // registers the window's abort controller (read by defaultBuildPrepareDeps)
     try {
-      const deps = opts.buildDeps(ctx, parsed, scenarioId);
-      const result = await prepare(deps);
-      widget.setStatus("prepared", `/bench-compact:run-scenario ${result.repoPath}`);
-      notify(`prepared scenario ${scenarioId}: ${result.repoPath}`, "info");
+      let current = parsed;
+      for (let round = 0; round < MAX_SURFACE_ROUNDS; round += 1) {
+        try {
+          const deps = opts.buildDeps(ctx, current, scenarioId);
+          const result = await prepare(deps);
+          widget.setStatus("prepared", `/bench-compact:run-scenario ${result.repoPath}`);
+          notify(`prepared scenario ${scenarioId}: ${result.repoPath}`, "info");
+          return;
+        } catch (err) {
+          if (!(err instanceof SurfaceConditionsError)) throw err;
+          widget.setStatus("stopped", "/bench-compact:prepare-scenario");
+          const choice = await askRecoveryChoice(ctxTyped, err);
+          if (choice === null || choice === "start-over") {
+            // dismissed / start over: the notify is best-effort context (pi's notify
+            // slot is ephemeral); landing.json + the log carry the durable state.
+            const folder = scenarioDir(benchRoot(getBenchConfig().outputDir), scenarioId);
+            notify(surfaceConditionsMessage(err, folder), "error");
+            return;
+          }
+          current = surfaceRecoveryArgs(current, scenarioId, err, choice);
+        }
+      }
+      notify("prepare stopped — too many recovery rounds; see the log", "error");
     } catch (err) {
       widget.setStatus("stopped", "/bench-compact:prepare-scenario");
-      if (err instanceof SurfaceConditionsError) {
-        const folder = scenarioDir(benchRoot(getBenchConfig().outputDir), scenarioId);
-        notify(surfaceConditionsMessage(err, folder), "error");
-        return;
-      }
       const msg = err instanceof Error ? err.message : String(err);
       notify(`prepare failed: ${msg}`, "error");
     } finally {
       endPrepare();
     }
   };
+}
+
+/** Ask the recovery choice with graceful degradation: the modal dialog when the ctx
+ *  has a select surface (TUI), else the plain notify (non-TUI modes). */
+export async function askRecoveryChoice(
+  ctx: { mode?: string; ui?: Record<string, unknown> },
+  err: SurfaceConditionsError,
+): Promise<SurfaceChoice | null> {
+  const select = ctx?.ui?.select as
+    | ((title: string, options: string[], opts?: { signal?: AbortSignal }) => Promise<string | undefined>)
+    | undefined;
+  if (ctx?.mode === "tui" && typeof select === "function") {
+    return askSurfaceAction({ select }, err);
+  }
+  return null;
+}
+
+/** Recovery rounds per prepare invocation (each surface may plant or skip once —
+ *  bounded so a pathological loop cannot chain recoveries forever). */
+const MAX_SURFACE_ROUNDS = 3;
+
+/** The operator's choice when a prepare surfaces missing condition topics. */
+export type SurfaceChoice = "plant" | "skip" | "start-over";
+
+/** Dialog labels (protected text). */
+const SURFACE_CHOICE_PLANT = "plant + continue";
+const SURFACE_CHOICE_SKIP = "skip safe-to-skip topics";
+const SURFACE_CHOICE_START_OVER = "start over";
+
+/** Ask the operator how to recover a surfaced prepare — an interactive MODAL dialog
+ *  (coordinated via the dialog queue + attention-pinged via pi-notification), NOT a
+ *  notify: pi's notify slot is single-message and gets overwritten by pi's own
+ *  banners (e.g. "Resumed session" fires while the prepare unwinds). Resolves with
+ *  the choice, or `null` when dismissed / the dialog surface is unavailable. */
+export async function askSurfaceAction(
+  ui: { select: (title: string, options: string[], opts?: { signal?: AbortSignal }) => Promise<string | undefined> },
+  err: SurfaceConditionsError,
+): Promise<SurfaceChoice | null> {
+  const labels = err.action.missing.map((t) => t.label).join(", ");
+  const options = [SURFACE_CHOICE_PLANT];
+  if (err.action.skipOffered) options.push(SURFACE_CHOICE_SKIP);
+  options.push(SURFACE_CHOICE_START_OVER);
+  const choice = await askOperator(ui, {
+    source: "bench-compact",
+    detail: `condition topics missing: ${labels}`,
+    title: `prepare stopped — missing topics: ${labels}`,
+    options,
+  });
+  if (choice === SURFACE_CHOICE_PLANT) return "plant";
+  if (choice === SURFACE_CHOICE_SKIP) return "skip";
+  if (choice === SURFACE_CHOICE_START_OVER) return "start-over";
+  return null; // dismissed or unavailable
+}
+
+/** Build the recovery PrepareArgs from a surfaced choice (plant → resume + steer the
+ *  missing topics in; skip → drop the safeToSkip topics + freeze without re-build). */
+export function surfaceRecoveryArgs(
+  parsed: PrepareArgs,
+  scenarioId: string,
+  err: SurfaceConditionsError,
+  choice: SurfaceChoice,
+): PrepareArgs {
+  const folder = scenarioDir(benchRoot(getBenchConfig().outputDir), scenarioId);
+  if (choice === "plant") return { ...parsed, plantFrom: folder };
+  const safeIds = err.action.missing.filter((t) => t.tag === "safeToSkip").map((t) => t.id);
+  return { ...parsed, skipFrom: folder, skipTopics: safeIds };
 }
 
 /** The recovery-notify for a surfaced prepare: names the missing topics + the three

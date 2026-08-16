@@ -3,6 +3,9 @@
 
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { PrepareArgs } from "../../src/commands/parse.js";
+import { computeScenarioId } from "../../src/commands/prepare-scenario.js";
+import type { RunHandlerContext } from "../../src/commands/run-shared.js";
 import {
   executeRun,
   guardPreflight,
@@ -12,6 +15,8 @@ import {
 } from "../../src/commands/run-shared.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
+import { SurfaceConditionsError } from "../../src/production/build.js";
+import type { PrepareDeps } from "../../src/production/prepare.js";
 import { getActiveWidget, setActiveWidget } from "../../src/widget/active-widget.js";
 import { fakeCommandCtx, fakeGuardedCtx } from "./helpers.js";
 
@@ -417,5 +422,150 @@ describe("guardPreflight — concurrent-run refusal", () => {
     );
     expect(ok).toBe(true);
     expect(notifies).toHaveLength(0);
+  });
+});
+
+describe("prepareThenRun — surfaced prepare asks the operator (modal dialog recovery)", () => {
+  const manifestStub = {
+    id: "sc1",
+    description: "d",
+    compactionBoundary: { phaseATokenBudget: 140000, plan: "build" },
+    recallFacts: [],
+    doneOps: [],
+    supersessions: [],
+    abstentions: [],
+    taskObjective: { description: "b", testSpec: "" },
+    probes: [],
+  };
+  const surfaceErr = (): SurfaceConditionsError =>
+    new SurfaceConditionsError(
+      {
+        kind: "surface",
+        skipOffered: true,
+        missing: [
+          { id: "change-mind", label: "Changed mind", tag: "safeToSkip", hint: "", metricAxis: "supersession" },
+          { id: "open-question", label: "Open question", tag: "safeToSkip", hint: "", metricAxis: "abstention" },
+        ],
+      },
+      { firstKeptEntryId: "e50", attempt: 0, manifest: manifestStub as unknown as ScenarioManifest },
+    );
+
+  function tuiCtx(answer: string | undefined): { ctx: RunHandlerContext; notifies: { msg: string; level: string }[] } {
+    const notifies: { msg: string; level: string }[] = [];
+    const ctx = {
+      mode: "tui",
+      hasUI: true,
+      ui: {
+        notify: (m: string, l: string) => notifies.push({ msg: m, level: l }),
+        setWidget: () => {},
+        select: async () => answer,
+      },
+      switchSession: async () => {},
+    };
+    return { ctx: ctx as unknown as RunHandlerContext, notifies };
+  }
+
+  it("dialog choice 'plant + continue' re-runs prepare with --plant args, then proceeds to the run", async () => {
+    let calls = 0;
+    const parsedArgs: PrepareArgs[] = [];
+    const { ctx, notifies } = tuiCtx("plant + continue");
+    await invokeShorthand(
+      ctx,
+      {
+        idea: "build a game",
+        force: false,
+        fromSession: undefined,
+        plantFrom: undefined,
+        skipFrom: undefined,
+        skipTopics: undefined,
+        error: undefined,
+      },
+      {
+        buildDeps: ((_c: unknown, parsed: PrepareArgs, id: string) => {
+          calls += 1;
+          parsedArgs.push(parsed);
+          expect(id).toBe(computeScenarioId({ idea: "build a game" }));
+          return {} as unknown as PrepareDeps;
+        }) as unknown as Parameters<typeof invokeShorthand>[2]["buildDeps"],
+        prepareScenario: (async () => {
+          if (calls === 1) throw surfaceErr();
+          return {
+            repoPath: "/scen/repo",
+            manifestPath: "/scen/manifest.json",
+            liveCtx: { current: ctx },
+          };
+        }) as unknown as Parameters<typeof invokeShorthand>[2]["prepareScenario"],
+        readManifest: () => JSON.stringify(MANIFEST),
+        executeRun: async () => undefined,
+      },
+    );
+    expect(calls).toBe(2);
+    expect(parsedArgs[1]?.plantFrom).toBeTruthy(); // recovery round targets the scenario folder
+    expect(notifies.some((n) => n.msg.includes("prepare failed"))).toBe(false);
+  });
+
+  it("dialog choice 'skip safe-to-skip topics' re-runs with skipFrom + the missing safe ids", async () => {
+    let calls = 0;
+    let skipParsed: PrepareArgs | null = null;
+    const { ctx } = tuiCtx("skip safe-to-skip topics");
+    await invokeShorthand(
+      ctx,
+      {
+        idea: "build a game",
+        force: false,
+        fromSession: undefined,
+        plantFrom: undefined,
+        skipFrom: undefined,
+        skipTopics: undefined,
+        error: undefined,
+      },
+      {
+        buildDeps: ((_c: unknown, parsed: PrepareArgs) => {
+          calls += 1;
+          if (calls === 2) skipParsed = parsed;
+          return {} as unknown as PrepareDeps;
+        }) as unknown as Parameters<typeof invokeShorthand>[2]["buildDeps"],
+        prepareScenario: (async () => {
+          if (calls === 1) throw surfaceErr();
+          return { repoPath: "/scen/repo", manifestPath: "/scen/manifest.json", liveCtx: { current: ctx } };
+        }) as unknown as Parameters<typeof invokeShorthand>[2]["prepareScenario"],
+        readManifest: () => JSON.stringify(MANIFEST),
+        executeRun: async () => undefined,
+      },
+    );
+    expect(calls).toBe(2);
+    expect((skipParsed as PrepareArgs | null)?.skipTopics).toEqual(["change-mind", "open-question"]);
+  });
+
+  it("dialog 'start over' (or dismissal) stops with the guidance notify — no retry", async () => {
+    for (const answer of ["start over", undefined]) {
+      let calls = 0;
+      const { ctx, notifies } = tuiCtx(answer);
+      await invokeShorthand(
+        ctx,
+        {
+          idea: "build a game",
+          force: false,
+          fromSession: undefined,
+          plantFrom: undefined,
+          skipFrom: undefined,
+          skipTopics: undefined,
+          error: undefined,
+        },
+        {
+          buildDeps: (() => {
+            calls += 1;
+            return {} as unknown as PrepareDeps;
+          }) as unknown as Parameters<typeof invokeShorthand>[2]["buildDeps"],
+          prepareScenario: (async () => {
+            throw surfaceErr();
+          }) as unknown as Parameters<typeof invokeShorthand>[2]["prepareScenario"],
+          readManifest: () => JSON.stringify(MANIFEST),
+          executeRun: async () => undefined,
+        },
+      );
+      expect(calls).toBe(1); // no recovery round
+      expect(notifies.some((n) => n.msg.includes("--plant"))).toBe(true); // guidance carries the commands
+    }
   });
 });
