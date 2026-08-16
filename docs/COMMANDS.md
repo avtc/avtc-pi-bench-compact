@@ -90,13 +90,10 @@ Compare two (or more) runs — renders a config diff + a per-arm metric-delta ta
 ## Control
 
 ### `/bench-compact:pause`
-Temporarily pause: steer the live agent to stop + abort the current op.
+Pause: steer the live agent to stop ("wait, stop") + stop the active run — the run's abort signal fires and it winds down through its stop path. Continue afterward with `/bench-compact:resume`.
 
-### `/bench-compact:resume [--allow-config-change] [--reuse-bases]`
-Resume the latest interrupted run from where it stopped — same continuation as `/bench-compact:run-scenario <scenario> --resume` with the scenario taken from the settings panel: completed arms, attempts, and kept probe branches are skipped; scoring re-runs. Requires a configured `scenario` setting; otherwise warns.
-
-### `/bench-compact:continue`
-Send `continue` to the agent after a pause or stall (the steering nudge — not a run resume).
+### `/bench-compact:resume [extra flags]`
+Resume the latest interrupted run from where it stopped — same continuation as `/bench-compact:run-scenario <scenario> --resume --allow-config-change --reuse-bases` with the scenario taken from the settings panel and the continuation flags implied (the operator invoking resume has already decided to continue; per-arm logs surface any config-change override and base reuse). Extra args pass through verbatim (e.g. `--resume=<runId>` to name a run explicitly). Completed arms, attempts, and kept probe branches are skipped; scoring re-runs. Requires a configured `scenario` setting; otherwise warns.
 
 ### `/bench-compact:abort`
 Stop any active bench activity — a live run or a live scenario prepare — and hide the progress widget. An aborted prepare finishes winding down on its own; wait for it to exit before starting another bench command.

@@ -10,6 +10,7 @@ import {
   beginPrepare,
   endPrepare,
   isPrepareInFlight,
+  NO_RUN_ABORT,
   setActiveRunAbort,
   setPrepareInFlight,
 } from "../../src/orchestrate/run-state.js";
@@ -66,7 +67,6 @@ const ALL_COMMANDS = [
   "bench-compact:run-session-file",
   "bench-compact:pause",
   "bench-compact:resume",
-  "bench-compact:continue",
   "bench-compact:abort",
   "bench-compact:status",
   "bench-compact:results",
@@ -116,12 +116,20 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /arm/i.test(n.msg) && n.type === "warning")).toBe(true);
   });
 
-  it("pause steers the live agent ('wait, stop') + aborts", async () => {
+  it("pause steers the live agent ('wait, stop') + fires the run signal + aborts the op", async () => {
     const { pi, commands, sent } = fakePi();
     registerBenchCommands(pi, NO_COMMAND_SEAMS);
-    const { ctx } = fakeCtx();
-    await handlerOf(commands, "bench-compact:pause")("", ctx);
+    const { ctx, notifies } = fakeCtx();
+    const controller = new AbortController();
+    setActiveRunAbort(controller);
+    try {
+      await handlerOf(commands, "bench-compact:pause")("", ctx);
+    } finally {
+      setActiveRunAbort(NO_RUN_ABORT);
+    }
     expect(sent).toContainEqual({ text: "wait, stop", deliverAs: "steer" });
+    expect(controller.signal.aborted).toBe(true);
+    expect(notifies.some((n) => /paused — run stopping/.test(n.msg))).toBe(true);
   });
 
   it("abort fires the active run's cooperative-abort signal", async () => {
@@ -218,15 +226,7 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(false);
   });
 
-  it("continue sends 'continue' to the agent (the steering nudge)", async () => {
-    const { pi, commands, sent } = fakePi();
-    registerBenchCommands(pi, NO_COMMAND_SEAMS);
-    const { ctx } = fakeCtx();
-    await handlerOf(commands, "bench-compact:continue")("", ctx);
-    expect(sent.some((s) => s.text === "continue")).toBe(true);
-  });
-
-  it("resume delegates to the run-scenario continuation path with the configured scenario + --resume + pass-through flags", async () => {
+  it("resume delegates with the continuation flags IMPLIED + pass-through args", async () => {
     const { pi, commands } = fakePi();
     const invocations: string[] = [];
     registerBenchCommands(pi, {
@@ -236,9 +236,9 @@ describe("registerBenchCommands", () => {
     });
     const { ctx } = fakeCtx();
     _setHandleForTest(fakeHandle({ scenario: "~/.pi/bench-compact/scenarios/ae2d92c1" }));
-    await handlerOf(commands, "bench-compact:resume")("--allow-config-change --reuse-bases", ctx);
+    await handlerOf(commands, "bench-compact:resume")("--resume=2026-08-16-4", ctx);
     expect(invocations).toEqual([
-      "~/.pi/bench-compact/scenarios/ae2d92c1 --resume --allow-config-change --reuse-bases",
+      "~/.pi/bench-compact/scenarios/ae2d92c1 --resume --allow-config-change --reuse-bases --resume=2026-08-16-4",
     ]);
   });
 

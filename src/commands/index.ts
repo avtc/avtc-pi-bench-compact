@@ -49,33 +49,37 @@ export function registerBenchCommands(pi: ExtensionAPI, opts: BenchCommandsOptio
   registerRunSessionFileCommand(pi);
 
   // --- real-minimal control commands ---------------------------------------
+  // pause: politely stop the run AND the agent. The steer ("wait, stop") winds the
+  // in-flight turn down; the run's cooperative-abort signal stops the driving (same
+  // as :abort — without it a pause landing between injects would leave the run
+  // driving). `/bench-compact:resume` continues from the checkpoint afterward.
   pi.registerCommand("bench-compact:pause", {
-    description: "Temporarily pause: steer the live agent to stop + abort the current op.",
+    description: "Pause: steer the live agent to stop + stop the active run (resume with /bench-compact:resume).",
     handler: async (_args, ctx) => {
       pi.sendUserMessage("wait, stop", { deliverAs: "steer" });
-      ctx.abort();
-      ctx.ui.notify("paused", "info");
-    },
-  });
-
-  pi.registerCommand("bench-compact:continue", {
-    description: "Send 'continue' to the agent after a pause or stall.",
-    handler: async (_args, ctx) => {
-      pi.sendUserMessage("continue");
-      ctx.ui.notify("resumed", "info");
+      const wasRunning = abortActiveRun();
+      try {
+        ctx.abort();
+      } catch {
+        // ctx already stale — nothing to abort.
+      }
+      ctx.ui.notify(wasRunning ? "paused — run stopping (continue with /bench-compact:resume)" : "paused", "info");
     },
   });
 
   // resume: continue the latest interrupted run FROM WHERE IT STOPPED. Delegates to
-  // the run-scenario continuation path (--resume) — the committed phase artifacts
-  // (arm bases, attempts, probes) ARE the checkpoint state, so --resume re-enters at
-  // the first incomplete unit: settled work is skipped, scoring re-runs. Accepts the
-  // same continuation flags (--allow-config-change, --reuse-bases) as pass-through.
+  // the run-scenario continuation path with the continuation flags IMPLIED
+  // (--resume --allow-config-change --reuse-bases): the operator invoking resume has
+  // already decided to continue — the per-arm logs surface any config-change override
+  // + base reuse. Extra args pass through verbatim (e.g. --resume=<runId>). The
+  // committed phase artifacts (arm bases, attempts, probe branches) ARE the checkpoint
+  // state, so --resume re-enters at the first incomplete unit: settled work is skipped,
+  // scoring re-runs. A stop-with-reason (pause, surfaced error) and a crash share the
+  // path.
   const runScenarioHandler =
     opts?.runScenarioHandler ?? (makeRunScenarioHandler({}) as (args: string, ctx: unknown) => Promise<void>);
   pi.registerCommand("bench-compact:resume", {
-    description:
-      "Resume the latest interrupted run from where it stopped (flags: --allow-config-change, --reuse-bases).",
+    description: "Resume the latest interrupted run from where it stopped (continuation flags implied).",
     handler: async (args, ctx) => {
       const config = getBenchConfig();
       if (config.scenario === null) {
@@ -85,7 +89,7 @@ export function registerBenchCommands(pi: ExtensionAPI, opts: BenchCommandsOptio
         );
         return;
       }
-      await runScenarioHandler(`${config.scenario} --resume ${args}`.trim(), ctx);
+      await runScenarioHandler(`${config.scenario} --resume --allow-config-change --reuse-bases ${args}`.trim(), ctx);
     },
   });
 
