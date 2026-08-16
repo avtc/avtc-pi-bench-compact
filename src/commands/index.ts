@@ -24,12 +24,23 @@ import { hideActiveWidget } from "../widget/active-widget.js";
 import { registerPrepareScenarioCommand } from "./prepare-scenario.js";
 import { registerResultsCommand } from "./results.js";
 import { registerRunCommand } from "./run.js";
-import { registerRunScenarioCommand } from "./run-scenario.js";
+import { makeRunScenarioHandler, registerRunScenarioCommand } from "./run-scenario.js";
 import { registerRunSessionFileCommand } from "./run-session-file.js";
 import { detectIncompleteRunHint, NO_HINT_IO } from "./run-shared.js";
 
+/** Injectable inputs for {@link registerBenchCommands} (tests inject fakes). */
+export interface BenchCommandsOptions {
+  /** The run-scenario continuation path `/bench-compact:resume` delegates to
+   *  (default = the real `makeRunScenarioHandler({})`; tests capture the invocation). */
+  readonly runScenarioHandler?: (args: string, ctx: unknown) => Promise<void>;
+}
+
+/** The no-seams invocation for {@link registerBenchCommands} (production wiring:
+ *  real handlers; the no-bare-literals-safe named null). */
+export const NO_COMMAND_SEAMS: BenchCommandsOptions | null = null;
+
 /** Register all bench-compact commands (except settings) on `pi`. Called from activate. */
-export function registerBenchCommands(pi: ExtensionAPI): void {
+export function registerBenchCommands(pi: ExtensionAPI, opts: BenchCommandsOptions | null): void {
   // --- real handlers -------------------------------------------------------
   registerPrepareScenarioCommand(pi);
   registerResultsCommand(pi);
@@ -47,11 +58,34 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("bench-compact:resume", {
-    description: "Continue the agent after a pause, interrupt, or mid-turn error.",
+  pi.registerCommand("bench-compact:continue", {
+    description: "Send 'continue' to the agent after a pause or stall.",
     handler: async (_args, ctx) => {
       pi.sendUserMessage("continue");
       ctx.ui.notify("resumed", "info");
+    },
+  });
+
+  // resume: continue the latest interrupted run FROM WHERE IT STOPPED. Delegates to
+  // the run-scenario continuation path (--resume) — the committed phase artifacts
+  // (arm bases, attempts, probes) ARE the checkpoint state, so --resume re-enters at
+  // the first incomplete unit: settled work is skipped, scoring re-runs. Accepts the
+  // same continuation flags (--allow-config-change, --reuse-bases) as pass-through.
+  const runScenarioHandler =
+    opts?.runScenarioHandler ?? (makeRunScenarioHandler({}) as (args: string, ctx: unknown) => Promise<void>);
+  pi.registerCommand("bench-compact:resume", {
+    description:
+      "Resume the latest interrupted run from where it stopped (flags: --allow-config-change, --reuse-bases).",
+    handler: async (args, ctx) => {
+      const config = getBenchConfig();
+      if (config.scenario === null) {
+        ctx.ui.notify(
+          "no scenario configured — set it in /bench-compact:settings or use /bench-compact:run-scenario <folder> --resume",
+          "warning",
+        );
+        return;
+      }
+      await runScenarioHandler(`${config.scenario} --resume ${args}`.trim(), ctx);
     },
   });
 

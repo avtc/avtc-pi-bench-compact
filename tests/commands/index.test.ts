@@ -4,7 +4,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { registerBenchCommands } from "../../src/commands/index.js";
+import { NO_COMMAND_SEAMS, registerBenchCommands } from "../../src/commands/index.js";
 import { _setHandleForTest } from "../../src/config/accessor.js";
 import {
   beginPrepare,
@@ -66,6 +66,7 @@ const ALL_COMMANDS = [
   "bench-compact:run-session-file",
   "bench-compact:pause",
   "bench-compact:resume",
+  "bench-compact:continue",
   "bench-compact:abort",
   "bench-compact:status",
   "bench-compact:results",
@@ -80,7 +81,7 @@ describe("registerBenchCommands", () => {
 
   it("registers every command (except settings, wired separately)", () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     for (const name of ALL_COMMANDS) {
       expect(commands.has(name), `${name} registered`).toBe(true);
     }
@@ -90,7 +91,7 @@ describe("registerBenchCommands", () => {
 
   it("prepare-scenario surfaces a prepare failure for a valid idea (real command, not stub)", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:prepare-scenario")("a tycoon idea", ctx);
     // the live prepare seams fail against the fake ctx (no real pi/session)
@@ -109,7 +110,7 @@ describe("registerBenchCommands", () => {
       }),
     );
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:prepare-scenario")("an idea", ctx);
     expect(notifies.some((n) => /arm/i.test(n.msg) && n.type === "warning")).toBe(true);
@@ -117,7 +118,7 @@ describe("registerBenchCommands", () => {
 
   it("pause steers the live agent ('wait, stop') + aborts", async () => {
     const { pi, commands, sent } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx } = fakeCtx();
     await handlerOf(commands, "bench-compact:pause")("", ctx);
     expect(sent).toContainEqual({ text: "wait, stop", deliverAs: "steer" });
@@ -125,7 +126,7 @@ describe("registerBenchCommands", () => {
 
   it("abort fires the active run's cooperative-abort signal", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const controller = new AbortController();
     setActiveRunAbort(controller);
     const { ctx, notifies, aborted } = fakeCtx();
@@ -139,7 +140,7 @@ describe("registerBenchCommands", () => {
 
   it("abort during a LIVE prepare fires its controller but keeps the guard until the prepare exits", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const signal = beginPrepare();
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
@@ -152,7 +153,7 @@ describe("registerBenchCommands", () => {
 
   it("a SECOND abort during the prepare's wind-down keeps the guard (no wedged-guard misread)", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     beginPrepare();
     const { ctx: ctx1 } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx1);
@@ -166,7 +167,7 @@ describe("registerBenchCommands", () => {
 
   it("abort with a WEDGED prepare guard (no live controller) clears it directly", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     setPrepareInFlight(true); // stale guard — the prepare died pre-finally
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
@@ -176,7 +177,7 @@ describe("registerBenchCommands", () => {
 
   it("abort with no active run notifies 'no active run' without throwing", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
     expect(notifies.some((n) => /no active run/i.test(n.msg))).toBe(true);
@@ -184,7 +185,7 @@ describe("registerBenchCommands", () => {
 
   it("abort is a real minimal handler that notifies without throwing", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
     // assert message content (sibling handlers all assert content, not just length)
@@ -193,7 +194,7 @@ describe("registerBenchCommands", () => {
 
   it("run/run-scenario/run-session-file are real handlers (no 'not implemented' stub)", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     // run-scenario with a real dir lacking a manifest → resolveScenarioLayout warns
     // about manifest.json (real handler path, NOT a 'not implemented' stub).
@@ -217,17 +218,48 @@ describe("registerBenchCommands", () => {
     expect(notifies.some((n) => /not implemented/i.test(n.msg))).toBe(false);
   });
 
-  it("resume sends 'continue' to the agent", async () => {
+  it("continue sends 'continue' to the agent (the steering nudge)", async () => {
     const { pi, commands, sent } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx } = fakeCtx();
-    await handlerOf(commands, "bench-compact:resume")("", ctx);
+    await handlerOf(commands, "bench-compact:continue")("", ctx);
     expect(sent.some((s) => s.text === "continue")).toBe(true);
+  });
+
+  it("resume delegates to the run-scenario continuation path with the configured scenario + --resume + pass-through flags", async () => {
+    const { pi, commands } = fakePi();
+    const invocations: string[] = [];
+    registerBenchCommands(pi, {
+      runScenarioHandler: async (args) => {
+        invocations.push(args);
+      },
+    });
+    const { ctx } = fakeCtx();
+    _setHandleForTest(fakeHandle({ scenario: "~/.pi/bench-compact/scenarios/ae2d92c1" }));
+    await handlerOf(commands, "bench-compact:resume")("--allow-config-change --reuse-bases", ctx);
+    expect(invocations).toEqual([
+      "~/.pi/bench-compact/scenarios/ae2d92c1 --resume --allow-config-change --reuse-bases",
+    ]);
+  });
+
+  it("resume without a configured scenario warns and does not delegate", async () => {
+    const { pi, commands } = fakePi();
+    const invocations: string[] = [];
+    registerBenchCommands(pi, {
+      runScenarioHandler: async (args) => {
+        invocations.push(args);
+      },
+    });
+    const { ctx, notifies } = fakeCtx();
+    _setHandleForTest(fakeHandle({ scenario: null }));
+    await handlerOf(commands, "bench-compact:resume")("", ctx);
+    expect(invocations).toEqual([]);
+    expect(notifies.some((n) => /no scenario configured/i.test(n.msg))).toBe(true);
   });
 
   it("status reports config validity + 'not started' when no run is active", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     await handlerOf(commands, "bench-compact:status")("", ctx);
     expect(notifies.length).toBe(1);
@@ -237,7 +269,7 @@ describe("registerBenchCommands", () => {
 
   it("status reports the live run state (arm / attempt / phase) mid-run, + the stop reason after a stop", async () => {
     const { pi, commands } = fakePi();
-    registerBenchCommands(pi);
+    registerBenchCommands(pi, NO_COMMAND_SEAMS);
     const { ctx, notifies } = fakeCtx();
     const { setRunState, clearRunState } = await import("../../src/orchestrate/run-state.js");
 

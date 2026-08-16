@@ -16,7 +16,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setMemoryProxies } from "./arms/proxies.js";
-import { registerBenchCommands } from "./commands/index.js";
+import { NO_COMMAND_SEAMS, registerBenchCommands } from "./commands/index.js";
 import { initBenchConfig } from "./config/accessor.js";
 import { registerBenchSettings } from "./config/schema.js";
 import { registerCrashWitness } from "./crash-guard.js";
@@ -41,7 +41,7 @@ export default function activate(pi: ExtensionAPI): void {
   const handle = registerBenchSettings(pi);
   initBenchConfig(handle);
 
-  registerBenchCommands(pi);
+  registerBenchCommands(pi, NO_COMMAND_SEAMS);
 
   // Subscribe to each memory extension's :ready event + cache the lazy config
   // proxies. Re-subscribed on every re-activation (fresh pi.events), so the cached
