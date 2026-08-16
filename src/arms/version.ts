@@ -31,8 +31,68 @@ function tryResolveRoot(pkg: string): string | null {
   try {
     return dirname(nodeRequire.resolve(`${pkg}/package.json`));
   } catch {
-    return null;
+    return resolveRootFromSettings(pkg, piSettingsCandidates(), { read: (p) => readFileSync(p, "utf-8") });
   }
+}
+
+/** pi settings files whose `packages` list may carry the install (global agent
+ * settings, legacy global, + the current project's). First match wins. */
+function piSettingsCandidates(): string[] {
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
+  return [
+    join(home, ".pi", "agent", "settings.json"),
+    join(home, ".pi", "settings.json"),
+    join(process.cwd(), ".pi", "settings.json"),
+  ];
+}
+
+/** Resolve an install root from pi's packages settings: an entry that is a FOLDER
+ *  path whose basename (or its package.json name) matches `pkg` IS the install
+ *  root. Covers the local-folder development installs (`E:/…/pi-observational-
+ *  memory`) that `require.resolve` cannot see from the bench's module context.
+ *  `npm:`-managed entries fall back to the require.resolve path above. */
+const SEP_F = "/";
+const WINSEP = String.fromCharCode(92);
+
+export function resolveRootFromSettings(
+  pkg: string,
+  files: readonly string[],
+  readers: { read: (p: string) => string },
+): string | null {
+  const read = readers.read ?? ((p: string) => readFileSync(p, "utf-8"));
+  for (const file of files) {
+    let parsed: { packages?: unknown };
+    try {
+      parsed = JSON.parse(read(file)) as { packages?: unknown };
+    } catch {
+      continue; // absent/unparseable — not a source
+    }
+    if (!Array.isArray(parsed.packages)) continue;
+    for (const entry of parsed.packages) {
+      if (typeof entry !== "string") continue;
+      if (entry.startsWith("npm:") || (!entry.includes(SEP_F) && !entry.includes(WINSEP))) continue;
+      const base = entry.split(/[/\\]/).pop() ?? "";
+      if (base === pkg) {
+        try {
+          return realpathSync(entry);
+        } catch {
+          return entry; // folder vanished? still report the configured root
+        }
+      }
+      // entry folder named differently — match by its package.json name
+      try {
+        const pj = JSON.parse(read(join(entry, "package.json"))) as { name?: string };
+        if (pj.name === pkg) {
+          try {
+            return realpathSync(entry);
+          } catch {
+            return entry;
+          }
+        }
+      } catch {}
+    }
+  }
+  return null;
 }
 
 /**

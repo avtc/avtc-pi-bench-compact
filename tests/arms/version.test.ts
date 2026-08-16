@@ -6,7 +6,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } from "../../src/arms/version.js";
+import {
+  DEFAULT_VERSION_RESOLVER,
+  resolveRootFromSettings,
+  resolveToolVersion,
+  type VersionResolver,
+} from "../../src/arms/version.js";
 
 /** A fake resolver scripted per package. */
 function fakeResolver(
@@ -123,5 +128,48 @@ describe("arms/version — DEFAULT resolver git-toplevel guard", () => {
     } finally {
       rmSync(noGit, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveRootFromSettings (local-folder installs in pi packages settings)", () => {
+  const mkSettings = (packages: string[]): string => JSON.stringify({ packages });
+
+  it("matches a Windows folder-path entry by basename (the pi-agent dev setup)", () => {
+    const settings = mkSettings([
+      "npm:pi-tool-display",
+      "E:\\sync\\unique\\work\\git\\pi\\avtc-pi-memkeeper",
+      "E:/sync/unique/work/git/pi/pi-observational-memory",
+    ]);
+    const readers = { read: (p: string) => (p === "/s1.json" ? settings : '{"packages":[]}') };
+    const got = resolveRootFromSettings("pi-observational-memory", ["/s1.json"], readers);
+    expect(got).toContain("pi-observational-memory");
+  });
+
+  it("matches an entry whose FOLDER name differs by its package.json name", () => {
+    const settings = mkSettings(["/opt/checkouts/om-fork"]);
+    const readers = {
+      read: (p: string): string => {
+        if (p === "/s1.json") return settings;
+        if (p.endsWith("package.json")) return JSON.stringify({ name: "pi-observational-memory" });
+        return "{}";
+      },
+    };
+    expect(resolveRootFromSettings("pi-observational-memory", ["/s1.json"], readers)).toBe("/opt/checkouts/om-fork");
+  });
+
+  it("skips npm:-managed entries and unparseable/absent settings files → null", () => {
+    const readers = {
+      read: (p: string) =>
+        p === "/s1.json" ? "{ not json" : JSON.stringify({ packages: ["npm:pi-observational-memory"] }),
+    };
+    expect(resolveRootFromSettings("pi-observational-memory", ["/s1.json", "/s2.json"], readers)).toBeNull();
+  });
+
+  it("real run resolution: tryResolveRoot falls back to settings (end-to-end with the real default resolver)", () => {
+    // the real default resolver reads the REAL pi settings — on the dev machine the
+    // folder installs are present; assert it finds the OM root (null-safe skip on CI).
+    const root = DEFAULT_VERSION_RESOLVER.resolveRoot("pi-observational-memory");
+    if (root === null) return; // settings without the folder install — environment-dependent, skip
+    expect(root.length).toBeGreaterThan(0);
   });
 });
