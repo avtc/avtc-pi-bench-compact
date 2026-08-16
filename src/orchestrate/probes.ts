@@ -45,6 +45,10 @@ import { readSessionEntries } from "./trace.js";
 
 /** Separator between the anti-peek preamble and the probe question in the inject body. */
 const ANTI_PEEK_SEPARATOR = "\n\n";
+/** fast-eval (probes-only) preamble: steer the agent OFF goal work before the question —
+ *  one short Q&A turn, no autonomous continuation burst. */
+const PAUSE_GOAL_PROMPT =
+  "Pause your work on the goal for now — do not start new work, edit files, or run tools. Answer the following question from your current context as concisely as you can.";
 /** Delivery mode for the probe inject (queued after the current run settles — the probe is a fresh turn). */
 const DELIVER_AS_FOLLOW_UP: InjectMode = "followUp";
 /** A signal that never aborts — the default when the caller threads no run signal. */
@@ -132,6 +136,9 @@ export interface ProbeDeps {
   /** Probes fork N× per arm (one probe-set per attempt 1..N) → rate over N. Each fork is an
    *  independent sample of agent-response variance from the SAME post-compaction memory. */
   readonly N: number;
+  /** fast eval (probes-only): prefix the question with the pause-goal preamble (the
+   *  probes are the whole eval — the agent must not continue working). */
+  readonly probesOnly?: boolean;
   /** The scenario manifest (its `probes[]` are the direct probes to run). */
   readonly manifest: ScenarioManifest;
   /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
@@ -341,7 +348,7 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
           (msg) => new ProbeStoppedError(arm, probeId, "config-failed", msg),
         );
         try {
-          const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${probe.question}`;
+          const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${deps.probesOnly === true ? `${PAUSE_GOAL_PROMPT}${ANTI_PEEK_SEPARATOR}` : ""}${probe.question}`;
           inject(pi, body, DELIVER_AS_FOLLOW_UP);
           await ops.awaitSettled(pi, { signal });
         } catch (err) {

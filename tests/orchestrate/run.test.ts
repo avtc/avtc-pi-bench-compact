@@ -21,7 +21,7 @@ import { ProbeStoppedError } from "../../src/orchestrate/probes.js";
 import { type BuildScoreDepsArgs, type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
-import type { RunTrace } from "../../src/orchestrate/trace.js";
+import type { RunTrace as _RT, RunTrace } from "../../src/orchestrate/trace.js";
 import { buildCfgId } from "../../src/storage/branches.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 import { setActiveWidget } from "../../src/widget/active-widget.js";
@@ -40,6 +40,7 @@ function makeConfig(arms: BenchConfig["armsEnabled"]): BenchConfig {
     N: 3,
     compactionBoundary: 140000,
     backupMode: "build",
+    fastEval: "off",
     omFullReflectionThresholdTokens: 4000,
     outputDir: null,
     armsEnabled: arms,
@@ -851,5 +852,52 @@ describe("startRun — crash resume with --allow-config-change (config-change ov
     const deps = makeDeps({ arms: ["A1"], root });
     deps.resume = { runId: "2026-08-11-1", cfgId: "cfg-oldid" };
     await expect(startRun(deps)).rejects.toThrow(/config changed since the crash/);
+  });
+});
+
+// --- fastEval: probes-only ---------------------------------------------------
+
+describe("startRun — fastEval probes-only", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-fast-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("skips continuations, runs probes once per arm, and scores synthesized base rows", async () => {
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const probes = probesMock(async (d: { N: number; probesOnly?: boolean }) => ({
+      traces: [],
+      finalCtx: FINAL_CTX,
+      seenN: d.N,
+    }));
+    const scoreInputs: unknown[] = [];
+    const score = scoreMock(async (input: unknown) => {
+      scoreInputs.push(input);
+      return { resultJson: { schema: "bench-compact.result-v1" }, markdown: "# report" };
+    });
+    const deps = makeDeps({ arms: ["A1"], root, phase1, continuations, probes, score });
+    deps.config = { ...makeConfig(["A1"]), fastEval: "probes-only" };
+    deps.traceCapture = () =>
+      ({ branch: "stub", entries: [], compactions: [], tracePath: "stub" }) as unknown as RunTrace;
+
+    const result = await startRun(deps);
+
+    expect(result.kind).toBe("done");
+    expect(continuations).not.toHaveBeenCalled(); // Phase-2 skipped entirely
+    expect(probes).toHaveBeenCalledOnce();
+    expect(probes.mock.calls[0][0].N).toBe(1); // probes run ONE attempt regardless of N=3
+    expect(probes.mock.calls[0][0].probesOnly).toBe(true);
+    // scoring gets one synthesized row per arm, built from the ARM BASE branch
+    expect(score).toHaveBeenCalledOnce();
+    const input = scoreInputs[0] as Array<{ arm: string; attempt: number; branch: string }>;
+    expect(input).toHaveLength(1);
+    expect(input[0]?.arm).toBe("A1");
+    expect(input[0]?.attempt).toBe(1);
+    expect(input[0]?.branch).toBe(bases[0]?.branch);
   });
 });

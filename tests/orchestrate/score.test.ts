@@ -668,6 +668,7 @@ const INTEG_RUN_CONFIG: RunConfig = {
   armsEnabled: ["A1", "A3"],
   omFullReflectionThresholdTokens: 4000,
   backupMode: "build",
+  fastEval: "off",
   toolVersions: {},
 };
 
@@ -896,5 +897,61 @@ describe("K-judge ensemble (K>1)", () => {
     for (let i = 0; i < summarizeBranches.length; i += 2) {
       expect(summarizeBranches[i]).toBe(summarizeBranches[i + 1]); // homogeneous pair
     }
+  });
+});
+
+describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () => {
+  it("grades C1/C2/C4 + probe lanes, skips trace-binary + comparative", async () => {
+    const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry], [c1]); // base-shaped: no continuation entries
+    const probes = [{ arm: "A1" as const, attempt: 1, probeId: "1", branch: "A1-base", answer: "formula", kept: true }];
+    const runs: ArmAttemptRun[] = [
+      {
+        arm: "A1",
+        attempt: 1,
+        continuation: trace,
+        probes,
+        testSpecResult: undefined,
+        repo: "/repo",
+        branch: "A1-base",
+      },
+    ];
+    let traceBinaryCalls = 0;
+    let comparativeCalls = 0;
+    const deps: ScoreRunDeps = {
+      manifest: integManifest,
+      callJudges: [integCallJudge({ E2: false, E4: true, E5: true, E6: true })],
+      stageSeams: [
+        multiStageSeams({
+          report_boundary: () => ({ boundaries: [{ factId: "rf1", entryId: "a1", evidence: "used rf1" }] }),
+          record_grades: () => {
+            traceBinaryCalls += 1;
+            return { grades: [{ axis: "E4", pass: true, evidence: "proactive" }] };
+          },
+          write_summary: () => {
+            comparativeCalls += 1;
+            return { summary: "stayed on goal" };
+          },
+        }),
+      ],
+      shuffle: identityShuffle,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+      bootstrapOptions: null,
+      pricing: ZERO_PRICING,
+      checkout: () => undefined,
+      probesOnly: true,
+      meta: integMeta(),
+    };
+
+    const { resultJson } = await scoreRun(runs, deps);
+    // exact + probe lanes present
+    expect(resultJson.arms.A1?.metrics.C4).toBeDefined();
+    // continuation-judged lanes never ran
+    expect(traceBinaryCalls).toBe(0);
+    expect(comparativeCalls).toBe(0);
+    expect(resultJson.arms.A1?.metrics.E5).toBeDefined(); // probe lane graded
+    expect(resultJson.arms.A1?.metrics.E4).toBeUndefined(); // trajectory lane absent
+    expect(resultJson.ranks).toEqual({}); // no comparative axes
   });
 });

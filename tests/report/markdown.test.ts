@@ -98,7 +98,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
       compactionBoundary: 140000,
       armsEnabled: omitA1 === true ? ["A3"] : ["A1", "A3"],
       omFullReflectionThresholdTokens: 4000,
-      backupMode: "build",
+      backupMode: "build",      fastEval: "off",
     },
     toolVersions: { A3: { source: "git", commit: "g4a2f8e", full: "4a2f8e9" } },
     metricDefs: {

@@ -126,3 +126,14 @@ describe("getBenchConfig", () => {
     expect(cfg.judgeThinkingLevel).toBe(DEFAULTS.judgeThinkingLevel);
   });
 });
+
+describe("fastEval mapping", () => {
+  it("defaults to off and accepts probes-only", () => {
+    _setHandleForTest(fakeHandle({}));
+    expect(getBenchConfig().fastEval).toBe("off");
+    _setHandleForTest(fakeHandle({ fastEval: "probes-only" }));
+    expect(getBenchConfig().fastEval).toBe("probes-only");
+    _setHandleForTest(fakeHandle({ fastEval: "bogus" }));
+    expect(getBenchConfig().fastEval).toBe("off"); // unknown values fall back
+  });
+});

@@ -32,6 +32,8 @@ The live-progress widget tracks the phases (`build` → `extract` → `compact` 
 
 If pi itself dies mid-run (a crash or force-quit), restart pi and continue via `/bench-compact:run-scenario <folder> --resume`. A half-finished arm or attempt re-runs from scratch; scoring always re-runs. Bench-timed compaction wall-clock is not recoverable (reported as `0` in the compaction-cost metric); token usage is re-read from the session transcripts. If a config or arm-tool version changed since the crash (e.g. an extension fix landed), the resume is refused — add `--allow-config-change` to continue anyway: arms whose tool version changed re-compact under the new version, unchanged arms skip. If the fix did not change compaction behavior (prompts/logic), also add `--reuse-bases` to reuse their already-compacted bases instead of re-compacting.
 
+For quick iteration runs set `Fast eval` to `probes-only` (and optionally `N` to 1): the run stops after Phase-1 compactions + direct probe Q&A (~25 min per arm) and scores recall + compaction cost; continuation lanes are n/a. Real runs keep it off.
+
 ### 3. Read the report
 
 `/bench-compact:results <runId>` renders the headline report; `/bench-compact:results <runId>:A1,A3` restricts to an arm subset; `/bench-compact:results <runId1> <runId2>` compares two runs. See the README "How to read a report" + [COMMANDS.md](COMMANDS.md) for conventions.

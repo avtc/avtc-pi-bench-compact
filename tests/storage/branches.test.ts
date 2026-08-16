@@ -70,6 +70,7 @@ describe("buildCfgId (run-condition fingerprint)", () => {
     armsEnabled: ["A1", "A2", "A3", "A4", "A5"],
     omFullReflectionThresholdTokens: 4000,
     backupMode: "build",
+    fastEval: "off",
     toolVersions: {
       A2: { source: "git", commit: "g1a2b3c", full: "1a2b3c4d5e6f" },
       A3: { source: "git", commit: "g4a2f8e", full: "4a2f8e9abcdef" },

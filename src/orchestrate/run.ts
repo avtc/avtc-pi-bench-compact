@@ -29,7 +29,14 @@ import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
-import { assertNotInRepo, benchRoot, configPath, runDir, scenarioManifest } from "../storage/paths.js";
+import {
+  assertNotInRepo,
+  benchRoot,
+  branchSessionFile,
+  configPath,
+  runDir,
+  scenarioManifest,
+} from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
@@ -55,7 +62,7 @@ import {
 import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
 import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
 import { runTestSpec, TestSpecFaultError } from "./testspec.js";
-import type { RunTrace } from "./trace.js";
+import { captureTrace, type RunTrace } from "./trace.js";
 
 /** A run-scoped abort controller (owned by startRun; threaded into Phase 2/probes/
  *  score). Phase 1 (compaction) has NO signal seam yet — `ctx.compact()` takes none —
@@ -121,6 +128,9 @@ export interface StartRunDeps {
   probeOps?: Partial<ProbeOps>;
   /** Phase-2b testSpec ops seams (passed through to the real `runTestSpec`). */
   testSpecOps?: Partial<TestSpecOps>;
+  /** Trace capture seam for the fast-eval (probes-only) synthesized score rows
+   *  (default = real `captureTrace` re-reading the arm-base transcript). */
+  traceCapture?: typeof captureTrace;
   /** Tool-version resolver (default = real filesystem resolution). Tests inject a fake. */
   versionResolver?: VersionResolver;
   /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
@@ -265,19 +275,30 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
     // --- Phase 2a: fork each base into N continuation attempts ---
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
-    widget?.startPhase("eval", NO_DETAIL);
-    const contResult: Phase2Result = await continuations({
-      cmdCtx: ctxAfterPhase1,
-      armBases: bases,
-      config: deps.config,
-      manifest: deps.manifest,
-      repo: deps.scenarioRepo,
-      sessionsDir,
-      N: deps.config.N,
-      resume: resuming,
-      widget,
-      signal,
-    });
+    const probesOnly = deps.config.fastEval === "probes-only";
+    let contResult: Phase2Result;
+    if (probesOnly) {
+      // fast eval: no continuations — the direct probes ARE the eval (the agent is
+      // asked to PAUSE goal work and answer). Scoring synthesizes one row per arm
+      // from the arm-base transcript (the exact cost metrics stay exact; the
+      // continuation lanes render n/a).
+      log.info("phase-2: skipped (fast eval: probes-only)");
+      contResult = { traces: [], finalCtx: ctxAfterPhase1 };
+    } else {
+      widget?.startPhase("eval", NO_DETAIL);
+      contResult = await continuations({
+        cmdCtx: ctxAfterPhase1,
+        armBases: bases,
+        config: deps.config,
+        manifest: deps.manifest,
+        repo: deps.scenarioRepo,
+        sessionsDir,
+        N: deps.config.N,
+        resume: resuming,
+        widget,
+        signal,
+      });
+    }
 
     // --- Phase 2b: direct probes per arm (from the base) + embedded testSpec per attempt ---
     widget?.startPhase("probe", NO_DETAIL);
@@ -290,7 +311,8 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       const probeResult = await probes({
         cmdCtx: probeCtx,
         armBase: base,
-        N: deps.config.N,
+        N: probesOnly ? 1 : deps.config.N,
+        probesOnly,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
         sessionsDir,
@@ -325,7 +347,11 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // --- Phase 3: score every captured run → results.json + report.md ---
     widget?.startPhase("score", NO_DETAIL);
     updateRunState({ phase: "score", currentArm: null, currentAttempt: null });
-    const input = buildScoreRunInput(bases, contResult.traces, probeTraces, testSpecByBranch, deps.scenarioRepo);
+    const input = buildScoreRunInput(bases, contResult.traces, probeTraces, testSpecByBranch, deps.scenarioRepo, {
+      probesOnly,
+      sessionsDir,
+      captureTrace: deps.traceCapture ?? captureTrace,
+    });
     const meta = buildScoreMeta(deps, runConfig, bases, contResult.traces, runId, nsCfgId, root, runPath, now);
     const scoreDeps = buildScoreDeps({
       ctx: probeCtx,
@@ -423,7 +449,8 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
  * attempt) continuation, with that attempt's direct-probe answers attached (probes fork
  * N× per arm — one probe-set per attempt 1..N — so each attempt's probes attach to it
  * and the recall-accuracy/abstention/supersession probe axes rate over N), and the embedded-testSpec result on each attempt's branch.
- * Pure (no I/O).
+ * Pure aside from the fast-eval synthesis (which re-reads the arm-base transcript —
+ * the seeded source of every attempt trace anyway).
  */
 function buildScoreRunInput(
   bases: readonly ArmBase[],
@@ -431,8 +458,33 @@ function buildScoreRunInput(
   probeTraces: readonly import("./probes.js").ProbeTrace[],
   testSpecByBranch: ReadonlyMap<string, TestSpecResult>,
   repo: string,
+  opts: {
+    readonly probesOnly?: boolean;
+    readonly sessionsDir?: string;
+    readonly captureTrace?: typeof captureTrace;
+  },
 ): ScoreRunInput {
   const input: ArmAttemptRun[] = [];
+  // fast eval (probes-only): no continuation attempts exist — synthesize ONE row per
+  // arm from the ARM BASE transcript (it carries the Phase-1 boundary compaction, so
+  // the compaction + summary cost metrics stay exact) with the single probe attempt
+  // attached. The score deps flag skips the continuation-judged lanes (they render n/a).
+  if (opts?.probesOnly === true && continuationTraces.length === 0) {
+    const capture = opts.captureTrace ?? captureTrace;
+    for (const base of bases) {
+      const trace = capture(branchSessionFile(opts.sessionsDir ?? "", base.branch), base.branch, new Map());
+      input.push({
+        arm: base.arm,
+        attempt: 1,
+        continuation: { ...trace, arm: base.arm, attempt: 1 },
+        probes: probeTraces.filter((p) => p.arm === base.arm && p.attempt === 1),
+        testSpecResult: undefined,
+        repo,
+        branch: base.branch,
+      });
+    }
+    return input;
+  }
   for (const base of bases) {
     const armContTraces = continuationTraces.filter(
       (t): t is RunTrace & { arm: ArmId; attempt: number } => t.arm === base.arm && t.attempt !== undefined,
@@ -523,6 +575,8 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     bootstrapOptions: null,
     pricing,
     checkout,
+    // fast eval: skip the continuation-judged lanes (no continuation transcript exists).
+    probesOnly: args.runConfig.fastEval === "probes-only",
     meta: args.meta,
   };
 }

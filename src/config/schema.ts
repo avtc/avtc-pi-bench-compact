@@ -11,7 +11,7 @@ import {
   type SettingsTabSchema,
   settingsFilePaths,
 } from "avtc-pi-settings-ui";
-import type { BackupMode } from "./types.js";
+import type { BackupMode, FastEvalMode } from "./types.js";
 
 /** The /bench-compact:settings command name. */
 export const BENCH_SETTINGS_COMMAND = "bench-compact:settings";
@@ -37,6 +37,7 @@ export const DEFAULTS = {
   N: 10,
   compactionBoundary: 140000,
   backupMode: "build" as BackupMode,
+  fastEval: "off" as FastEvalMode,
   scenario: null as string | null,
   outputDir: null as string | null,
   armBarePiEnabled: true,
@@ -48,6 +49,7 @@ export const DEFAULTS = {
 } as const;
 
 const BACKUP_MODE_PRESETS: readonly ["build", "extract"] = ["build", "extract"];
+const FAST_EVAL_PRESETS: readonly ["off", "probes-only"] = ["off", "probes-only"];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -141,6 +143,14 @@ const SETTINGS: readonly SettingSchema[] = [
     defaultValue: DEFAULTS.backupMode,
     presets: BACKUP_MODE_PRESETS,
   }),
+  setting("fastEval", {
+    label: "Fast eval",
+    description:
+      "off = full budget (continuations drive to the model's context window). probes-only = skip continuations: after the Phase-1 compaction the agent is asked to pause goal work and answer the manifest's direct questions; scores probe recall, summary cost (C1/C2), and compaction cost (C4); continuation lanes are n/a.",
+    type: "string",
+    defaultValue: DEFAULTS.fastEval,
+    presets: FAST_EVAL_PRESETS,
+  }),
   setting("scenario", {
     label: "Scenario folder",
     description:
@@ -213,7 +223,7 @@ const TABS: readonly SettingsTabSchema[] = [
   },
   {
     label: "Run",
-    settingIds: ["N", "compactionBoundary", "backupMode", "scenario", "outputDir"],
+    settingIds: ["N", "compactionBoundary", "backupMode", "fastEval", "scenario", "outputDir"],
   },
   {
     label: "Arms",

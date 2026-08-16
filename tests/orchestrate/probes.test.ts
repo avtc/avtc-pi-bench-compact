@@ -609,3 +609,51 @@ describe("extractProbeAnswer — last assistant message text off parsed entries"
     expect(extractProbeAnswer([])).toBe("");
   });
 });
+
+describe("runProbes — fast eval (probes-only) pause preamble", () => {
+  let repo: string;
+  let cmdCtx: ExtensionCommandContext;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-probes-fast-"));
+    cmdCtx = { id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext;
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("prefixes the pause-goal preamble between ANTI_PEEK and the question", async () => {
+    const ops = makeFakeProbeOps();
+    await runProbes({
+      cmdCtx,
+      armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
+      probesOnly: true,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      ops: ops as unknown as ProbeOps,
+    });
+    const body = ops.freshPis[0]?.sendUserMessage.mock.calls[0]?.[0] as string;
+    expect(body.startsWith(ANTI_PEEK_PROMPT)).toBe(true);
+    expect(body).toContain("Pause your work on the goal for now");
+    expect(body).toContain(PROBES[0]?.question as string);
+    expect(body.indexOf("Pause your work")).toBeGreaterThan(body.indexOf(ANTI_PEEK_PROMPT)); // after anti-peek
+  });
+
+  it("without the flag the body stays ANTI_PEEK + question (no pause preamble)", async () => {
+    const ops = makeFakeProbeOps();
+    await runProbes({
+      cmdCtx,
+      armBase: makeArmBase("A1", "bare-pi", undefined),
+      N: 1,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      ops: ops as unknown as ProbeOps,
+    });
+    const body = ops.freshPis[0]?.sendUserMessage.mock.calls[0]?.[0] as string;
+    expect(body).not.toContain("Pause your work on the goal");
+  });
+});

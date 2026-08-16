@@ -20,6 +20,7 @@ function validConfig(): BenchConfig {
     N: 10,
     compactionBoundary: 140000,
     backupMode: "build",
+    fastEval: "off",
     scenario: null,
     outputDir: null,
     armBarePiEnabled: true,

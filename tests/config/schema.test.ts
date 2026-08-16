@@ -72,6 +72,12 @@ describe("BENCH_SCHEMA", () => {
     it("backupMode presets are exactly [build, extract]", () => {
       expect(row("backupMode").presets).toEqual(["build", "extract"]);
     });
+    it("fastEval: string, default off", () => {
+      expect(row("fastEval")).toMatchObject({ type: "string", defaultValue: "off" });
+    });
+    it("fastEval presets are exactly [off, probes-only]", () => {
+      expect(row("fastEval").presets).toEqual(["off", "probes-only"]);
+    });
     it("scenario: string, default null", () => {
       expect(row("scenario")).toMatchObject({ type: "string", defaultValue: null });
     });

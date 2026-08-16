@@ -4,7 +4,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { DEFAULTS } from "./schema.js";
-import { ARM_ENABLED_KEY, ARM_IDS, type ArmId, type BackupMode, type BenchConfig } from "./types.js";
+import { ARM_ENABLED_KEY, ARM_IDS, type ArmId, type BackupMode, type BenchConfig, type FastEvalMode } from "./types.js";
 
 let handle: SettingsHandle | undefined;
 
@@ -48,6 +48,10 @@ function asBackupMode(raw: Record<string, unknown>, key: string, fallback: Backu
   return raw[key] === "extract" ? "extract" : fallback;
 }
 
+function asFastEvalMode(raw: Record<string, unknown>, key: string, fallback: FastEvalMode): FastEvalMode {
+  return raw[key] === "probes-only" ? "probes-only" : fallback;
+}
+
 /** Derive the enabled arm ids in canonical order from the per-arm booleans. */
 function deriveArmsEnabled(cfg: BenchConfig): ArmId[] {
   return ARM_IDS.filter((id) => cfg[ARM_ENABLED_KEY[id]] === true);
@@ -73,6 +77,7 @@ export function getBenchConfig(): BenchConfig {
     N: asNumber(raw, "N", DEFAULTS.N),
     compactionBoundary: asNumber(raw, "compactionBoundary", DEFAULTS.compactionBoundary),
     backupMode: asBackupMode(raw, "backupMode", DEFAULTS.backupMode),
+    fastEval: asFastEvalMode(raw, "fastEval", DEFAULTS.fastEval),
     scenario: asStringOrNull(raw, "scenario", DEFAULTS.scenario),
     outputDir: asStringOrNull(raw, "outputDir", DEFAULTS.outputDir),
     armBarePiEnabled: asBoolean(raw, "armBarePiEnabled", DEFAULTS.armBarePiEnabled),

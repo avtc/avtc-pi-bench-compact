@@ -25,6 +25,7 @@ function sampleRunConfig(over: Partial<RunConfig>): RunConfig {
     armsEnabled: ["A1", "A2", "A3", "A4", "A5"],
     omFullReflectionThresholdTokens: 4000,
     backupMode: "build",
+    fastEval: "off",
     toolVersions: {
       A3: { source: "git", commit: "g4a2f8e", full: "4a2f8e9abcdef" },
     },

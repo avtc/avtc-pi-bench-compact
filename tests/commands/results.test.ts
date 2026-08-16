@@ -47,6 +47,7 @@ function mkResult(
       armsEnabled: Object.keys(arms) as ArmId[],
       omFullReflectionThresholdTokens: 4000,
       backupMode: "build",
+      fastEval: "off",
     },
     toolVersions: {},
     metricDefs: METRIC_DEFS,

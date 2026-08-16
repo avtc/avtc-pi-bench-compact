@@ -72,6 +72,15 @@ export function registerBenchCommands(pi: ExtensionAPI): void {
         // No live prepare controller — the guard is stale (wedge recovery).
         setPrepareInFlight(false);
       }
+      // Kill the in-flight agent operation too: the bench's run signal stops the
+      // DRIVING (no further injects), but the agent's current turn is an unbounded
+      // agentic loop that would otherwise keep working long after the run stopped.
+      // ctx.abort() aborts the agent loop + any live compaction/bash/retry.
+      try {
+        ctx.abort();
+      } catch {
+        // ctx already stale (no live agent surface) — nothing to abort.
+      }
       hideActiveWidget();
       const msg = wasRunning
         ? "aborted — run stopping"

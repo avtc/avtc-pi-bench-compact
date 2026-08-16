@@ -193,6 +193,7 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
     armsEnabled: [...config.armsEnabled],
     omFullReflectionThresholdTokens: config.omFullReflectionThresholdTokens,
     backupMode: config.backupMode,
+    fastEval: config.fastEval,
     toolVersions,
   };
 }

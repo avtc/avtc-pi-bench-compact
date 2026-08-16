@@ -5,7 +5,7 @@ Every command uses the `bench-compact:` namespace.
 ## Configure
 
 ### `/bench-compact:settings`
-Open the settings panel: evaluated model + thinking level, judge model(s) + thinking level(s), multi-judge ensemble size (`judgesNumber` 1 or 3), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (build or extract), per-arm enables, `scenario` (a default prepared folder for `/bench-compact:run-scenario`), and `outputDir` (the bench root; null = `~/.pi/bench-compact/`).
+Open the settings panel: evaluated model + thinking level, judge model(s) + thinking level(s), multi-judge ensemble size (`judgesNumber` 1 or 3), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (build or extract), `fastEval` (probes-only iteration mode), per-arm enables, `scenario` (a default prepared folder for `/bench-compact:run-scenario`), and `outputDir` (the bench root; null = `~/.pi/bench-compact/`).
 
 ## Prepare / run
 

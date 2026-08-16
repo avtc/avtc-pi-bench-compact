@@ -33,6 +33,13 @@ export const ARM_ENABLED_KEY: Record<ArmId, keyof BenchConfig> = {
 
 export type BackupMode = "build" | "extract";
 
+/** Fast-eval mode. `off` = the full design budget (continuations drive to the model's
+ *  context window). `probes-only` = skip continuations entirely: after the Phase-1
+ *  compaction the agent is asked to pause goal work and answer the manifest's direct
+ *  questions; scores probe recall + summary cost + compaction cost; continuation
+ *  lanes are n/a. Part of the cfgId fingerprint. */
+export type FastEvalMode = "off" | "probes-only";
+
 /** The judge-ensemble fields shared by {@link BenchConfig} (live settings) + the
  *  persisted {@link RunConfig} snapshot (so cfgId + reproducibility cover them).
  *  Extracted to avoid duplicating the 7-field block across the two interfaces. */
@@ -80,6 +87,7 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   N: number;
   compactionBoundary: number;
   backupMode: BackupMode;
+  fastEval: FastEvalMode;
   scenario: string | null;
   outputDir: string | null;
   // Arms tab

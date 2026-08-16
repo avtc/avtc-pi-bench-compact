@@ -53,6 +53,7 @@ function mkResult(opts: {
       armsEnabled: Object.keys(opts.arms) as ArmId[],
       omFullReflectionThresholdTokens: 4000,
       backupMode: "build",
+      fastEval: "off",
       ...opts.config,
     },
     toolVersions: opts.toolVersions ?? {},

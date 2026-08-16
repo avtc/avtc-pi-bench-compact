@@ -12,7 +12,13 @@
 
 import { createHash } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { type ArmId, type BackupMode, type JudgeEnsembleConfig, judgeEnsembleFields } from "../config/types.js";
+import {
+  type ArmId,
+  type BackupMode,
+  type FastEvalMode,
+  type JudgeEnsembleConfig,
+  judgeEnsembleFields,
+} from "../config/types.js";
 
 /** A resolved memory-tool version for one arm. */
 export interface ToolVersion {
@@ -33,6 +39,8 @@ export interface RunConfig extends JudgeEnsembleConfig {
   armsEnabled: ArmId[];
   omFullReflectionThresholdTokens: number;
   backupMode: BackupMode;
+  /** Fast-eval mode (probes-only skips continuations; part of the fingerprint). */
+  fastEval: FastEvalMode;
   /** Per-arm resolved tool versions. The bare-pi arm is typically absent (no memory tool). */
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
 }

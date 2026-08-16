@@ -38,13 +38,16 @@ function fakePi(): { pi: ExtensionAPI; commands: Map<string, Captured>; sent: { 
   return { pi, commands, sent };
 }
 
-function fakeCtx(): { ctx: ExtensionCommandContext; notifies: { msg: string; type?: string }[] } {
+function fakeCtx(): { ctx: ExtensionCommandContext; notifies: { msg: string; type?: string }[]; aborted: number[] } {
   const notifies: { msg: string; type?: string }[] = [];
+  const aborted: number[] = [];
   const ctx = {
     ui: { notify: (msg: string, type?: string) => notifies.push({ msg, type }) },
-    abort: () => {},
+    abort: () => {
+      aborted.push(1);
+    },
   } as unknown as ExtensionCommandContext;
-  return { ctx, notifies };
+  return { ctx, notifies, aborted };
 }
 
 function handlerOf(
@@ -125,10 +128,13 @@ describe("registerBenchCommands", () => {
     registerBenchCommands(pi);
     const controller = new AbortController();
     setActiveRunAbort(controller);
-    const { ctx, notifies } = fakeCtx();
+    const { ctx, notifies, aborted } = fakeCtx();
     await handlerOf(commands, "bench-compact:abort")("", ctx);
     expect(controller.signal.aborted).toBe(true);
     expect(notifies.some((n) => /run stopping/i.test(n.msg))).toBe(true);
+    // the in-flight AGENT operation is aborted too — the run signal alone leaves the
+    // agent's unbounded current turn running long after the run stopped
+    expect(aborted).toHaveLength(1);
   });
 
   it("abort during a LIVE prepare fires its controller but keeps the guard until the prepare exits", async () => {

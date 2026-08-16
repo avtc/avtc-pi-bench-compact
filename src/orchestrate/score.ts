@@ -172,6 +172,11 @@ export interface ScoreRunDeps {
   readonly pricing: Pricing;
   /** Switch the repo working tree to a branch (one worktree; sequenced per run). */
   readonly checkout: (repo: string, branch: string) => void;
+  /** fast eval (probes-only): skip the continuation-judged lanes (trace-binary +
+   *  comparative) — no continuation transcript exists to judge; those lanes render
+   *  n/a. The compaction/summary cost metrics (from the arm-base compaction) + the
+   *  probe lanes still grade. */
+  readonly probesOnly?: boolean;
   readonly meta: ScoreRunMeta;
 }
 
@@ -238,13 +243,15 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
       binaryArray(acc, axis).push(pass);
     }
 
-    for (const [axis, pass] of Object.entries(await gradeTraceBinaryForRun(run, deps)) as [MetricId, boolean][]) {
-      binaryArray(acc, axis).push(pass);
+    if (deps.probesOnly !== true) {
+      for (const [axis, pass] of Object.entries(await gradeTraceBinaryForRun(run, deps)) as [MetricId, boolean][]) {
+        binaryArray(acc, axis).push(pass);
+      }
     }
   }
 
   // --- comparative routing: resume/task-quality slices + redo-plan/goal summaries ---
-  const comparative = await gradeComparativeRouting(input, deps);
+  const comparative = deps.probesOnly === true ? {} : await gradeComparativeRouting(input, deps);
 
   // --- assemble AllArmsGrades ---
   const arms: Partial<Record<ArmId, ArmRunGrades>> = {};
