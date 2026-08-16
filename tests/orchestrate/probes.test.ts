@@ -666,6 +666,9 @@ describe("runProbes — fast eval (probes-only) pause preamble", () => {
     const body = ops.freshPis[0]?.sendUserMessage.mock.calls[0]?.[0] as string;
     expect(body.startsWith(ANTI_PEEK_PROMPT)).toBe(true);
     expect(body).toContain("Pause your work on the goal for now");
+    const preamble = body.slice(body.indexOf("Pause your work"));
+    expect(preamble).not.toContain("do not"); // no tool/work prohibition — retrieval stays allowed
+    expect(preamble).not.toContain("run tools");
     expect(body).toContain(PROBES[0]?.question as string);
     expect(body.indexOf("Pause your work")).toBeGreaterThan(body.indexOf(ANTI_PEEK_PROMPT)); // after anti-peek
   });

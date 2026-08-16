@@ -866,12 +866,16 @@ describe("startRun — fastEval probes-only", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("skips continuations, runs probes once per arm, and scores synthesized base rows", async () => {
+  it("skips continuations, runs probes N times per arm (config N), and scores synthesized base rows", async () => {
     const bases = fakeBases(["A1"]);
     const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
     const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
     const probes = probesMock(async (d: { N: number; probesOnly?: boolean }) => ({
-      traces: [],
+      traces: [
+        { arm: "A1", attempt: 1, probeId: "1", branch: "p1", answer: "a", kept: false },
+        { arm: "A1", attempt: 2, probeId: "1", branch: "p1", answer: "b", kept: false },
+        { arm: "A1", attempt: 3, probeId: "1", branch: "p1", answer: "c", kept: false },
+      ],
       finalCtx: FINAL_CTX,
       seenN: d.N,
     }));
@@ -890,14 +894,16 @@ describe("startRun — fastEval probes-only", () => {
     expect(result.kind).toBe("done");
     expect(continuations).not.toHaveBeenCalled(); // Phase-2 skipped entirely
     expect(probes).toHaveBeenCalledOnce();
-    expect(probes.mock.calls[0][0].N).toBe(1); // probes run ONE attempt regardless of N=3
+    expect(probes.mock.calls[0][0].N).toBe(3); // config N applies to probes (variance over attempts)
     expect(probes.mock.calls[0][0].probesOnly).toBe(true);
-    // scoring gets one synthesized row per arm, built from the ARM BASE branch
+    // scoring gets one synthesized row per arm, built from the ARM BASE branch,
+    // carrying ALL probe attempts (each attempt = an independent E5/E6 sample)
     expect(score).toHaveBeenCalledOnce();
-    const input = scoreInputs[0] as Array<{ arm: string; attempt: number; branch: string }>;
+    const input = scoreInputs[0] as Array<{ arm: string; attempt: number; branch: string; probes: unknown[] }>;
     expect(input).toHaveLength(1);
     expect(input[0]?.arm).toBe("A1");
     expect(input[0]?.attempt).toBe(1);
     expect(input[0]?.branch).toBe(bases[0]?.branch);
+    expect(input[0]?.probes).toHaveLength(3);
   });
 });

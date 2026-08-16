@@ -29,17 +29,14 @@ interface SessionEntry {
 /** True if the entry represents tool/file-mutating activity (NOT a clean Q&A message). */
 function isMutatingEntry(entry: SessionEntry): boolean {
   // Conservative: anything that isn't a clean user/assistant text+thinking message is "mutating"
-  // (a tool call, a tool result, a custom/compaction entry, or an unexpected shape) → keep the branch.
+  // (a tool call, a tool result, a compaction entry, or an unexpected shape) → keep the branch.
   if (entry.type !== "message") {
-    // EXCEPTION: user-global cache extensions (portrait, user-decisions…) append a
-    // `*-cache` custom entry to EVERY forked session — bench-external noise present on
-    // every probe branch, not agent activity. Treat those as non-mutating so clean
-    // Q&A probe branches still get the delete lifecycle.
-    const customType = (entry as { customType?: unknown }).customType;
-    if (entry.type === "custom" && typeof customType === "string" && customType.endsWith("-cache")) {
-      return false;
-    }
-    return true;
+    // EXCEPTION: `custom` entries are extension bookkeeping, never agent activity —
+    // user-global extensions (portrait, user-decisions, …) append their own custom
+    // entry types to EVERY forked session, so treating customs as mutating would keep
+    // every clean Q&A probe branch. Tool calls/results live in message entries; file
+    // changes are caught by the git-diff check.
+    return entry.type !== "custom";
   }
   const msg = entry.message;
   if (msg === undefined) return true;

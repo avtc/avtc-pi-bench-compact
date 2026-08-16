@@ -27,6 +27,8 @@ const TOOL_RESULT = (t: string) =>
  *  appended to EVERY forked session by extensions outside the bench's control. */
 const CUSTOM_CACHE = (customType: string) =>
   `{"type":"custom","customType":"${customType}","data":{"content":"cached"}}`;
+/** A compaction entry appended by the probe turn (memory tool ran mid-probe). */
+const COMPACTION_ENTRY = `{"type":"compaction","summary":"s","firstKeptEntryId":"x","details":"","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"cost":{"total":0}}}`;
 
 describe("isQaOnlyBranch (real git + two session files)", () => {
   let repo: string;
@@ -103,18 +105,18 @@ describe("isQaOnlyBranch (real git + two session files)", () => {
     expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-bad", baseSessionFile, probeFile)).toBe(false);
   });
 
-  it("true when the probe added only Q&A + user-global *-cache custom entries (the cache extensions append to every fork)", () => {
+  it("true when the probe added only Q&A + extension custom entries (any customType — user-global extensions append to every fork)", () => {
     const probeFile = probeBranch(
       "p-cache",
-      [CUSTOM_CACHE("portrait-cache"), CUSTOM_CACHE("user-decisions-cache"), ASSISTANT_TEXT("ans")],
+      [CUSTOM_CACHE("portrait-cache"), CUSTOM_CACHE("some-other-extension-artifact"), ASSISTANT_TEXT("ans")],
       false,
     );
     expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-cache", baseSessionFile, probeFile)).toBe(true);
   });
 
-  it("false when the probe added a NON-cache custom entry (unknown custom shape — conservative keep)", () => {
-    const probeFile = probeBranch("p-custom", [CUSTOM_CACHE("tool-artifact"), ASSISTANT_TEXT("ans")], false);
-    expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-custom", baseSessionFile, probeFile)).toBe(false);
+  it("false when the probe added a compaction entry (memory tool ran mid-probe — conservative keep)", () => {
+    const probeFile = probeBranch("p-compaction", [COMPACTION_ENTRY, ASSISTANT_TEXT("ans")], false);
+    expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-compaction", baseSessionFile, probeFile)).toBe(false);
   });
 });
 

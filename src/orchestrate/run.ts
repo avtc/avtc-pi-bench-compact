@@ -311,7 +311,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       const probeResult = await probes({
         cmdCtx: probeCtx,
         armBase: base,
-        N: probesOnly ? 1 : deps.config.N,
+        N: deps.config.N,
         probesOnly,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
@@ -477,7 +477,9 @@ function buildScoreRunInput(
         arm: base.arm,
         attempt: 1,
         continuation: { ...trace, arm: base.arm, attempt: 1 },
-        probes: probeTraces.filter((p) => p.arm === base.arm && p.attempt === 1),
+        // ALL probe attempts attach to the synthesized row — each attempt is an
+        // independent probe-recall sample of the same post-compaction memory (rate over N).
+        probes: probeTraces.filter((p) => p.arm === base.arm),
         testSpecResult: undefined,
         repo,
         branch: base.branch,
