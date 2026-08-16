@@ -14,24 +14,35 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
 import { log } from "../log.js";
-import { benchAuthoringTools, type JsonOutputTool, makeJsonOutputTool } from "../runtime/tools.js";
+import {
+  benchAuthoringTools,
+  type JsonOutputTool,
+  makeAccumulatingTool,
+  makeJsonOutputTool,
+  NO_CAPTURE,
+} from "../runtime/tools.js";
 import { AUTHORING_SYSTEM_PROMPT } from "./prompt.js";
 import {
+  ABSTENTION_ITEM_SCHEMA,
   type Abstention,
-  AUTHOR_OUTPUT_SCHEMA,
   type AuthorAbstention,
   type AuthorDoneOp,
   type AuthorOutput,
   type AuthorProbe,
   type AuthorRecallFact,
   type AuthorSupersession,
+  DONE_OP_ITEM_SCHEMA,
   type DoneOp,
   type Lane,
+  PROBE_ITEM_SCHEMA,
   type Probe,
+  RECALL_FACT_ITEM_SCHEMA,
   type RecallFact,
   type ScenarioContext,
   type ScenarioManifest,
+  SUPERSESSION_ITEM_SCHEMA,
   type Supersession,
+  TASK_OBJECTIVE_SCHEMA,
 } from "./schema.js";
 
 export type { ScenarioContext } from "./schema.js";
@@ -49,9 +60,9 @@ export interface KnownCondition {
 export type AuthoringSeams = JsonToolStageSeams;
 
 export interface RunAuthoringAgentDeps {
-  /** Fires on EVERY accepted write_manifest call (intermediate captures included) —
-   *  the live-progress widget's extract-phase coverage signal. */
-  readonly onCapture: (payload: unknown) => void;
+  /** Fires after every accepted per-item tool call with the live condition
+   *  counts — the widget's extract-phase coverage signal. */
+  readonly onAdd: (counts: ConditionCounts) => void;
   readonly seams: AuthoringSeams;
   /** Working directory the authoring tools operate in (the scenario repo). */
   readonly cwd: string;
@@ -74,9 +85,20 @@ export interface RunAuthoringAgentDeps {
   readonly rateLimitOptions?: RateLimitOptions | null;
 }
 
-/** The `write_manifest` tool's description — the agent calls it once when done. */
-const WRITE_MANIFEST_DESCRIPTION =
-  "Write the scenario manifest: the recallFacts, doneOps, supersessions, abstentions, and probes you found in the session. Call this ONCE when you are done reading the session.";
+/** Progressive per-item tool descriptions — the author records each condition the
+ *  moment it is confirmed (like the judge's grade tool), then finalizes once. */
+const ADD_RECALL_FACT_DESCRIPTION =
+  "Record ONE key decision or technical detail worth remembering after compaction. Call this as soon as you confirm it from the session; call again for each additional fact.";
+const ADD_DONE_OP_DESCRIPTION =
+  "Record ONE completed piece of work (a system, feature, or fix that is done). Call as soon as you confirm it; call again per item.";
+const ADD_SUPERSESSION_DESCRIPTION =
+  "Record ONE reversed decision: the subject, the OLD value, and the LATEST value. Call as soon as you confirm it; call again per reversal.";
+const ADD_ABSTENTION_DESCRIPTION =
+  "Record ONE question that was deliberately left OPEN (never decided). Call as soon as you confirm it; call again per question.";
+const ADD_PROBE_DESCRIPTION =
+  "Record ONE direct probe question (accept list for a recallable answer, or correctRefusal with no accept list for a stale/open answer). Call as soon as you author it; call again per probe.";
+const FINALIZE_MANIFEST_DESCRIPTION =
+  "Finalize the manifest with the task objective (what was built + how to test it). Call ONCE when you have recorded everything — this ends the manifest authoring.";
 
 /** Assign sequential ids of the form `<prefix><n>` (rf1, rf2, do1, …). */
 function assignIds<T>(items: readonly T[], prefix: string): (T & { id: string })[] {
@@ -233,23 +255,83 @@ export function buildAuthoringSystemPrompt(deps: {
   return prompt;
 }
 
+/** Live condition counts after each accepted per-item tool call — the widget's
+ *  extract-phase progress signal (topics = lists with >=1 item). */
+export interface ConditionCounts {
+  readonly recallFacts: number;
+  readonly doneOps: number;
+  readonly supersessions: number;
+  readonly abstentions: number;
+}
+
+/** The accumulated authoring findings (each item arrives via its own tool call). */
+export interface AuthorAccumulators {
+  recallFacts: AuthorRecallFact[];
+  doneOps: AuthorDoneOp[];
+  supersessions: AuthorSupersession[];
+  abstentions: AuthorAbstention[];
+  probes: AuthorProbe[];
+}
+
 /**
- * Compose the authoring tool set: pi's core read-only tools (read/grep/find/ls) +
- * `bash` (for JSONL parsing) bound to `cwd` + the `write_manifest` terminal
- * tool (validated against `AUTHOR_OUTPUT_SCHEMA`, captures payloads on `._captured`).
+ * Compose the PROGRESSIVE authoring tool set: pi's core read-only tools
+ * (read/grep/find/ls) + `bash` (for JSONL parsing) bound to `cwd`, five per-item
+ * recording tools (add_recall_fact / add_done_op / add_supersession /
+ * add_abstention / add_probe — each call records ONE complete, validated item;
+ * work progresses call by call, nothing is re-emitted), and the
+ * `finalize_manifest` terminal tool (carries the task objective and ends the
+ * stage). `onAdd` fires with the live counts after every accepted item.
  */
 export function buildAuthoringTools(
   cwd: string,
-  onCapture: (payload: unknown) => void,
-): { tools: AgentTool[]; writeManifest: JsonOutputTool } {
-  const writeManifest = makeJsonOutputTool(
-    "write_manifest",
-    WRITE_MANIFEST_DESCRIPTION,
-    AUTHOR_OUTPUT_SCHEMA,
-    onCapture,
+  onAdd: (counts: ConditionCounts) => void,
+): { tools: AgentTool[]; finalizeManifest: JsonOutputTool; acc: AuthorAccumulators } {
+  const acc: AuthorAccumulators = {
+    recallFacts: [],
+    doneOps: [],
+    supersessions: [],
+    abstentions: [],
+    probes: [],
+  };
+  const notify = (): void =>
+    onAdd({
+      recallFacts: acc.recallFacts.length,
+      doneOps: acc.doneOps.length,
+      supersessions: acc.supersessions.length,
+      abstentions: acc.abstentions.length,
+    });
+  const sink =
+    <T>(list: T[]): ((item: Record<string, unknown>) => void) =>
+    (item) => {
+      list.push(item as unknown as T);
+      notify();
+    };
+  const finalizeManifest = makeJsonOutputTool(
+    "finalize_manifest",
+    FINALIZE_MANIFEST_DESCRIPTION,
+    TASK_OBJECTIVE_SCHEMA,
+    NO_CAPTURE,
   );
-  const tools: AgentTool[] = [...benchAuthoringTools(cwd), writeManifest];
-  return { tools, writeManifest };
+  const tools: AgentTool[] = [
+    ...benchAuthoringTools(cwd),
+    makeAccumulatingTool(
+      "add_recall_fact",
+      ADD_RECALL_FACT_DESCRIPTION,
+      RECALL_FACT_ITEM_SCHEMA,
+      sink(acc.recallFacts),
+    ),
+    makeAccumulatingTool("add_done_op", ADD_DONE_OP_DESCRIPTION, DONE_OP_ITEM_SCHEMA, sink(acc.doneOps)),
+    makeAccumulatingTool(
+      "add_supersession",
+      ADD_SUPERSESSION_DESCRIPTION,
+      SUPERSESSION_ITEM_SCHEMA,
+      sink(acc.supersessions),
+    ),
+    makeAccumulatingTool("add_abstention", ADD_ABSTENTION_DESCRIPTION, ABSTENTION_ITEM_SCHEMA, sink(acc.abstentions)),
+    makeAccumulatingTool("add_probe", ADD_PROBE_DESCRIPTION, PROBE_ITEM_SCHEMA, sink(acc.probes)),
+    finalizeManifest,
+  ];
+  return { tools, finalizeManifest, acc };
 }
 
 /**
@@ -264,7 +346,7 @@ export function buildAuthoringTools(
 const JSONL_NEWLINE = "\n";
 
 export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<ScenarioManifest> {
-  const { tools, writeManifest } = buildAuthoringTools(deps.cwd, deps.onCapture);
+  const { tools, finalizeManifest, acc } = buildAuthoringTools(deps.cwd, deps.onAdd);
   const systemPrompt = buildAuthoringSystemPrompt({
     preSlicedJsonlPath: deps.preSlicedJsonlPath,
     knownConditions: deps.knownConditions,
@@ -272,20 +354,28 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
 
   // The shared stage-runner owns the resolve -> runStage (rate-limit-wrapped) ->
   // check timedOut/aborted -> read-capture flow. It STOP-and-surfaces on failure
-  // (a timed-out/aborted stage may leave a partial write_manifest — never post-
-  // process it); the last captured payload is the author's structured output.
-  const author = (await runJsonToolStage({
+  // (a timed-out/aborted stage may leave partial accumulators — never post-process
+  // them); the finalize capture carries the task objective, the per-item tools
+  // carried every condition.
+  const finalizePayload = (await runJsonToolStage({
     seams: deps.seams,
     tools,
     systemPrompt,
-    terminalTool: writeManifest,
+    terminalTool: finalizeManifest,
     label: "authoring",
-    userMessageContent: `Read the session file at ${deps.preSlicedJsonlPath} and produce the manifest. Use your tools to read it, then call write_manifest with your findings.`,
+    userMessageContent: `Read the session file at ${deps.preSlicedJsonlPath} and produce the manifest. Use your tools to read it, record each finding with its add_* tool as you confirm it, then call finalize_manifest with the task objective when done.`,
     maxTokens: deps.maxTokens,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,
-  })) as AuthorOutput;
-
+  })) as { description: string; testSpec: string };
+  const author: AuthorOutput = {
+    recallFacts: acc.recallFacts,
+    doneOps: acc.doneOps,
+    supersessions: acc.supersessions,
+    abstentions: acc.abstentions,
+    probes: acc.probes,
+    taskObjective: finalizePayload,
+  };
   const manifest = postProcessManifest(author, deps.scenarioCtx);
   try {
     const spanEntryIds = new Set(

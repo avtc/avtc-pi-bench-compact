@@ -106,70 +106,77 @@ describe("postProcessManifest (pure)", () => {
 });
 
 describe("buildAuthoringTools", () => {
-  it("composes read-only core tools (read/grep/find/ls) + bash + a write_manifest tool", () => {
-    const { tools, writeManifest } = buildAuthoringTools(process.cwd(), () => {});
+  it("composes read-only core tools + bash + five per-item tools + finalize_manifest", () => {
+    const { tools, finalizeManifest } = buildAuthoringTools(process.cwd(), () => {});
     const names = tools.map((t) => t.name);
     expect(names).toContain("read");
     expect(names).toContain("grep");
     expect(names).toContain("find");
-    expect(names).toContain("bash"); // bash for JSONL parsing (jq)
-    expect(names).toContain("write_manifest");
-    expect(writeManifest.name).toBe("write_manifest");
+    expect(names).toContain("bash");
+    expect(names).toContain("add_recall_fact");
+    expect(names).toContain("add_done_op");
+    expect(names).toContain("add_supersession");
+    expect(names).toContain("add_abstention");
+    expect(names).toContain("add_probe");
+    expect(names).toContain("finalize_manifest");
+    expect(finalizeManifest.name).toBe("finalize_manifest");
   });
 
-  it("write_manifest captures validated payloads on _captured", async () => {
-    const { writeManifest } = buildAuthoringTools(process.cwd(), () => {});
-    const res = await writeManifest.execute("call1", {
-      recallFacts: [{ fact: "x", accept: ["x"], entryIds: ["e1"] }],
-      doneOps: [],
-      supersessions: [],
-      abstentions: [],
-      probes: [],
-      taskObjective: { description: "x", testSpec: "npm test" },
+  it("per-item tools accumulate validated items; onAdd fires with live counts per accepted item", async () => {
+    const counts: { recallFacts: number; doneOps: number; supersessions: number; abstentions: number }[] = [];
+    const { tools } = buildAuthoringTools(process.cwd(), (c) => counts.push({ ...c }));
+    const add = (name: string) => {
+      const t = tools.find((x) => x.name === name);
+      if (!t) throw new Error(`no ${name}`);
+      return t;
+    };
+    const r1 = await add("add_recall_fact").execute("c1", {
+      fact: "scores in ~/.scores.json",
+      accept: ["~/.scores.json"],
+      entryIds: ["e1"],
     });
-    expect(writeManifest._captured).toHaveLength(1);
-    expect(res.terminate).toBe(true); // signals the agent to stop
-  });
-
-  it("write_manifest fires onCapture per ACCEPTED payload (widget progress signal)", async () => {
-    const seen: unknown[] = [];
-    const { writeManifest } = buildAuthoringTools(process.cwd(), (p) => seen.push(p));
-    await writeManifest.execute("call1", {
-      recallFacts: [{ fact: "x", accept: ["x"], entryIds: ["e1"] }],
-      doneOps: [],
-      supersessions: [],
-      abstentions: [],
-      probes: [],
-      taskObjective: { description: "x", testSpec: "npm test" },
+    expect(JSON.stringify(r1?.content)).toContain("recorded"); // accepted
+    await add("add_probe").execute("c2", {
+      question: "scores?",
+      accept: ["~/.scores.json"],
+      targets: ["e1"],
     });
-    await writeManifest.execute("call2", { recallFacts: [{ fact: "x", accept: "x", entryIds: ["e1"] }] }); // rejected
-    expect(seen).toHaveLength(1); // only the accepted capture fires
-  });
-
-  it("write_manifest rejects malformed payloads (nothing captured)", async () => {
-    const { writeManifest } = buildAuthoringTools(process.cwd(), () => {});
-    await writeManifest.execute("call1", { recallFacts: [{ fact: "x", accept: "x", entryIds: ["e1"] }] }); // accept not array
-    expect(writeManifest._captured).toHaveLength(0);
+    // malformed item rejected, not accumulated, counts unchanged
+    const r3 = await add("add_recall_fact").execute("c3", { fact: "x", accept: "not-array", entryIds: ["e1"] });
+    expect(JSON.stringify(r3?.content)).toContain("rejected");
+    expect(counts).toEqual([
+      { recallFacts: 1, doneOps: 0, supersessions: 0, abstentions: 0 },
+      { recallFacts: 1, doneOps: 0, supersessions: 0, abstentions: 0 }, // probe add → same condition counts
+    ]);
   });
 });
 
 describe("runAuthoringAgent", () => {
-  it("composes tools, runs the stage, reads _captured, post-processes into ScenarioManifest", async () => {
-    // fake seam: runStage finds the write_manifest tool in input.tools + simulates the
+  it("composes tools, runs the stage, accumulates per-item tools + finalize capture into ScenarioManifest", async () => {
+    // fake seam: runStage finds the tools in input.tools + simulates the agent
     // agent calling it with the canned AuthorOutput, then returns a canned result.
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
-        const wm = input.tools.find((t) => t.name === "write_manifest");
-        if (!wm) throw new Error("write_manifest tool not composed into stage");
-        // simulate the agent calling write_manifest with canned data
-        await wm.execute("call1", {
-          recallFacts: [{ fact: "scores in ~/.scores.json", accept: ["~/.scores.json"], entryIds: ["e1"] }],
-          doneOps: [],
-          supersessions: [],
-          abstentions: [],
-          probes: [{ question: "scores?", accept: ["~/.scores.json"], targets: ["e1"] }],
-          taskObjective: { description: "build the game", testSpec: "npm test" },
+        const byName = (n: string) => {
+          const t = input.tools.find((x) => x.name === n);
+          if (!t) throw new Error(`${n} tool not composed into stage`);
+          return t;
+        };
+        // simulate the agent recording its findings progressively, then finalizing
+        await byName("add_recall_fact").execute("call1", {
+          fact: "scores in ~/.scores.json",
+          accept: ["~/.scores.json"],
+          entryIds: ["e1"],
+        });
+        await byName("add_probe").execute("call2", {
+          question: "scores?",
+          accept: ["~/.scores.json"],
+          targets: ["e1"],
+        });
+        await byName("finalize_manifest").execute("call3", {
+          description: "build the game",
+          testSpec: "npm test",
         });
         return {
           messages: [],
@@ -182,7 +189,7 @@ describe("runAuthoringAgent", () => {
     };
 
     const manifest = await runAuthoringAgent({
-      onCapture: () => {},
+      onAdd: () => {},
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/sliced.jsonl",
@@ -197,7 +204,7 @@ describe("runAuthoringAgent", () => {
     expect(manifest.id).toBe("tycoon-1");
   });
 
-  it("throws when the agent never called write_manifest (no capture)", async () => {
+  it("throws when the agent never called finalize_manifest (no capture)", async () => {
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async () => ({
@@ -210,7 +217,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
-        onCapture: () => {},
+        onAdd: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -218,7 +225,7 @@ describe("runAuthoringAgent", () => {
         signal: new AbortController().signal,
         maxTokens: 2000,
       }),
-    ).rejects.toThrow(/write_manifest/i);
+    ).rejects.toThrow(/finalize_manifest/i);
   });
 
   it("rejects when the model cannot be resolved", async () => {
@@ -234,7 +241,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
-        onCapture: () => {},
+        onAdd: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -245,13 +252,13 @@ describe("runAuthoringAgent", () => {
     ).rejects.toThrow(/model/i);
   });
 
-  it("throws when the stage timed out (even if write_manifest left a capture)", async () => {
+  it("throws when the stage timed out (even if finalize_manifest left a capture)", async () => {
     // a timed-out stage that left a partial capture must NOT be silently post-processed
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
-        const wm = input.tools.find((t) => t.name === "write_manifest");
-        if (!wm) throw new Error("write_manifest not composed");
+        const wm = input.tools.find((t) => t.name === "finalize_manifest");
+        if (!wm) throw new Error("finalize_manifest not composed");
         await wm.execute("call1", {
           recallFacts: [{ fact: "partial", accept: ["partial"], entryIds: ["e1"] }],
           doneOps: [],
@@ -271,7 +278,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
-        onCapture: () => {},
+        onAdd: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -286,8 +293,8 @@ describe("runAuthoringAgent", () => {
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
-        const wm = input.tools.find((t) => t.name === "write_manifest");
-        if (!wm) throw new Error("write_manifest not composed");
+        const wm = input.tools.find((t) => t.name === "finalize_manifest");
+        if (!wm) throw new Error("finalize_manifest not composed");
         await wm.execute("call1", {
           recallFacts: [{ fact: "partial", accept: ["partial"], entryIds: ["e1"] }],
           doneOps: [],
@@ -307,7 +314,7 @@ describe("runAuthoringAgent", () => {
     };
     await expect(
       runAuthoringAgent({
-        onCapture: () => {},
+        onAdd: () => {},
         seams: fakeSeams,
         cwd: process.cwd(),
         preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -318,30 +325,19 @@ describe("runAuthoringAgent", () => {
     ).rejects.toThrow(/abort/i);
   });
 
-  it("takes the LAST capture when write_manifest was called multiple times", async () => {
+  it("takes the LAST capture when finalize_manifest was called multiple times", async () => {
     const fakeSeams: AuthoringSeams = {
       resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
       runStage: async (input) => {
-        const wm = input.tools.find((t) => t.name === "write_manifest");
-        if (!wm) throw new Error("write_manifest not composed");
-        // first (superseded) call
-        await wm.execute("c1", {
-          recallFacts: [{ fact: "first", accept: ["first"], entryIds: ["e1"] }],
-          doneOps: [],
-          supersessions: [],
-          abstentions: [],
-          probes: [],
-          taskObjective: { description: "x", testSpec: "npm test" },
-        });
-        // second (final) call — this is what the agent settled on
-        await wm.execute("c2", {
-          recallFacts: [{ fact: "second-final", accept: ["second-final"], entryIds: ["e1"] }],
-          doneOps: [],
-          supersessions: [],
-          abstentions: [],
-          probes: [],
-          taskObjective: { description: "x", testSpec: "npm test" },
-        });
+        const wm = input.tools.find((t) => t.name === "finalize_manifest");
+        if (!wm) throw new Error("finalize_manifest not composed");
+        // per-item conditions accumulate once; finalize called twice — the LAST
+        // task objective wins (items are not duplicated)
+        const add = input.tools.find((t) => t.name === "add_recall_fact");
+        if (!add) throw new Error("add_recall_fact not composed");
+        await add.execute("c0", { fact: "second-final", accept: ["second-final"], entryIds: ["e1"] });
+        await wm.execute("c1", { description: "first draft", testSpec: "npm test" });
+        await wm.execute("c2", { description: "second-final", testSpec: "npm test" });
         return {
           messages: [],
           usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 2, elapsedMs: 2 },
@@ -352,7 +348,7 @@ describe("runAuthoringAgent", () => {
       },
     };
     const manifest = await runAuthoringAgent({
-      onCapture: () => {},
+      onAdd: () => {},
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/x.jsonl",
@@ -360,7 +356,8 @@ describe("runAuthoringAgent", () => {
       signal: new AbortController().signal,
       maxTokens: 2000,
     });
-    expect(manifest.recallFacts[0].fact).toBe("second-final");
+    expect(manifest.recallFacts[0]?.fact).toBe("second-final"); // accumulated ONCE (not per finalize)
+    expect(manifest.taskObjective.description).toBe("second-final"); // LAST finalize wins
   });
 
   // R3: the authoring stage is rate-limit-wrapped via runJsonToolStage; the
@@ -376,16 +373,12 @@ describe("runAuthoringAgent", () => {
       runStage: async (input) => {
         calls += 1;
         if (calls === 1) throw rateErr;
-        const wm = input.tools.find((t) => t.name === "write_manifest");
-        if (!wm) throw new Error("write_manifest not composed");
-        await wm.execute("call1", {
-          recallFacts: [{ fact: "f", accept: ["a"], entryIds: ["e1"] }],
-          doneOps: [],
-          supersessions: [],
-          abstentions: [],
-          probes: [],
-          taskObjective: { description: "x", testSpec: "npm test" },
-        });
+        const wm = input.tools.find((t) => t.name === "finalize_manifest");
+        if (!wm) throw new Error("finalize_manifest not composed");
+        const add = input.tools.find((t) => t.name === "add_recall_fact");
+        if (!add) throw new Error("add_recall_fact not composed");
+        await add.execute("call0", { fact: "f", accept: ["a"], entryIds: ["e1"] });
+        await wm.execute("call1", { description: "x", testSpec: "npm test" });
         return {
           messages: [],
           usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
@@ -402,7 +395,7 @@ describe("runAuthoringAgent", () => {
       sleep: async () => {},
     };
     const manifest = await runAuthoringAgent({
-      onCapture: () => {},
+      onAdd: () => {},
       seams: fakeSeams,
       cwd: process.cwd(),
       preSlicedJsonlPath: "/tmp/x.jsonl",

@@ -63,43 +63,27 @@ conditions yourself. Either way, record only what is genuinely in the session.
 
 OUTPUT
 
-You may call write_manifest multiple times as your picture firms up — intermediate
-calls are progress snapshots and the last complete call wins. When done, call
-write_manifest with a JSON object of this shape:
-{
-  "recallFacts": [
-    { "fact": "<the decision/detail as a short statement>",
-      "accept": ["<correct answer phrasing>", "..."],
-      "entryIds": ["<id>", "..."] }
-  ],
-  "doneOps": [
-    { "description": "<what was completed>",
-      "artifact": "<file path or component name>",
-      "reworkable": false,
-      "entryIds": ["<id>", "..."] }
-  ],
-  "supersessions": [
-    { "subject": "<what was decided>",
-      "oldValue": "<earlier choice>",
-      "latestValue": "<later choice>",
-      "entryIds": ["<id of the reversal>", "..."] }
-  ],
-  "abstentions": [
-    { "question": "<the open question, as asked>",
-      "correctRefusal": true,
-      "entryIds": ["<id>", "..."] }
-  ],
-  "probes": [
-    { "question": "<the probe question>",
-      "accept": ["...", "..."],          // for recall / supersession-latest
-      "correctRefusal": true,            // for abstention + supersession stale-value (omit accept)
-      "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }
-  ],
-  "taskObjective": {
-    "description": "<what was built / the project's goal, as a short statement>",
-    "testSpec": "<the shell command that runs the project's tests, e.g. 'npm test' — empty string if there are no tests>"
-  }
-}
+Record your findings PROGRESSIVELY — one complete item per tool call, as soon as you
+confirm it from the session (never re-send earlier findings):
+
+- add_recall_fact: { "fact": "<the decision/detail as a short statement>",
+  "accept": ["<correct answer phrasing>", "..."], "entryIds": ["<id>", "..."] }
+- add_done_op: { "description": "<what was completed>",
+  "artifact": "<file path or component name>", "reworkable": false,
+  "entryIds": ["<id>", "..."] }
+- add_supersession: { "subject": "<what was decided>",
+  "oldValue": "<earlier choice>", "latestValue": "<later choice>",
+  "entryIds": ["<id of the reversal>", "..."] }
+- add_abstention: { "question": "<the open question, as asked>",
+  "correctRefusal": true, "entryIds": ["<id>", "..."] }
+- add_probe: { "question": "<the probe question>",
+  "accept": ["...", "..."],          // for recall / supersession-latest
+  "correctRefusal": true,            // for abstention + supersession stale-value (omit accept)
+  "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }
+
+When everything is recorded, call finalize_manifest exactly once:
+{ "description": "<what was built / the project's goal, as a short statement>",
+  "testSpec": "<the shell command that runs the project's tests, e.g. 'npm test' — empty string if there are no tests>" }
 
 CONSTRAINTS
 

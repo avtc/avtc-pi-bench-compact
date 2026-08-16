@@ -152,22 +152,19 @@ const AUTHOR_MAX_TOKENS = 8192;
 
 /** Build the `author` seam: run the manifest-authoring agent on the pre-sliced JSONL.
  *  The authoring tools' cwd is the JSONL's directory (so the file is within tool scope). */
-/** Widget detail for the extract phase from an intermediate write_manifest
- *  capture: topic coverage (condition lists with >=1 item) + raw point count. */
-export function extractDetailFromCapture(payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
-  const p = payload as {
-    recallFacts?: readonly unknown[];
-    doneOps?: readonly unknown[];
-    supersessions?: readonly unknown[];
-    abstentions?: readonly unknown[];
-  };
-  const rf = p.recallFacts?.length ?? 0;
-  const dops = p.doneOps?.length ?? 0;
-  const ss = p.supersessions?.length ?? 0;
-  const ab = p.abstentions?.length ?? 0;
-  const topics = [rf, dops, ss, ab].filter((n) => n > 0).length;
-  const pts = rf + dops + ss + ab;
+/** Widget detail for the extract phase from the live condition counts (fired
+ *  after each accepted per-item authoring call): topic coverage (condition lists
+ *  with >=1 item) + raw point count. */
+export function extractDetailFromCounts(counts: {
+  recallFacts: number;
+  doneOps: number;
+  supersessions: number;
+  abstentions: number;
+}): string {
+  const topics = [counts.recallFacts, counts.doneOps, counts.supersessions, counts.abstentions].filter(
+    (n) => n > 0,
+  ).length;
+  const pts = counts.recallFacts + counts.doneOps + counts.supersessions + counts.abstentions;
   return `topics ${topics}/4 · ${pts} pts`;
 }
 
@@ -189,9 +186,8 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
       cwd: dirname(preSlicedJsonlPath),
       preSlicedJsonlPath,
       scenarioCtx: deps.scenarioCtx,
-      onCapture: (payload: unknown): void => {
-        const detail = extractDetailFromCapture(payload);
-        if (detail !== null) deps.widget?.setDetail(detail);
+      onAdd: (counts): void => {
+        deps.widget?.setDetail(extractDetailFromCounts(counts));
       },
       signal: deps.signal,
       maxTokens: deps.maxTokens,

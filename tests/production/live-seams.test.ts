@@ -47,7 +47,7 @@ import {
   type ConfigureArmOp,
   type CtxHolder,
   type DriveAndCaptureSeamDeps,
-  extractDetailFromCapture,
+  extractDetailFromCounts,
   type ResolveModel,
   type RunAuthor,
   type RunStage,
@@ -1042,20 +1042,17 @@ describe("driveAndCapture — plant threading (plant-and-continue resume)", () =
   });
 });
 
-describe("extractDetailFromCapture (extract-phase widget coverage)", () => {
-  it("maps capture lists to topic coverage + point count", () => {
-    expect(extractDetailFromCapture({ recallFacts: [{}, {}], doneOps: [{}], supersessions: [], abstentions: [] })).toBe(
+describe("extractDetailFromCounts (extract-phase widget coverage)", () => {
+  it("maps live counts to topic coverage + point count", () => {
+    expect(extractDetailFromCounts({ recallFacts: 2, doneOps: 1, supersessions: 0, abstentions: 0 })).toBe(
       "topics 2/4 · 3 pts",
     );
-    expect(extractDetailFromCapture({ recallFacts: [{}] })).toBe("topics 1/4 · 1 pts");
+    expect(extractDetailFromCounts({ recallFacts: 1, doneOps: 0, supersessions: 0, abstentions: 0 })).toBe(
+      "topics 1/4 · 1 pts",
+    );
   });
 
-  it("non-object payload → null (no detail)", () => {
-    expect(extractDetailFromCapture(null)).toBeNull();
-    expect(extractDetailFromCapture("x")).toBeNull();
-  });
-
-  it("buildAuthorSeam threads onCapture → widget.setDetail on intermediate captures", async () => {
+  it("buildAuthorSeam threads onAdd → widget.setDetail per accepted item", async () => {
     const details: string[] = [];
     const widget = {
       startPhase: () => {},
@@ -1070,10 +1067,11 @@ describe("extractDetailFromCapture (extract-phase widget coverage)", () => {
       signal: new AbortController().signal,
       maxTokens: 1024,
       widget,
-      runAuthor: (async (deps: { onCapture: (p: unknown) => void }) => {
-        // two intermediate captures, as write_manifest would fire them
-        deps.onCapture({ recallFacts: [{}] });
-        deps.onCapture({ recallFacts: [{}, {}], doneOps: [{}], supersessions: [{}], abstentions: [{}] });
+      runAuthor: (async (deps: {
+        onAdd: (c: { recallFacts: number; doneOps: number; supersessions: number; abstentions: number }) => void;
+      }) => {
+        deps.onAdd({ recallFacts: 1, doneOps: 0, supersessions: 0, abstentions: 0 });
+        deps.onAdd({ recallFacts: 2, doneOps: 1, supersessions: 1, abstentions: 1 });
         return {
           id: "sc1",
           recallFacts: [],

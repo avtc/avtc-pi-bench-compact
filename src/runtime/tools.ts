@@ -48,6 +48,42 @@ export interface JsonOutputTool<TParameters extends TSchema = TSchema> extends A
 /** Named no-op for an absent capture callback (explicit at call sites). */
 export const NO_CAPTURE: (payload: unknown) => void = () => {};
 
+/** Build a PROGRESSIVE tool: each call validates ONE item against `itemSchema`
+ *  and hands it to `sink` (the caller accumulates); never terminates the stage —
+ *  the agent keeps working (record findings as it confirms them). The terminal
+ *  JSON tool ends the loop. */
+export function makeAccumulatingTool<TParameters extends TSchema>(
+  name: string,
+  description: string,
+  itemSchema: TParameters,
+  sink: (item: Record<string, unknown>) => void,
+): AgentTool<TParameters> {
+  return {
+    name,
+    label: name,
+    description,
+    parameters: itemSchema,
+    async execute(
+      _toolCallId: string,
+      params: Record<string, unknown>,
+    ): Promise<AgentToolResult<{ accepted: number; rejected: number }>> {
+      if (!Value.Check(itemSchema, params)) {
+        return {
+          content: [
+            { type: "text", text: `rejected: arguments did not match the ${name} schema; fix and call ${name} again` },
+          ],
+          details: { accepted: 0, rejected: 1 },
+        };
+      }
+      sink(params);
+      return {
+        content: [{ type: "text", text: `recorded ${name}; keep going` }],
+        details: { accepted: 1, rejected: 0 },
+      };
+    },
+  };
+}
+
 export function makeJsonOutputTool<TParameters extends TSchema>(
   name: string,
   description: string,

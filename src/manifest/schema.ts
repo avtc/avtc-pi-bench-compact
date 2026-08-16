@@ -87,6 +87,43 @@ const NonEmptyString = Type.String({ minLength: 1 });
 const NonEmptyStringArray = Type.Array(NonEmptyString, { minItems: 1 });
 
 /** typebox schema validating the authoring-agent's `write_manifest` payload. */
+/** Per-item schemas — the progressive authoring tools validate each condition as
+ *  it is added (one complete item per call; no whole-manifest re-emission). */
+export const RECALL_FACT_ITEM_SCHEMA: TSchema = Type.Object({
+  fact: NonEmptyString,
+  accept: NonEmptyStringArray,
+  entryIds: NonEmptyStringArray,
+});
+export const DONE_OP_ITEM_SCHEMA: TSchema = Type.Object({
+  description: NonEmptyString,
+  artifact: NonEmptyString,
+  reworkable: Type.Boolean(),
+  entryIds: NonEmptyStringArray,
+});
+export const SUPERSESSION_ITEM_SCHEMA: TSchema = Type.Object({
+  subject: NonEmptyString,
+  oldValue: NonEmptyString,
+  latestValue: NonEmptyString,
+  entryIds: NonEmptyStringArray,
+});
+export const ABSTENTION_ITEM_SCHEMA: TSchema = Type.Object({
+  question: NonEmptyString,
+  correctRefusal: Type.Literal(true),
+  entryIds: NonEmptyStringArray,
+});
+export const PROBE_ITEM_SCHEMA: TSchema = Type.Object({
+  question: NonEmptyString,
+  accept: Type.Optional(NonEmptyStringArray),
+  correctRefusal: Type.Optional(Type.Literal(true)),
+  targets: NonEmptyStringArray,
+});
+/** The finalize_manifest payload: the task objective (the only structured piece
+ *  NOT carried by a per-item tool). */
+export const TASK_OBJECTIVE_SCHEMA: TSchema = Type.Object({
+  description: NonEmptyString,
+  testSpec: Type.String(), // may be empty (no tests → no embedded-test lane)
+});
+
 export const AUTHOR_OUTPUT_SCHEMA: TSchema = Type.Object({
   recallFacts: Type.Array(
     Type.Object({
