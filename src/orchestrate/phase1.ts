@@ -28,8 +28,8 @@ import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } fr
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { judgeEnsembleFields } from "../config/types.js";
 import { log } from "../log.js";
+import { appendUserEntry } from "../production/live-seams.js";
 import { CompactionCancelledError, triggerCompact } from "../session/compact.js";
-import { inject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
@@ -87,6 +87,9 @@ export interface Phase1Ops {
   branchExists: typeof branchExists;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
   copySeed: (src: string, dest: string) => void;
+  /** Append the anti-peek user entry to the arm session file (post-copy, pre-load —
+   *  NO agent turn fires, so the entry stays LAST and inside the compaction tail). */
+  appendAntiPeek: (sessionPath: string, text: string) => void;
 }
 
 const DEFAULT_OPS: Phase1Ops = {
@@ -97,6 +100,7 @@ const DEFAULT_OPS: Phase1Ops = {
   commit: commitAll,
   branchExists,
   copySeed: (src, dest) => copyFileSync(src, dest),
+  appendAntiPeek: (sessionPath, text) => appendUserEntry(sessionPath, text, {}),
 };
 
 /** Inputs to {@link runPhase1}. `cfgId` is pre-computed by the run driver
@@ -223,6 +227,12 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     // its OWN file, compacted in place by loadSession below.
     const sessionPath = branchSessionFile(sessionsDir, branch);
     ops.copySeed(branchSessionFile(sessionsDir, "main"), sessionPath);
+    // Anti-peek as a FILE entry, not a sendUserMessage: sending fires an agent turn
+    // whose response lands AFTER the message and can push it out of the compaction
+    // tail window (plus a wasted turn of tokens per arm). Appended pre-load, the
+    // entry is the session's LAST message — guaranteed inside the kept tail — and
+    // the compaction summarizer still reads it.
+    ops.appendAntiPeek(sessionPath, ANTI_PEEK_PROMPT);
     if (getRunState() !== null) updateRunState({ currentArm: arm });
 
     // Load the frozen backup in-place + compact it. switchSession RE-ACTIVATES the
@@ -230,9 +240,9 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     // the prior ctx — so ALL per-arm work runs INSIDE withSession using the fresh
     // pi/proxies (read from globalThis) + the fresh ctx (the withSession arg). The
     // fresh ctx is threaded into currentCtx for the next arm's switchSession.
-    // ANTI_PEEK is injected first as a followUp preamble so the maintenance LLM sees
-    // it before compacting. An arm-cancel / config-failure surfaces as a stop — no
-    // fallback, no retry.
+    // The anti-peek entry was appended to the file BEFORE this load (last message,
+    // inside the tail window). An arm-cancel / config-failure surfaces as a stop —
+    // no fallback, no retry.
     let compactionEntry: CompactionEntry;
     let wallMs: number;
     try {
@@ -249,7 +259,6 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
           `arm ${arm}`,
           (msg) => new Phase1StoppedError(arm, "config-failed", msg),
         );
-        inject(pi, ANTI_PEEK_PROMPT, "followUp");
         return ops.trigger(pi, sessionCtx, {});
       }));
     } catch (err) {

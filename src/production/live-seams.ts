@@ -664,6 +664,43 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
 /** Filename for the trial-compaction copy (under preSliceDir, OUTSIDE the repo). */
 const TRIAL_COPY_NAME = "trial-copy.jsonl";
 /** Filename for the stable build session (under preSliceDir, OUTSIDE the repo). */
+/** Append a bare USER-message entry to a session JSONL — WITHOUT triggering an
+ *  agent turn (the sendUserMessage path fires a full turn whose response would land
+ *  AFTER the message and could push it out of the compaction tail window). Used for
+ *  the pre-compact anti-peek injection: the entry becomes the session's LAST entry,
+ *  guaranteed inside the kept tail, at zero token cost. parentId chains to the
+ *  file's last entry (the frozen backup is linear). */
+const JSONL_SPLIT = "\n";
+
+export function appendUserEntry(
+  sessionPath: string,
+  text: string,
+  deps: { read?: (p: string) => string; write?: (p: string, data: string) => void } = {},
+): void {
+  const read = deps.read ?? ((p: string) => readFileSync(p, "utf-8"));
+  const write = deps.write ?? ((p: string, data: string) => writeFileSync(p, data));
+  const lines = read(sessionPath)
+    .split(JSONL_SPLIT)
+    .filter((l) => l.trim().length > 0);
+  let lastId: string | null = null;
+  for (const line of lines) {
+    try {
+      const e = JSON.parse(line) as { id?: string };
+      if (e.id !== undefined) lastId = e.id;
+    } catch {
+      // skip unparseable
+    }
+  }
+  const entry = {
+    type: "message",
+    id: randomUUID(),
+    parentId: lastId,
+    timestamp: new Date().toISOString(),
+    message: { role: "user", content: text, timestamp: Date.now() },
+  };
+  write(sessionPath, `${lines.join(JSONL_SPLIT)}${JSONL_SPLIT}${JSON.stringify(entry)}${JSONL_SPLIT}`);
+}
+
 /** The stable build-session file name (persists + grows across attempts + prepares). */
 export const BUILD_SESSION_NAME = "build.jsonl";
 

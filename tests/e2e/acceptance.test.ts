@@ -303,7 +303,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
     rmSync(repo, { recursive: true, force: true });
   });
 
-  /** A minimal recording Ops: records the fresh pi each trigger + inject received. */
+  /** A minimal recording Ops: records the fresh pi each trigger + appended anti-peek texts. */
   function recordingOps(): {
     ops: Phase1Ops;
     triggeredPis: ExtensionAPI[];
@@ -333,11 +333,14 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
       commit: async () => {},
       branchExists: () => false,
       copySeed: () => {},
+      appendAntiPeek: (_p, text) => {
+        injectedTexts.push(text);
+      },
     };
     return { ops, triggeredPis, injectedTexts };
   }
 
-  it("fires the compaction trigger once per arm + injects the anti-peek prompt on the fresh pi", async () => {
+  it("fires the compaction trigger once per arm + appends the anti-peek entry per arm file", async () => {
     const arms: readonly ArmId[] = ["A1", "A3"];
     const { ops, triggeredPis, injectedTexts } = recordingOps();
     const deps: Phase1Deps = {

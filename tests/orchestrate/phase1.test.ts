@@ -112,6 +112,7 @@ interface FakeOps {
   commit: ReturnType<typeof vi.fn>;
   branchExists: ReturnType<typeof vi.fn>;
   copySeed: ReturnType<typeof vi.fn>;
+  appendAntiPeek: ReturnType<typeof vi.fn>;
   /** The fresh pi stashed per loadSession call (one per arm) — for assertions. */
   freshPis: FakePi[];
   /** The fresh proxies stashed per loadSession call (one per arm) — for assertions. */
@@ -152,6 +153,7 @@ function makeFakeOps(): FakeOps {
     commit: vi.fn(),
     branchExists: vi.fn(() => false),
     copySeed: vi.fn(),
+    appendAntiPeek: vi.fn(),
     freshPis,
     freshProxies,
     freshCtxs,
@@ -259,8 +261,11 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     // arm 1's fresh pi received A2's allowlist (recall); arm 2's fresh pi received A3's (mk_recall).
     expect(ops.freshPis[0]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "recall"]);
     expect(ops.freshPis[1]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "mk_recall"]);
-    // the anti-peek inject + trigger also ran against the FRESH pi (arm 1)
-    expect(ops.freshPis[0]?.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
+    // the anti-peek entry is APPENDED to the arm session file (no agent turn fires —
+    // sendUserMessage would start one) + the trigger ran against the FRESH pi (arm 1)
+    expect(ops.appendAntiPeek).toHaveBeenCalledWith(expect.stringContaining("arm-om-default"), ANTI_PEEK_PROMPT);
+    expect(ops.appendAntiPeek).toHaveBeenCalledTimes(2); // once per arm session file
+    expect(ops.freshPis[0]?.sendUserMessage).not.toHaveBeenCalled();
     expect(ops.trigger.mock.calls[0]?.[0]).toBe(ops.freshPis[0]?.pi); // trigger got the fresh pi
     expect(ops.trigger.mock.calls[1]?.[0]).toBe(ops.freshPis[1]?.pi);
   });
@@ -296,10 +301,11 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     expect(ops.loadSession.mock.calls[1]?.[0]).not.toBe(cmdCtx);
   });
 
-  it("injects the anti-peek prompt (followUp) before compaction inside the loaded session", async () => {
+  it("appends the anti-peek entry to the session FILE (pre-load, last message — no agent turn)", async () => {
     const ops = makeFakeOps();
     await runPhase1(makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1"] }));
-    expect(ops.freshPis[0]?.sendUserMessage).toHaveBeenCalledWith(ANTI_PEEK_PROMPT, { deliverAs: "followUp" });
+    expect(ops.appendAntiPeek).toHaveBeenCalledWith(expect.any(String), ANTI_PEEK_PROMPT);
+    expect(ops.freshPis[0]?.sendUserMessage).not.toHaveBeenCalled(); // never sent — no turn fires
     expect(ops.trigger).toHaveBeenCalled();
   });
 
