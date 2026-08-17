@@ -20,7 +20,7 @@ export function count(n: number): string {
   const abs = Math.abs(n);
   if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (abs >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(n);
+  return String(Math.round(n)); // means are fractional — render whole units
 }
 
 /** Format a signed integer delta ([+52] / [-14]). */

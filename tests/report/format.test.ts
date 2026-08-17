@@ -21,8 +21,9 @@ describe("format primitives", () => {
     expect(pct(0)).toBe("0%");
   });
 
-  it("count: K/M suffix above 999; raw below", () => {
+  it("count: K/M suffix above 999; whole units (rounded) below — means are fractional", () => {
     expect(count(999)).toBe("999");
+    expect(count(418.87179487179486)).toBe("419"); // fractional mean → whole unit
     expect(count(1200)).toBe("1.2K");
     expect(count(12_100)).toBe("12.1K");
     expect(count(2_400_000)).toBe("2.4M");
