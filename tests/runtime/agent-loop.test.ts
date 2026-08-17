@@ -275,3 +275,29 @@ describe("makeTurnCap", () => {
       expect(never({} as unknown as Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0])).toBe(false);
   });
 });
+
+describe('runBenchStage — model-request errors surface (pi ends the turn with stopReason "error")', () => {
+  it("throws StageRunError carrying the model + errorMessage when the final assistant message errored", async () => {
+    const erroredMsg = {
+      role: "assistant",
+      model: "local-server/Qwen3.8-27B",
+      stopReason: "error",
+      errorMessage: "fetch failed: connection refused",
+      content: [],
+    } as unknown as AgentMessage;
+    await expect(runBenchStage(baseInput({ loopFn: fakeLoop([TURN_END], [erroredMsg]) }))).rejects.toThrow(
+      /Qwen3.8-27B request failed: fetch failed/,
+    );
+  });
+
+  it("a clean stopReason flows through unchanged (no throw)", async () => {
+    const ok = {
+      role: "assistant",
+      model: "m",
+      stopReason: "stop",
+      content: [{ type: "text", text: "hi" }],
+    } as unknown as AgentMessage;
+    const r = await runBenchStage(baseInput({ loopFn: fakeLoop([msgEnd({})], [ok]) }));
+    expect(r.messages).toHaveLength(1);
+  });
+});

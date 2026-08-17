@@ -246,6 +246,17 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
 
       const messages = await stream.result();
       log.debug(`runBenchStage: agentLoop stream done (${usage.turns} turns)`);
+      // pi does NOT throw on a failed model request — it ends the turn with a final
+      // assistant message carrying stopReason "error" (+ errorMessage). Surface it:
+      // without this check an unreachable endpoint / HTTP failure silently reads as
+      // empty text downstream (judges: "malformed JSON"; drives: empty output). The
+      // verbatim errorMessage also keeps the rate-limit retry detection working
+      // (isRateLimitError matches on the message text).
+      const errored = [...messages].reverse().find((m) => m.role === "assistant");
+      if (errored !== undefined && errored.stopReason === "error") {
+        // a plain Error — the surrounding catch wraps it into a StageRunError
+        throw new Error(`model ${errored.model} request failed: ${errored.errorMessage ?? "(no error detail)"}`);
+      }
       // Two-tier: the authoritative output-token count is the SUM of every
       // message_end usage.output (correct across multi-turn runs since
       // partial.usage.output resets each message). The chars/4 fallback only
