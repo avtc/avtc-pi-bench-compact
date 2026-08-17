@@ -75,6 +75,7 @@ interface FakeProbeOps {
   fork: ReturnType<typeof vi.fn>;
   checkout: ReturnType<typeof vi.fn>;
   branchExists: ReturnType<typeof vi.fn>;
+  sessionExists: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   commitCountAhead: ReturnType<typeof vi.fn>;
   copySeed: ReturnType<typeof vi.fn>;
@@ -114,6 +115,7 @@ function makeFakeProbeOps(opts: { qaOnly?: boolean; answer?: string; reject?: Er
     fork: vi.fn(),
     checkout: vi.fn(),
     branchExists: vi.fn(() => false),
+    sessionExists: vi.fn(() => false),
     commit: vi.fn(),
     commitCountAhead: vi.fn(() => 0),
     copySeed: vi.fn(),
@@ -533,6 +535,67 @@ describe("runProbes — crash resume (skip committed probes)", () => {
     expect(ops.loadSession).toHaveBeenCalledTimes(1);
     expect(ops.commit).toHaveBeenCalledTimes(1);
     expect(traces[0]?.answer).toBe("fresh answer");
+  });
+
+  it("re-reads a PRUNED probe's answer off its session file (branch gone, answer complete) — no re-probe", async () => {
+    const ops = makeFakeProbeOps({ answer: "prior answer" });
+    ops.sessionExists = vi.fn(() => true); // the session file survived the branch prune
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    const { traces, finalCtx } = await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 1,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      resume: true,
+      ops: ops as unknown as ProbeOps,
+    });
+
+    expect(ops.fork).not.toHaveBeenCalled();
+    expect(ops.loadSession).not.toHaveBeenCalled();
+    expect(ops.commit).not.toHaveBeenCalled();
+    expect(ops.isQaOnly).not.toHaveBeenCalled(); // no branch to diff — pruned ⟹ Q&A-only
+    expect(ops.readAnswer).toHaveBeenCalledWith(branchSessionFile(join(repo, "sessions"), traces[0]?.branch ?? ""));
+    expect(traces[0]).toMatchObject({ arm: "A1", attempt: 1, probeId: "1", answer: "prior answer", kept: false });
+    expect(finalCtx).toEqual({ id: "cmd-handler-ctx" }); // no switchSession ran
+  });
+
+  it("re-runs a pruned probe whose session file is MISSING (never ran on this manifest)", async () => {
+    const ops = makeFakeProbeOps({ answer: "fresh answer" });
+    ops.sessionExists = vi.fn(() => false);
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 1,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      resume: true,
+      ops: ops as unknown as ProbeOps,
+    });
+    expect(ops.fork).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-runs a pruned probe whose session has NO answer yet (crashed mid-turn)", async () => {
+    const ops = makeFakeProbeOps({ answer: "" }); // partial session: question in, no assistant text
+    ops.sessionExists = vi.fn(() => true);
+    const base = makeArmBase("A1", "bare-pi", undefined);
+    await runProbes({
+      cmdCtx,
+      armBase: base,
+      N: 1,
+      manifest: makeManifest([PROBES[0]]),
+      repo,
+      sessionsDir: join(repo, "sessions"),
+      omFullReflectionThresholdTokens: 4000,
+      resume: true,
+      ops: ops as unknown as ProbeOps,
+    });
+    expect(ops.fork).toHaveBeenCalledTimes(1); // fell through to the fresh-probe path
   });
 
   it("a pre-existing probe branch on the NON-resume path is still a hard conflict", async () => {

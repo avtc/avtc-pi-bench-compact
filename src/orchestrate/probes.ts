@@ -23,7 +23,7 @@
 // `ProbeStoppedError`; the run driver catches + notifies. An abort (run signal)
 // is `probe-hung`; any other error is `probe-failed`.
 
-import { copyFileSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { isolateArmOrStop } from "../arms/switch.js";
 import type { ArmId } from "../config/types.js";
@@ -121,6 +121,8 @@ export interface ProbeOps {
   awaitSettled: typeof awaitAgentSettled;
   isQaOnly: typeof isQaOnlyBranch;
   deleteBranch: typeof resetBranch;
+  /** Whether a session file exists (resume: a pruned probe's session is its durable run-fact). */
+  sessionExists: (sessionPath: string) => boolean;
   /** Read the agent's answer (the last assistant message text) off the probe branch's session file. */
   readAnswer: (sessionPath: string) => string;
 }
@@ -232,6 +234,7 @@ const DEFAULT_OPS: ProbeOps = {
   awaitSettled: awaitAgentSettled,
   isQaOnly: isQaOnlyBranch,
   deleteBranch: resetBranch,
+  sessionExists: (sessionPath) => existsSync(sessionPath),
   readAnswer: readProbeAnswer,
 };
 
@@ -267,9 +270,12 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       // Crash resume: an existing probe branch was either KEPT at completion (its
       // answer is re-read off the session file + the Q&A-only lifecycle re-checked, so
       // a crash between the commit + the delete still deletes) or is an uncommitted
-      // half-finished probe (deleted + re-run below). Probes that completed Q&A-only
-      // left NO branch — they re-run as a fresh independent sample of the same
-      // distribution (probes rate over N samples, so mixing pre/post-crash samples is sound).
+      // half-finished probe (deleted + re-run below). A probe that completed Q&A-only
+      // left NO branch — but its session file IS the durable run-fact: a complete
+      // answer in it is re-read directly (kept=false: pruned branches were Q&A-only),
+      // so a resume after a later stop (e.g. scoring) never re-probes settled work.
+      // A missing session or an empty answer = never ran / crashed mid-turn → re-run
+      // below as a fresh independent sample (probes rate over N samples).
       // Capture the answer off the probe branch's session file, apply the Q&A-only
       // lifecycle, and record the trace entry. Shared by the fresh-probe path and
       // crash resume (a committed probe branch re-settles identically).
@@ -293,6 +299,17 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       };
 
       const preexisting = ops.branchExists(deps.repo, probeBranch);
+      if (deps.resume === true && !preexisting) {
+        // The branch was pruned at settle, but the session file carries the answer.
+        const prior = ops.sessionExists(sessionPath) ? ops.readAnswer(sessionPath) : "";
+        if (prior !== "") {
+          traces.push({ arm, attempt, probeId, branch: probeBranch, answer: prior, kept: false });
+          log.info(
+            `phase-2b: arm ${arm} probe ${probeId} (attempt ${attempt}) already settled (resumed) — re-read pruned branch's session, skip`,
+          );
+          continue;
+        }
+      }
       if (preexisting && deps.resume === true) {
         if (ops.commitCountAhead(deps.repo, probeBranch, baseBranch) > 0) {
           const { kept } = settleProbe(probeBranch, sessionPath);
