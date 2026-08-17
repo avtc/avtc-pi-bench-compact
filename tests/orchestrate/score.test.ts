@@ -339,7 +339,7 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
     ]);
   });
 
-  it("E6 stale-value face: correctRefusal probe targeting a supersession → slice says FLAG AS STALE (not REFUSE)", async () => {
+  it("E6 stale-value face: correctRefusal probe with face stale → slice says FLAG AS STALE (not REFUSE)", async () => {
     const manifest: ScenarioManifest = {
       ...probeManifest,
       supersessions: [
@@ -353,7 +353,13 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
         },
       ],
       probes: [
-        { question: "what's the org structure?", correctRefusal: true, targets: ["e-s1"], lanes: ["direct-probe"] },
+        {
+          question: "what's the org structure?",
+          correctRefusal: true,
+          face: "stale",
+          targets: ["e-s1"],
+          lanes: ["direct-probe"],
+        },
       ],
     };
     const trace = traceOf([userEntry("u0", null)], []);

@@ -195,6 +195,7 @@ export function makeSmokeManifest(): ScenarioManifest {
       {
         question: "should I pick the untested option?",
         correctRefusal: true,
+        face: "refuse",
         targets: ["ab1"],
         lanes: ["direct-probe"],
       },

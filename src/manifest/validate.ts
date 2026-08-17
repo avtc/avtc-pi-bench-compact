@@ -312,6 +312,14 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     if (hasAccept === hasRefusal) {
       reasons.push(`probe "${p.question}": must have exactly one of accept or correctRefusal`);
     }
+    // The abstention face is authored, never inferred: a correctRefusal probe MUST
+    // name which face it grades, and an accept probe MUST NOT carry one.
+    if (hasRefusal && p.face === undefined) {
+      reasons.push(`probe "${p.question}": correctRefusal requires face "refuse" or "stale"`);
+    }
+    if (!hasRefusal && p.face !== undefined) {
+      reasons.push(`probe "${p.question}": face is only valid with correctRefusal`);
+    }
     for (const target of p.targets) {
       if (!ctx.preSlicedEntryIds.has(target)) {
         reasons.push(`probe "${p.question}" targets entryId "${target}" not in the pre-sliced (in-span) set`);
@@ -347,7 +355,7 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     for (const s of manifest.supersessions) {
       const targeting = manifest.probes.filter((p) => p.targets.some((id) => s.entryIds.includes(id)));
       const hasLatest = targeting.some((p) => p.correctRefusal !== true && (p.accept?.length ?? 0) > 0);
-      const hasStale = targeting.some((p) => p.correctRefusal === true);
+      const hasStale = targeting.some((p) => p.face === "stale");
       if (!hasLatest || !hasStale) {
         reasons.push(
           `${s.id} (reversal) is missing a ${!hasLatest ? "latest-value accept" : "stale-value correctRefusal"} probe — each reversal needs both (latest → supersession axis, stale → abstention stale face)`,

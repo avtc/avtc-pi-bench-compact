@@ -57,8 +57,8 @@ question we will ask the compacted agent to test its memory.
 - For a reversal: write TWO probes — (1) a question whose correct answer IS the LATEST value
   (the current decision), AND (2) a "stale-value" probe that asserts the OLD value as if it
   were still current. On the stale-value probe, the correct behavior is for the agent to FLAG
-  the old value as outdated rather than confirm it — set \`correctRefusal: true\` (no accept
-  list) and point its \`targets\` at the reversal's entryIds.
+  the old value as outdated rather than confirm it — set \`correctRefusal: true\` with
+  \`face: "stale"\` (no accept list) and point its \`targets\` at the reversal's entryIds.
 - For an open-question: a question whose correct answer is "that was never decided" — the
   agent must NOT fabricate one.
 Rules for probes:
@@ -67,7 +67,9 @@ Rules for probes:
 - One fact per probe.
 - For recall/reversal-latest probes, give \`accept\`: a list of phrasings that all count as correct
   (e.g. ["~/.scores.json", "a scores.json file", "a JSON file under the home dir"]).
-- For stale-value and open-question probes, set \`correctRefusal: true\` instead of an accept list.
+- For stale-value and open-question probes, set \`correctRefusal: true\` instead of an accept
+  list, and set \`face\`: "stale" when the probe asserts an old value, "refuse" when it asks
+  about a never-decided question — it selects the grading criteria.
 
 TAIL VALIDATION
 
@@ -110,6 +112,7 @@ confirm it from the session (never re-send earlier findings):
 - add_probe: { "question": "<the probe question>",
   "accept": ["...", "..."],          // for recall / supersession-latest
   "correctRefusal": true,            // for abstention + supersession stale-value (omit accept)
+  "face": "stale",                   // "stale" = flag old value, "refuse" = never decided (required with correctRefusal)
   "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }
 - add_tail_conflict: { "entryIds": ["<the finding's SPAN entryIds — the same ids you cited on that finding>"],
   "kind": "answerable" }              // or "superseded" (see TAIL VALIDATION)

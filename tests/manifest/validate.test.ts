@@ -60,8 +60,14 @@ function cleanManifest(): ScenarioManifest {
     probes: [
       { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] },
       { question: "keys?", accept: ["arrows"], targets: ["e3"], lanes: ["direct-probe"] },
-      { question: "we use WASD, right?", correctRefusal: true, targets: ["e3"], lanes: ["direct-probe"] },
-      { question: "renderer?", correctRefusal: true, targets: ["e4"], lanes: ["direct-probe"] },
+      {
+        question: "we use WASD, right?",
+        correctRefusal: true,
+        face: "stale",
+        targets: ["e3"],
+        lanes: ["direct-probe"],
+      },
+      { question: "renderer?", correctRefusal: true, face: "refuse", targets: ["e4"], lanes: ["direct-probe"] },
     ],
   };
 }
@@ -204,7 +210,7 @@ describe("validateManifest — probe checks", () => {
       probes: [
         { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] },
         { question: "keys?", accept: ["arrows"], targets: ["e3"], lanes: ["direct-probe"] },
-        { question: "renderer?", correctRefusal: true, targets: ["e4"], lanes: ["direct-probe"] },
+        { question: "renderer?", correctRefusal: true, face: "refuse", targets: ["e4"], lanes: ["direct-probe"] },
       ] as Probe[],
     };
     const r = validateManifest(m, cleanCtx({}));

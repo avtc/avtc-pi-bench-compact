@@ -40,7 +40,7 @@
 import type { CompactionEntry } from "@earendil-works/pi-coding-agent";
 import type { ArmId } from "../config/types.js";
 import { type C2Boundary, findFirstCorrectUse } from "../judge/c2-boundary.js";
-import { majorityVote, rankEnsemble, runBinaryEnsemble, unionC2Boundaries } from "../judge/ensemble.js";
+import { majorityVote, rankEnsemble, unionC2Boundaries } from "../judge/ensemble.js";
 import { BenchJudgeError } from "../judge/errors.js";
 import { axisForProbe } from "../judge/probe-axis.js";
 import { type Ranking, rankAxis, type Shuffle } from "../judge/ranking.js";
@@ -398,7 +398,6 @@ export async function gradeProbeAxesForRun(
   deps: ProbeRoutingDeps,
 ): Promise<ReadonlyArray<{ readonly axis: MetricId; readonly pass: boolean }>> {
   const out: Array<{ readonly axis: MetricId; readonly pass: boolean }> = [];
-  const supersessionEntryIds = new Set(deps.manifest.supersessions.flatMap((s) => s.entryIds));
   for (const probeTrace of run.probes) {
     const idx = Number(probeTrace.probeId) - 1;
     const probe = deps.manifest.probes[idx];
@@ -423,10 +422,7 @@ export async function gradeProbeAxesForRun(
     deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} grading`);
     const judgePasses = await Promise.all(
       deps.callJudges.map(async (callJudge) => {
-        const slice = buildProbeAnswerSlice(
-          { probe, answerText: probeTrace.answer, supersessionEntryIds },
-          DEFAULT_SLICE_OPTIONS,
-        );
+        const slice = buildProbeAnswerSlice({ probe, answerText: probeTrace.answer }, DEFAULT_SLICE_OPTIONS);
         const grade = await gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
         return grade.pass;
       }),

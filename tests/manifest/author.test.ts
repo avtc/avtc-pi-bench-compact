@@ -25,7 +25,7 @@ const cannedAuthor: AuthorOutput = {
   abstentions: [{ question: "renderer?", correctRefusal: true, entryIds: ["e5"] }],
   probes: [
     { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"] }, // targets recallFact e1
-    { question: "renderer?", correctRefusal: true, targets: ["e5"] }, // targets abstention e5
+    { question: "renderer?", correctRefusal: true, face: "refuse", targets: ["e5"] }, // targets abstention e5
   ],
   taskObjective: { description: "build the game", testSpec: "npm test" },
 };
@@ -479,10 +479,8 @@ describe("sanitizeCitations", () => {
 
 describe("tail conflicts (author-side tail validation)", () => {
   it("buildAuthoringTools includes add_tail_conflict (validated accumulation)", async () => {
-    const { tools, acc } = buildAuthoringTools(process.cwd(), () => {});
-    expect(tools.some((t) => t.name === "add_tail_conflict")).toBe(true);
-    const tool = tools.find((t) => t.name === "add_tail_conflict");
-    expect(tool).toBeDefined();
+    const { tools } = buildAuthoringTools(process.cwd(), () => {});
+    expect(tools.find((t) => t.name === "add_tail_conflict")).toBeDefined();
   });
 
   it("postProcessManifest carries authored tailConflicts into the manifest", () => {

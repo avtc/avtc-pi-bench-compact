@@ -21,7 +21,7 @@ import { ProbeStoppedError } from "../../src/orchestrate/probes.js";
 import { type BuildScoreDepsArgs, type StartRunDeps, startRun } from "../../src/orchestrate/run.js";
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
-import type { RunTrace as _RT, RunTrace } from "../../src/orchestrate/trace.js";
+import type { RunTrace } from "../../src/orchestrate/trace.js";
 import { buildCfgId } from "../../src/storage/branches.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 import { setActiveWidget } from "../../src/widget/active-widget.js";

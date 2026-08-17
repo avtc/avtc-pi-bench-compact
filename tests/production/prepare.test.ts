@@ -34,7 +34,8 @@ function cannedManifest(rfId: string, doId: string, ssId: string, abId: string):
     probes: [
       { question: "what decision?", accept: ["decision"], targets: [rfId], lanes: [] },
       { question: "current value?", accept: ["b"], targets: [ssId], lanes: [] },
-      { question: "answer?", correctRefusal: true, targets: [abId], lanes: [] },
+      { question: "old value?", correctRefusal: true, face: "stale", targets: [ssId], lanes: [] },
+      { question: "answer?", correctRefusal: true, face: "refuse", targets: [abId], lanes: [] },
     ],
   };
 }
@@ -470,7 +471,7 @@ describe("reAuthorManifest (--re-author pipeline)", () => {
       seams,
     });
 
-    expect(manifest.probes).toHaveLength(3);
+    expect(manifest.probes).toHaveLength(4);
     expect(calls[0]?.trial).toBe(join(s.sessionsDir, "main.jsonl")); // the FROZEN backup
     const authorCall = calls[0]?.author[0] as string[];
     expect(authorCall[0]).toContain("re-author-sliced.jsonl");

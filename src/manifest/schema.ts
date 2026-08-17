@@ -51,10 +51,17 @@ export interface AuthorAbstention {
   readonly correctRefusal: true;
   readonly entryIds: readonly string[];
 }
+export type AbstentionFace = "refuse" | "stale";
+
 export interface AuthorProbe {
   readonly question: string;
   readonly accept?: readonly string[];
   readonly correctRefusal?: true;
+  /** The abstention face — required iff correctRefusal (validateManifest enforces).
+   *  `stale` = the question asserts a superseded value (correct behavior: flag it as
+   *  outdated); `refuse` = a never-decided question (correct behavior: decline to
+   *  fabricate). Selects the judge's grading criteria — never inferred from targets. */
+  readonly face?: AbstentionFace;
   readonly targets: readonly string[];
 }
 
@@ -86,6 +93,7 @@ export interface AuthorOutput {
 
 const NonEmptyString = Type.String({ minLength: 1 });
 const NonEmptyStringArray = Type.Array(NonEmptyString, { minItems: 1 });
+const Face = Type.Union([Type.Literal("refuse"), Type.Literal("stale")]);
 
 /** typebox schema validating the authoring-agent's `write_manifest` payload. */
 /** Per-item schemas — the progressive authoring tools validate each condition as
@@ -116,6 +124,7 @@ export const PROBE_ITEM_SCHEMA: TSchema = Type.Object({
   question: NonEmptyString,
   accept: Type.Optional(NonEmptyStringArray),
   correctRefusal: Type.Optional(Type.Literal(true)),
+  face: Type.Optional(Face),
   targets: NonEmptyStringArray,
 });
 /** A tail conflict: the kept tail either RESTATES a finding's answer (the probe
@@ -173,6 +182,7 @@ export const AUTHOR_OUTPUT_SCHEMA: TSchema = Type.Object({
       question: NonEmptyString,
       accept: Type.Optional(NonEmptyStringArray),
       correctRefusal: Type.Optional(Type.Literal(true)),
+      face: Type.Optional(Face),
       targets: NonEmptyStringArray,
     }),
   ),
@@ -220,6 +230,8 @@ export interface Probe {
   readonly question: string;
   readonly accept?: readonly string[];
   readonly correctRefusal?: true;
+  /** The abstention face — present iff correctRefusal (validateManifest enforces). */
+  readonly face?: AbstentionFace;
   readonly targets: readonly string[];
   readonly lanes: readonly Lane[];
 }
