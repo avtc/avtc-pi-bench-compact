@@ -901,7 +901,7 @@ describe("K-judge ensemble (K>1)", () => {
 });
 
 describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () => {
-  it("grades C1/C2/C4 + probe lanes, skips trace-binary + comparative", async () => {
+  it("grades C1/C3/C4 + probe lanes, skips recall-cost + trace-binary + comparative", async () => {
     const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
     const trace = traceOf([userEntry("u0", null), c1.entry], [c1]); // base-shaped: no continuation entries
     const probes = [{ arm: "A1" as const, attempt: 1, probeId: "1", branch: "A1-base", answer: "formula", kept: true }];
@@ -918,12 +918,16 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     ];
     let traceBinaryCalls = 0;
     let comparativeCalls = 0;
+    let boundaryCalls = 0;
     const deps: ScoreRunDeps = {
       manifest: integManifest,
       callJudges: [integCallJudge({ E2: false, E4: true, E5: true, E6: true })],
       stageSeams: [
         multiStageSeams({
-          report_boundary: () => ({ boundaries: [{ factId: "rf1", entryId: "a1", evidence: "used rf1" }] }),
+          report_boundary: () => {
+            boundaryCalls += 1;
+            return { boundaries: [{ factId: "rf1", entryId: "a1", evidence: "used rf1" }] };
+          },
           record_grades: () => {
             traceBinaryCalls += 1;
             return { grades: [{ axis: "E4", pass: true, evidence: "proactive" }] };
@@ -947,11 +951,15 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     const { resultJson } = await scoreRun(runs, deps);
     // exact + probe lanes present
     expect(resultJson.arms.A1?.metrics.C4).toBeDefined();
-    // continuation-judged lanes never ran
+    // continuation-judged lanes never ran (recall-cost included: the synthesized
+    // row's trace IS the arm-base build transcript — no post-compaction continuation
+    // exists, so tokens-to-first-use would measure build cost, not recall)
     expect(traceBinaryCalls).toBe(0);
     expect(comparativeCalls).toBe(0);
+    expect(boundaryCalls).toBe(0);
     expect(resultJson.arms.A1?.metrics.E5).toBeDefined(); // probe lane graded
     expect(resultJson.arms.A1?.metrics.E4).toBeUndefined(); // trajectory lane absent
+    expect(resultJson.arms.A1?.metrics.C2).toBeUndefined(); // recall-cost lane absent
     expect(resultJson.ranks).toEqual({}); // no comparative axes
   });
 });

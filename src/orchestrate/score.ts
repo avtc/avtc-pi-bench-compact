@@ -172,10 +172,10 @@ export interface ScoreRunDeps {
   readonly pricing: Pricing;
   /** Switch the repo working tree to a branch (one worktree; sequenced per run). */
   readonly checkout: (repo: string, branch: string) => void;
-  /** fast eval (probes-only): skip the continuation-judged lanes (trace-binary +
-   *  comparative) — no continuation transcript exists to judge; those lanes render
-   *  n/a. The compaction/summary cost metrics (from the arm-base compaction) + the
-   *  probe lanes still grade. */
+  /** fast eval (probes-only): skip the continuation-judged lanes (recall-cost +
+   *  trace-binary + comparative) — no continuation transcript exists to judge; those
+   *  lanes render n/a. The compaction/summary cost metrics (from the arm-base
+   *  compaction) + the probe lanes still grade. */
   readonly probesOnly?: boolean;
   readonly meta: ScoreRunMeta;
 }
@@ -237,7 +237,9 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     acc.C3.push(exact.C3);
     acc.C4.push(exact.C4);
 
-    for (const c2 of await gradeC2ForRun(run, deps)) acc.C2.push(c2);
+    if (deps.probesOnly !== true) {
+      for (const c2 of await gradeC2ForRun(run, deps)) acc.C2.push(c2);
+    }
 
     for (const { axis, pass } of await gradeProbeAxesForRun(run, deps)) {
       binaryArray(acc, axis).push(pass);
