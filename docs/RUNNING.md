@@ -10,6 +10,7 @@ The canonical operator flow: **configure → prepare a scenario → run every ar
    - The **C4 usage patches** on both (so compaction-cost is measurable for memory arms).
 2. Load the extension in pi's `.pi/settings.json` `packages` (the harness + the full avtc-pi suite).
 3. Configure the run via `/bench-compact:settings`: evaluated model + thinking level, judge model(s) + thinking level(s), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (`build` or `extract`), and which arms are enabled.
+4. Tune memkeeper via its OWN global settings (`/mk:settings`, persisted to `~/.pi/agent/avtc-pi-memkeeper-settings.json`): models, per-call timeout (`llmCallTimeoutMs`), thinking levels (e.g. `observerThinkingLevel`), max output tokens, and thresholds all reach the bench arms — the bench pins only the arm-defining keys (`enabled`, stage modes, `renderMode`) and merges your global settings underneath.
 
 ## Procedure
 

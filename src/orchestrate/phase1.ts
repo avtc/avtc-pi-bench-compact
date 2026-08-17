@@ -155,6 +155,9 @@ export interface Phase1Deps {
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
   /** OM-full arm's threshold value (from bench config). */
   omFullReflectionThresholdTokens: number;
+  /** The operator's global memkeeper settings, merged under the arm pins at every
+   *  configureArm (read once by the run driver; absent → pins only). */
+  memkeeperGlobalSettings?: Record<string, unknown>;
   /** Enabled arms in processing order. */
   armsEnabled: ArmId[];
   /** Crash resume: an arm whose base branch is committed + session file exists is
@@ -221,6 +224,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     cfgId,
     toolVersions,
     omFullReflectionThresholdTokens,
+    memkeeperGlobalSettings,
     armsEnabled,
     resume,
     reuseBases,
@@ -343,7 +347,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
           pi,
           arm,
           scenarioRepo,
-          { omFullReflectionThresholdTokens },
+          { omFullReflectionThresholdTokens, memkeeperGlobal: memkeeperGlobalSettings ?? {} },
           `arm ${arm}`,
           (msg) => new Phase1StoppedError(arm, "config-failed", msg),
         );

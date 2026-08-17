@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearArmConfig, clearArmEnv, writeArmConfig } from "../../src/arms/config.js";
+import { clearArmConfig, clearArmEnv, readMemkeeperGlobalSettings, writeArmConfig } from "../../src/arms/config.js";
 
 const OPTS = { omFullReflectionThresholdTokens: 4000 };
 
@@ -163,6 +163,62 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
       builderMode: "on-compaction",
       selectorMode: "on-compaction",
     });
+  });
+
+  it("memkeeperGlobal merges the operator's global settings UNDER the arm pins (pins win)", () => {
+    writeArmConfig("A4", repo, {
+      ...OPTS,
+      memkeeperGlobal: {
+        llmCallTimeoutMs: 180_000,
+        observerThinkingLevel: "low",
+        renderMode: "observations-root", // a pin the arm must OVERRIDE
+        observerModel: "local-server/Qwen3.8-27B",
+      },
+    });
+    expect(readMemkeeperEnv()).toEqual({
+      llmCallTimeoutMs: 180_000,
+      observerThinkingLevel: "low",
+      observerModel: "local-server/Qwen3.8-27B",
+      enabled: true,
+      renderMode: "selected-root", // the pin wins over the global value
+      observerMode: "on-compaction",
+      builderMode: "on-compaction",
+      selectorMode: "on-compaction",
+    });
+  });
+
+  it("non-memkeeper arm with global settings: {...global, enabled:false} (knobs ride along, stages stay off)", () => {
+    writeArmConfig("A1", repo, { ...OPTS, memkeeperGlobal: { observerThinkingLevel: "low" } });
+    expect(readMemkeeperEnv()).toEqual({ observerThinkingLevel: "low", enabled: false });
+  });
+});
+
+describe("arms/config — readMemkeeperGlobalSettings (global file reader)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bench-mkglobal-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("parses <dir>/agent/avtc-pi-memkeeper-settings.json when present", () => {
+    mkdirSync(join(dir, "agent"), { recursive: true });
+    writeFileSync(
+      join(dir, "agent", "avtc-pi-memkeeper-settings.json"),
+      JSON.stringify({ observerThinkingLevel: "low", llmCallTimeoutMs: 180_000 }),
+      "utf-8",
+    );
+    expect(readMemkeeperGlobalSettings(dir)).toEqual({ observerThinkingLevel: "low", llmCallTimeoutMs: 180_000 });
+  });
+
+  it("returns {} when the file is absent, corrupt, or non-object", () => {
+    expect(readMemkeeperGlobalSettings(dir)).toEqual({});
+    mkdirSync(join(dir, "agent"), { recursive: true });
+    writeFileSync(join(dir, "agent", "avtc-pi-memkeeper-settings.json"), "{not json", "utf-8");
+    expect(readMemkeeperGlobalSettings(dir)).toEqual({});
+    writeFileSync(join(dir, "agent", "avtc-pi-memkeeper-settings.json"), "[1,2]", "utf-8");
+    expect(readMemkeeperGlobalSettings(dir)).toEqual({});
   });
 });
 

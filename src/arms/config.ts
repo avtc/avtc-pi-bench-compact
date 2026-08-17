@@ -20,6 +20,7 @@
 // into the scenario repo the agent works in).
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ArmId } from "../config/types.js";
 import { ARM_DEFS, type OmArmConfig } from "./definitions.js";
@@ -27,6 +28,12 @@ import { ARM_DEFS, type OmArmConfig } from "./definitions.js";
 /** Carries the om-full arm's threshold value (from bench config `omFullReflectionThresholdTokens`). */
 export interface WriteArmConfigOpts {
   omFullReflectionThresholdTokens: number;
+  /** The operator's GLOBAL memkeeper settings (parsed `avtc-pi-memkeeper-settings.json`),
+   *  merged UNDER the arm pins — the bench pins only the arm-defining keys
+   *  (enabled/modes/renderMode); everything else (models, timeouts, thinking levels,
+   *  max tokens, thresholds) comes from here, so global panel tuning reaches the
+   *  bench arms. Absent → pins only. */
+  memkeeperGlobal?: Record<string, unknown>;
 }
 
 /** avtc-pi-settings-ui env transport for memkeeper (read FIRST on load — factory.ts). */
@@ -84,7 +91,31 @@ export function writeArmConfig(arm: ArmId, repoCwd: string, opts: WriteArmConfig
 
   // 3. memkeeper env JSON — always set (env-first precedence; `{enabled:false}` for
   //    non-memkeeper arms clears any stale config a prior memkeeper arm left behind).
-  process.env[MEMKEEPER_ENV] = JSON.stringify(def.memkeeperConfig);
+  //    The env document REPLACES the whole config (settings files never load while it
+  //    is set), so the operator's global settings are merged UNDER the pins — without
+  //    this, every unpinned knob would silently fall back to memkeeper's built-in
+  //    defaults instead of the operator's panel values.
+  process.env[MEMKEEPER_ENV] = JSON.stringify({ ...(opts.memkeeperGlobal ?? {}), ...def.memkeeperConfig });
+}
+
+/** The memkeeper settings filename convention (avtc-pi-settings-ui `settingsFilePaths`). */
+const MEMKEEPER_SETTINGS_FILE = "avtc-pi-memkeeper-settings.json";
+
+/** Read the operator's GLOBAL memkeeper settings (`<~/.pi>/agent/avtc-pi-memkeeper-settings.json`).
+ *  Absent or corrupt → {} (the arms then run the pinned keys + memkeeper defaults).
+ *  Global only — a project-level file would live inside the scenario repo (agent-visible). */
+export function readMemkeeperGlobalSettings(globalDir: string | null): Record<string, unknown> {
+  const base = globalDir ?? join(homedir(), ".pi");
+  const path = join(base, "agent", MEMKEEPER_SETTINGS_FILE);
+  if (!existsSync(path)) return {};
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 /**

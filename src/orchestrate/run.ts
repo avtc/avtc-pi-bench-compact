@@ -15,9 +15,10 @@
 // phase halt — never auto-retry.
 
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { clearArmConfig } from "../arms/config.js";
+import { clearArmConfig, readMemkeeperGlobalSettings } from "../arms/config.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import { type ArmId, type BenchConfig, judgeEnsembleFields } from "../config/types.js";
 import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
@@ -265,6 +266,10 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   try {
     // --- Phase 1: compact each arm once → arm bases ---
     const sessionsDir = join(dirname(deps.scenarioRepo), "sessions");
+    // The operator's global memkeeper settings, read ONCE and merged under the arm
+    // pins at every configureArm (Phase 1 + Phase 2) — global panel tuning (models,
+    // timeouts, thinking levels, max tokens) reaches the bench arms.
+    const memkeeperGlobalSettings = readMemkeeperGlobalSettings(join(homedir(), ".pi"));
     const { bases, finalCtx: ctxAfterPhase1 } = await phase1({
       cmdCtx: deps.cmdCtx,
       scenarioRepo: deps.scenarioRepo,
@@ -274,6 +279,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       cfgId: nsCfgId,
       toolVersions: runConfig.toolVersions,
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
+      memkeeperGlobalSettings,
       armsEnabled: deps.config.armsEnabled,
       resume: resuming,
       reuseBases: deps.resume?.reuseBases === true,
@@ -298,6 +304,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         cmdCtx: ctxAfterPhase1,
         armBases: bases,
         config: deps.config,
+        memkeeperGlobalSettings,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
         sessionsDir,
