@@ -71,7 +71,7 @@ import {
   type ResultScenario,
   serializeResultJson,
 } from "../report/result-json.js";
-import { type AllArmsGrades, type ArmRunGrades, aggregateArmMetrics } from "../stats/aggregate.js";
+import { type AllArmsGrades, type ArmRunGrades, aggregateArmMetrics, type ProbeGrades } from "../stats/aggregate.js";
 import type { BootstrapOptions } from "../stats/bootstrap.js";
 import type { ArmRanking } from "../stats/rank.js";
 import type { RunConfig } from "../storage/branches.js";
@@ -228,6 +228,8 @@ function binaryArray(acc: ArmAccumulators, axis: MetricId): boolean[] {
  */
 export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promise<ScoreRunResult> {
   const accumulators = new Map<ArmId, ArmAccumulators>();
+  // Per-arm per-probe detail (probeId -> passes across attempts) for the breakdown.
+  const probeDetail = new Map<ArmId, Map<string, ProbeGrades>>();
   const accOf = (arm: ArmId): ArmAccumulators => {
     let acc = accumulators.get(arm);
     if (acc === undefined) {
@@ -250,8 +252,20 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
       for (const c2 of await gradeC2ForRun(run, deps)) acc.C2.push(c2);
     }
 
-    for (const { axis, pass } of await gradeProbeAxesForRun(run, deps)) {
+    for (const { axis, pass, probeId } of await gradeProbeAxesForRun(run, deps)) {
       binaryArray(acc, axis).push(pass);
+      let byProbe = probeDetail.get(run.arm);
+      if (byProbe === undefined) {
+        byProbe = new Map();
+        probeDetail.set(run.arm, byProbe);
+      }
+      const entry = byProbe.get(probeId);
+      if (entry === undefined) {
+        const probe = deps.manifest.probes[Number(probeId) - 1];
+        byProbe.set(probeId, { probeId, axis, question: probe?.question ?? "", passes: [pass] });
+      } else {
+        byProbe.set(probeId, { ...entry, passes: [...entry.passes, pass] });
+      }
     }
 
     if (deps.probesOnly !== true) {
@@ -279,7 +293,13 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     if (acc.C2.length > 0) exactValues.C2 = acc.C2;
     if (acc.C3.length > 0) exactValues.C3 = acc.C3;
     if (acc.C4.length > 0) exactValues.C4 = acc.C4;
-    arms[arm] = { binary: acc.binary, exact: exactValues };
+    const byProbe = probeDetail.get(arm);
+    const probes =
+      byProbe === undefined ? undefined : [...byProbe.values()].sort((a, b) => Number(a.probeId) - Number(b.probeId));
+    arms[arm] =
+      probes === undefined
+        ? { binary: acc.binary, exact: exactValues }
+        : { binary: acc.binary, exact: exactValues, probes };
   }
   const grades: AllArmsGrades = { arms, comparative, enabledArms: uniqueArmIds(input) };
 
@@ -389,15 +409,15 @@ export interface ProbeRoutingDeps {
  * Grade one run's probe axes (recall-accuracy / abstention / supersession):
  * for each probe, resolve its axis via axisForProbe, build the probe-answer slice,
  * kick off K gradeSlice calls (one per judge) + majority-vote. Returns one
- * {axis, pass} per GRADED probe (malformed-axis + out-of-range probeIds skipped).
- * The caller flattens these per-axis across (attempt x probe). No checkout needed
- * (probe-answer slices are pure over the captured ProbeTrace).
+ * {axis, pass, probeId} per GRADED probe (malformed-axis + out-of-range probeIds
+ * skipped). The caller flattens these per-axis across (attempt x probe). No checkout
+ * needed (probe-answer slices are pure over the captured ProbeTrace).
  */
 export async function gradeProbeAxesForRun(
   run: ArmAttemptRun,
   deps: ProbeRoutingDeps,
-): Promise<ReadonlyArray<{ readonly axis: MetricId; readonly pass: boolean }>> {
-  const out: Array<{ readonly axis: MetricId; readonly pass: boolean }> = [];
+): Promise<ReadonlyArray<{ readonly axis: MetricId; readonly pass: boolean; readonly probeId: string }>> {
+  const out: Array<{ readonly axis: MetricId; readonly pass: boolean; readonly probeId: string }> = [];
   for (const probeTrace of run.probes) {
     const idx = Number(probeTrace.probeId) - 1;
     const probe = deps.manifest.probes[idx];
@@ -416,6 +436,7 @@ export async function gradeProbeAxesForRun(
       out.push({
         axis: cached.axis as MetricId,
         pass: majorityVote(cached.judgePasses as readonly boolean[]),
+        probeId: probeTrace.probeId,
       });
       continue;
     }
@@ -428,7 +449,7 @@ export async function gradeProbeAxesForRun(
       }),
     );
     deps.verdicts?.put(verdictKey, { axis, judgePasses });
-    out.push({ axis, pass: majorityVote(judgePasses) });
+    out.push({ axis, pass: majorityVote(judgePasses), probeId: probeTrace.probeId });
   }
   return out;
 }

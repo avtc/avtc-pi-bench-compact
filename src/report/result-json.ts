@@ -66,6 +66,16 @@ export interface ArmResultJson {
   readonly runsCompleted: number;
   readonly runsFailed: number;
   readonly metrics: Readonly<Partial<Record<MetricId, MetricJson>>>;
+  /** Per-probe binary breakdown (passes per attempt) — present when probes were graded. */
+  readonly probes?: readonly ProbeBreakdownJson[];
+}
+
+/** One probe's per-attempt binary grades (the report's probe breakdown). */
+export interface ProbeBreakdownJson {
+  readonly probeId: string;
+  readonly axis: MetricId;
+  readonly question: string;
+  readonly passes: readonly boolean[];
 }
 
 /** A comparative axis's order + Elo (the `ranks` block; full cross-arm detail). */
@@ -189,12 +199,25 @@ export function serializeResultJson(deps: WriteResultJsonDeps): BenchResultJson 
       if (r !== undefined) metrics[metricId] = { rank: r.rank, rankCi: r.rankCi };
     }
     const counts = deps.armRunCounts[armId] ?? { completed: 0, failed: 0 };
-    arms[armId] = {
-      tool: armToolName(armId),
-      runsCompleted: counts.completed,
-      runsFailed: counts.failed,
-      metrics,
-    };
+    const probes =
+      armMetrics.probes === undefined || armMetrics.probes.length === 0
+        ? undefined
+        : armMetrics.probes;
+    arms[armId] =
+      probes === undefined
+        ? {
+            tool: armToolName(armId),
+            runsCompleted: counts.completed,
+            runsFailed: counts.failed,
+            metrics,
+          }
+        : {
+            tool: armToolName(armId),
+            runsCompleted: counts.completed,
+            runsFailed: counts.failed,
+            metrics,
+            probes,
+          };
   }
   const ranks: Partial<Record<MetricId, RankAxisJson>> = {};
   for (const [metricId, axis] of Object.entries(deps.aggregate.comparative) as [

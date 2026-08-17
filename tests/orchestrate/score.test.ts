@@ -315,7 +315,7 @@ const probeManifest: ScenarioManifest = {
 };
 
 describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
-  it("resolves each probe's axis + grades it (one {axis,pass} per probe)", async () => {
+  it("resolves each probe's axis + grades it (one {axis,pass,probeId} per probe)", async () => {
     const trace = traceOf([userEntry("u0", null), assistantEntry("a1", "u0", 10)], []);
     const run: ArmAttemptRun = {
       arm: "A3",
@@ -334,8 +334,8 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
       maxRetries: 2,
     });
     expect(results).toEqual([
-      { axis: "E5", pass: true },
-      { axis: "E6", pass: false },
+      { axis: "E5", pass: true, probeId: "1" },
+      { axis: "E6", pass: false, probeId: "2" },
     ]);
   });
 
@@ -381,7 +381,7 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
       callJudges: [capturingCallJudge],
       maxRetries: 2,
     });
-    expect(results).toEqual([{ axis: "E6", pass: true }]);
+    expect(results).toEqual([{ axis: "E6", pass: true, probeId: "1" }]);
     // The slice (embedded in the judge systemPrompt) carries the stale-value criteria, NOT never-decided REFUSE.
     expect(captured.toLowerCase()).toContain("flag the value as stale");
     expect(captured).not.toMatch(/correct answer = refuse/i);
@@ -647,7 +647,7 @@ const integManifest: ScenarioManifest = {
   taskObjective: { description: "build the thing", testSpec: "" },
   probes: [
     { question: "what is the formula?", accept: ["formula"], targets: ["rf1"], lanes: ["direct-probe"] }, // E5
-    { question: "decide Y?", correctRefusal: true, targets: ["ab1"], lanes: ["direct-probe"] }, // E6
+    { question: "decide Y?", correctRefusal: true, face: "refuse", targets: ["ab1"], lanes: ["direct-probe"] }, // E6
   ],
 };
 
@@ -768,9 +768,51 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     // E2 polarity preserved (lowerBetter — redo-rate) (G8)
     expect(resultJson.metricDefs.E2.polarity).toBe("lowerBetter");
 
+    // per-probe breakdown: serialized per arm with the manifest question + per-attempt passes
+    expect(a3?.probes).toEqual([
+      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [true] },
+      { probeId: "2", axis: "E6", question: "decide Y?", passes: [true] },
+    ]);
+    expect(resultJson.arms.A1?.probes).toEqual(a3?.probes);
+
     // markdown is a non-empty report naming the scenario
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).toContain("scen-integ");
+    expect(markdown).toContain("## Probe breakdown");
+    expect(markdown).toContain("| p1 · what is the formula? | E5 | 1/1 | 1/1 |");
+    expect(markdown).toContain("| p2 · decide Y? | E6 | 1/1 | 1/1 |");
+  });
+
+  it("probe breakdown accumulates passes across attempts", async () => {
+    const c1 = compaction("c1", "u0", "summary", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 50)], [c1]);
+    const fail = integCallJudge({ E5: false });
+    const runs: ArmAttemptRun[] = [1, 2].map((attempt) => ({
+      arm: "A1" as const,
+      attempt,
+      continuation: trace,
+      probes: [{ arm: "A1" as const, attempt, probeId: "1", branch: `A1-${attempt}`, answer: "formula", kept: true }],
+      testSpecResult: { kind: "skipped" as const },
+      repo: "/repo",
+      branch: `A1-${attempt}`,
+    }));
+    const deps: ScoreRunDeps = {
+      manifest: integManifest,
+      callJudges: [fail],
+      stageSeams: [],
+      shuffle: identityShuffle,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+      bootstrapOptions: null,
+      pricing: ZERO_PRICING,
+      checkout: () => undefined,
+      meta: integMeta(),
+    };
+    const { resultJson, markdown } = await scoreRun(runs, deps);
+    expect(resultJson.arms.A1?.probes).toEqual([
+      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [false, false] },
+    ]);
+    expect(markdown).toContain("| p1 · what is the formula? | E5 | 0/2 |");
   });
 
   it("C2 recall-cost flows through (recovered fact -> finite mean; notRecoveredRate 0)", async () => {
@@ -829,7 +871,7 @@ describe("K-judge ensemble (K>1)", () => {
       return JSON.stringify({ pass: p && axis === "E5", evidence: "x" });
     });
     const results = await gradeProbeAxesForRun(run, { manifest, callJudges });
-    expect(results).toEqual([{ axis: "E5", pass: true }]); // 2 of 3 -> pass
+    expect(results).toEqual([{ axis: "E5", pass: true, probeId: "1" }]); // 2 of 3 -> pass
   });
 
   it("gradeTraceBinaryForRun: K=3 majority vote on the trajectory axis", async () => {

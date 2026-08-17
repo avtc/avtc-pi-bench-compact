@@ -145,6 +145,32 @@ export function renderHeadline(result: BenchResultJson): string {
     lines.push("");
   }
 
+  // --- Probe breakdown (per-probe pass rate × arm; probe-answer axes detail) ---
+  const probeArms = arms.filter((a) => (result.arms[a]?.probes?.length ?? 0) > 0);
+  if (probeArms.length > 0) {
+    lines.push("## Probe breakdown   (passes per probe × arm; cell = passed/graded)");
+    lines.push(`| Probe | Axis | ${probeArms.map((a) => a).join(" | ")} |`);
+    lines.push(`|---|---|${probeArms.map(() => "---").join("|")}|`);
+    // Rows: the union of probeIds across arms, in numeric order.
+    const probeIds = [
+      ...new Set(probeArms.flatMap((a) => (result.arms[a]?.probes ?? []).map((p) => p.probeId))),
+    ].sort((x, y) => Number(x) - Number(y));
+    for (const probeId of probeIds) {
+      const first = probeArms
+        .map((a) => (result.arms[a]?.probes ?? []).find((p) => p.probeId === probeId))
+        .find((p) => p !== undefined);
+      if (first === undefined) continue;
+      const q = first.question.length > 64 ? `${first.question.slice(0, 61)}...` : first.question;
+      const cells = probeArms.map((a) => {
+        const p = (result.arms[a]?.probes ?? []).find((entry) => entry.probeId === probeId);
+        if (p === undefined) return "—";
+        return `${p.passes.filter(Boolean).length}/${p.passes.length}`;
+      });
+      lines.push(`| p${probeId} · ${q} | ${first.axis} | ${cells.join(" | ")} |`);
+    }
+    lines.push("");
+  }
+
   // --- Reliability (per arm: completed/failed + stop-and-surface notes) ---
   lines.push("## Reliability (per arm: completed/failed + notes)");
   for (const a of arms) {

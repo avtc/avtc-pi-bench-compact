@@ -32,6 +32,17 @@ interface ArmExactValues {
 export interface ArmRunGrades {
   readonly binary?: Readonly<Partial<Record<MetricId, readonly boolean[]>>>;
   readonly exact?: ArmExactValues;
+  /** Per-probe binary detail (the report's probe breakdown); one entry per graded
+   *  probeId with its per-attempt passes. Aggregated unchanged (raw detail, no CI). */
+  readonly probes?: readonly ProbeGrades[];
+}
+
+/** One probe's binary grades across attempts (per-probe breakdown detail). */
+export interface ProbeGrades {
+  readonly probeId: string;
+  readonly axis: MetricId;
+  readonly question: string;
+  readonly passes: readonly boolean[];
 }
 
 /** Recall-cost aggregate: mean over RECOVERED runs only (+ null when none recovered). */
@@ -62,6 +73,8 @@ export interface ArmMetrics {
     readonly C3?: CiResult;
     readonly C4?: C4Metric;
   };
+  /** Per-probe detail passed through from the grades (no aggregation). */
+  readonly probes?: readonly ProbeGrades[];
 }
 
 /** All run grades the aggregator consumes (per-arm binary/exact + cross-arm comparative). */
@@ -161,7 +174,7 @@ export function aggregateArmMetrics(grades: AllArmsGrades, options: BootstrapOpt
       const c4 = aggregateC4(ex.C4, options);
       if (c4 !== undefined) exact.C4 = c4;
     }
-    arms[armId] = { binary, exact };
+    arms[armId] = armGrades.probes === undefined ? { binary, exact } : { binary, exact, probes: armGrades.probes };
   }
 
   const comparative: Partial<Record<MetricId, ComparativeAxisResult>> = {};
