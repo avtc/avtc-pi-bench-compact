@@ -200,6 +200,17 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     expect(computeC4(trace, pricing).stages).toEqual(["Observer", "Builder"]);
   });
 
+  it("reads an OBJECT-shaped compactionStages map (stage → usage, e.g. memkeeper's) as its keys", () => {
+    const objStages = compaction("c1", "u0", "summary", makeUsage(1, 1), {
+      details: { compactionStages: { observe: { input: 1 }, build: { input: 2 }, select: { input: 3 } } },
+    });
+    expect(computeC4(traceOf([userEntry("u0", null), objStages.entry], [objStages]), pricing).stages).toEqual([
+      "observe",
+      "build",
+      "select",
+    ]);
+  });
+
   it("defaults stages to native-summary when the boundary compaction has no per-stage details (native arm)", () => {
     // The native pi compaction emits details = { readFiles, modifiedFiles } (no
     // compactionStages) — or no details at all. Both default to a single

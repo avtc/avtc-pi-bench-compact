@@ -18,6 +18,7 @@ import type { ArmId } from "../config/types.js";
 import type { MetricId } from "../metrics/defs.js";
 import { renderComparison } from "../report/compare.js";
 import { renderHeadline } from "../report/markdown.js";
+import { mergeResultJsons } from "../report/merge.js";
 import type { ArmResultJson, BenchResultJson, RankAxisJson } from "../report/result-json.js";
 import { benchRoot, runDir } from "../storage/paths.js";
 import { parseResultsArgs } from "./parse.js";
@@ -38,7 +39,7 @@ export interface ResultsOutcome {
   /** Which file this rendering belongs in — the canonical run report is only ever
    * a full single-run rendering; subset + comparison renderings get their own
    * siblings so re-rendering never clobbers the frozen artifact. */
-  readonly reportFile: "report.md" | "report-arms.md" | "report-compare.md";
+  readonly reportFile: "report.md" | "report-arms.md" | "report-compare.md" | "report-merged.md";
 }
 
 /**
@@ -80,6 +81,18 @@ export function runResultsCommand(args: string, seams: ResultsSeams): ResultsOut
     const report = renderHeadline(filterResultArms(loaded[0], refs[0].arms));
     return { report, error: undefined, runIds, reportFile: subset ? "report-arms.md" : "report.md" };
   }
+  // --merge: combine the runs' arm subsets into ONE full headline report (the
+  // scoped re-run workflow: baseline arms from an earlier run + re-compact arms
+  // from a fresh scoped run). Falls back to the per-metric comparison without it.
+  if (parsed.merge) {
+    const merged = mergeResultJsons(
+      loaded.map((result, i) => ({ runId: runIds[i] ?? "", result, arms: refs[i]?.arms })),
+    );
+    if (!merged.ok) {
+      return { report: undefined, error: merged.error, runIds, reportFile: "report.md" };
+    }
+    return { report: renderHeadline(merged.merged), error: undefined, runIds, reportFile: "report-merged.md" };
+  }
   const report = renderComparison(
     loaded,
     refs.map((r) => ({ runId: r.runId, arms: r.arms })),
@@ -111,7 +124,8 @@ function filterResultArms(result: BenchResultJson, arms: readonly ArmId[] | unde
 /** Register the `/bench-compact:results` command with the real file-reading loader. */
 export function registerResultsCommand(pi: ExtensionAPI): void {
   pi.registerCommand("bench-compact:results", {
-    description: "Render the headline report for <runId>[:arms] (compare multiple).",
+    description:
+      "Render the headline report for <runId>[:arms] (compare multiple runs; --merge combines runs' arm subsets into one full report).",
     handler: async (args, ctx) => {
       const root = benchRoot(getBenchConfig().outputDir);
       const seams: ResultsSeams = {

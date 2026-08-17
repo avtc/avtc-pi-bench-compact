@@ -143,11 +143,11 @@ describe("preflight — run-session-file path", () => {
 
 describe("preflight — results", () => {
   it("accepts at least one runId", () => {
-    const args: ResultsArgs = { runs: [{ runId: "r1" }], error: undefined };
+    const args: ResultsArgs = { runs: [{ runId: "r1" }], merge: false, error: undefined };
     expect(preflight(validConfig({}), "results", args, null)).toEqual({ ok: true });
   });
   it("rejects when no runId is given", () => {
-    const args: ResultsArgs = { runs: [], error: undefined };
+    const args: ResultsArgs = { runs: [], merge: false, error: undefined };
     const r = preflight(validConfig({}), "results", args, null);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/runId/i);

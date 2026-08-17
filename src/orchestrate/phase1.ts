@@ -34,6 +34,7 @@ import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
+import type { Phase1Walls } from "../storage/phase1-walls.js";
 import {
   branchExists,
   checkout,
@@ -164,6 +165,10 @@ export interface Phase1Deps {
    *  SKIPPED (the base entry reconstructed from the branch) instead of treated as a
    *  foreign-branch conflict. Uncommitted leftovers are deleted + re-compacted. */
   resume?: boolean;
+  /** The run's previously-persisted Phase-1 walls (`runs/<runId>/phase1-walls.json`,
+   *  read by the run driver) — reconstructed bases recover their compaction wall
+   *  (without it the compaction-cost metric renders 0s after a resume). */
+  priorWalls?: Phase1Walls;
   /** --reuse-bases: also reuse a committed base built under an OLDER tool version
    *  when the current version's base branch is absent (skip re-compaction after a
    *  tool fix that did not change compaction behavior). */
@@ -254,7 +259,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     if (preexisting && resume === true) {
       const sessionPath = branchSessionFile(sessionsDir, branch);
       if (ops.commitCountAhead(scenarioRepo, branch, "main") > 0 && ops.exists(sessionPath)) {
-        bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs: 0, usage: undefined });
+        bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs: deps.priorWalls?.[arm] ?? 0, usage: undefined });
         log.info(`phase-1: arm ${arm} already compacted (resumed) — skip ${branch}`);
         continue;
       }
@@ -286,7 +291,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
             ver: reusableVer,
             cfgId,
             branch: reusable,
-            wallMs: 0,
+            wallMs: deps.priorWalls?.[arm] ?? 0,
             usage: undefined,
           });
           log.info(

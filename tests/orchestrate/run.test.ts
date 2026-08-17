@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -905,5 +905,39 @@ describe("startRun — fastEval probes-only", () => {
     expect(input[0]?.attempt).toBe(1);
     expect(input[0]?.branch).toBe(bases[0]?.branch);
     expect(input[0]?.probes).toHaveLength(3);
+  });
+
+  it("attaches the phase-1-timed base wall to the synthesized boundary compaction + persists phase1-walls.json", async () => {
+    const bases = fakeBases(["A1"]); // wallMs 1000
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const captured: unknown[][] = [];
+    const score = scoreMock(async (input: unknown) => {
+      captured.push(input as unknown[]);
+      return { resultJson: { schema: "bench-compact.result-v1" }, markdown: "# r" };
+    });
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1,
+      probes: probesMock(async () => ({ traces: [], finalCtx: FINAL_CTX })),
+      score,
+    });
+    deps.config = { ...makeConfig(["A1"]), fastEval: "probes-only" };
+    deps.traceCapture = () =>
+      ({
+        branch: "stub",
+        entries: [],
+        compactions: [{ entry: { id: "c1" }, wallMs: 0 }],
+        tracePath: "stub",
+      }) as unknown as RunTrace;
+
+    await startRun(deps);
+
+    // The synthesized row's boundary compaction carries the base's timed wall.
+    const row = captured[0]?.[0] as { continuation: { compactions: Array<{ wallMs: number }> } } | undefined;
+    expect(row?.continuation.compactions[0]?.wallMs).toBe(1000);
+    // The run dir persists the wall for resume/rescore reconstruction.
+    const walls = JSON.parse(readFileSync(join(root, "runs", "2026-08-11-1", "phase1-walls.json"), "utf8"));
+    expect(walls).toEqual({ A1: 1000 });
   });
 });

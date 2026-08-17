@@ -39,6 +39,7 @@ import {
   runDir,
   scenarioManifest,
 } from "../storage/paths.js";
+import { type Phase1Walls, readPhase1Walls, writePhase1Walls } from "../storage/phase1-walls.js";
 import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
@@ -256,6 +257,12 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   widget?.show();
   widget?.startPhase("compact", NO_DETAIL);
 
+  // The run's durable Phase-1 walls: read up front (resume reconstruction recovers
+  // each arm's compaction wall), rewritten after the phase with every arm THIS
+  // process compacted (merge — a resume re-compacting a subset updates just those).
+  const wallsPath = join(runPath, "phase1-walls.json");
+  const priorWalls = readPhase1Walls(wallsPath);
+
   const phase1 = deps.phase1 ?? runPhase1;
   const continuations = deps.continuations ?? runContinuations;
   const probes = deps.probes ?? runProbes;
@@ -280,12 +287,21 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       toolVersions: runConfig.toolVersions,
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
       memkeeperGlobalSettings,
+      priorWalls,
       armsEnabled: deps.config.armsEnabled,
       resume: resuming,
       reuseBases: deps.resume?.reuseBases === true,
       widget,
       ops: deps.ops,
     });
+
+    // Persist every arm THIS process compacted (merge — keeps prior entries for arms
+    // that skipped via resume/reuse, whose walls are only in the file).
+    const freshWalls: Phase1Walls = {};
+    for (const base of bases) {
+      if (base.wallMs > 0) freshWalls[base.arm] = base.wallMs;
+    }
+    if (Object.keys(freshWalls).length > 0) writePhase1Walls(wallsPath, freshWalls);
 
     // --- Phase 2a: fork each base into N continuation attempts ---
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
@@ -488,10 +504,18 @@ function buildScoreRunInput(
     const capture = opts.captureTrace ?? captureTrace;
     for (const base of bases) {
       const trace = capture(branchSessionFile(opts.sessionsDir ?? "", base.branch), base.branch, new Map());
+      // Phase-1 timed the base's boundary compaction (bases carry wallMs) — attach
+      // it to the synthesized trace's boundary record; without this the
+      // compaction-cost metric renders 0s in probes-only runs.
+      const boundary = trace.compactions[0];
+      const compactions =
+        boundary === undefined || base.wallMs <= 0
+          ? trace.compactions
+          : [{ ...boundary, wallMs: base.wallMs }, ...trace.compactions.slice(1)];
       input.push({
         arm: base.arm,
         attempt: 1,
-        continuation: { ...trace, arm: base.arm, attempt: 1 },
+        continuation: { ...trace, compactions, arm: base.arm, attempt: 1 },
         // ALL probe attempts attach to the synthesized row — each attempt is an
         // independent probe-recall sample of the same post-compaction memory (rate over N).
         probes: probeTraces.filter((p) => p.arm === base.arm),

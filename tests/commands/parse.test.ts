@@ -75,10 +75,18 @@ describe("parsePrepareArgs", () => {
 
 describe("parseResultsArgs", () => {
   it("parses a single runId", () => {
-    expect(parseResultsArgs("run-2026-08-10-1")).toEqual({ runs: [{ runId: "run-2026-08-10-1" }], error: undefined });
+    expect(parseResultsArgs("run-2026-08-10-1")).toEqual({
+      runs: [{ runId: "run-2026-08-10-1" }],
+      error: undefined,
+      merge: false,
+    });
   });
   it("parses a runId with an :arms subset", () => {
-    expect(parseResultsArgs("run1:A1,A3")).toEqual({ runs: [{ runId: "run1", arms: ["A1", "A3"] }], error: undefined });
+    expect(parseResultsArgs("run1:A1,A3")).toEqual({
+      runs: [{ runId: "run1", arms: ["A1", "A3"] }],
+      error: undefined,
+      merge: false,
+    });
   });
   it("parses multiple runIds (comparison)", () => {
     expect(parseResultsArgs("run1:A1,A3 run2:A2")).toEqual({
@@ -87,6 +95,7 @@ describe("parseResultsArgs", () => {
         { runId: "run2", arms: ["A2"] },
       ],
       error: undefined,
+      merge: false,
     });
   });
   it("errors on an invalid arm id in :arms", () => {

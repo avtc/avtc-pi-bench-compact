@@ -160,6 +160,9 @@ interface RunRef {
 
 export interface ResultsArgs {
   runs: RunRef[];
+  /** `--merge`: combine the runs' arm subsets into ONE full headline report
+   *  (instead of the per-metric comparison). */
+  merge: boolean;
   error: string | undefined;
 }
 
@@ -172,6 +175,7 @@ const PLANT_EQ = "--plant=";
 const FROM_EQ = "--from=";
 const RE_AUTHOR_EQ = "--re-author=";
 const FROM_SESSION_EQ = "--from-session=";
+const RESULTS_MERGE_FLAG = "--merge";
 
 /** Split raw args into non-empty whitespace tokens (shared by the parsers). */
 function tokenize(args: string): string[] {
@@ -186,10 +190,18 @@ function tokenize(args: string): string[] {
 export function parseResultsArgs(args: string): ResultsArgs {
   const tokens = tokenize(args);
   if (tokens.length === 0) {
-    return { runs: [], error: "results requires at least one runId" };
+    return { runs: [], merge: false, error: "results requires at least one runId" };
   }
   const runs: RunRef[] = [];
+  let merge = false;
   for (const tok of tokens) {
+    if (tok === RESULTS_MERGE_FLAG) {
+      merge = true;
+      continue;
+    }
+    if (tok.startsWith("--")) {
+      return { runs: [], merge: false, error: `unknown flag "${tok}"` };
+    }
     const colon = tok.indexOf(":");
     let runId: string;
     let arms: ArmId[] | undefined;
@@ -206,6 +218,7 @@ export function parseResultsArgs(args: string): ResultsArgs {
       if (armsStr.endsWith(",")) {
         return {
           runs: [],
+          merge: false,
           error: `trailing comma in ":arms" of "${tok}" — arms are comma-separated with no spaces (whitespace separates runs)`,
         };
       }
@@ -215,26 +228,38 @@ export function parseResultsArgs(args: string): ResultsArgs {
       if (pieces.some((s) => s.length === 0)) {
         return {
           runs: [],
+          merge: false,
           error: `empty arm in ":arms" of "${tok}" — arms are comma-separated with no empty entries (leading/internal double comma)`,
         };
       }
       const armList = pieces;
       if (armList.length === 0) {
-        return { runs: [], error: `":arms" is empty in "${tok}" — specify arms (e.g. :A1,A3) or drop the colon` };
+        return {
+          runs: [],
+          merge: false,
+          error: `":arms" is empty in "${tok}" — specify arms (e.g. :A1,A3) or drop the colon`,
+        };
       }
       for (const a of armList) {
         if (!VALID_ARMS.has(a)) {
-          return { runs: [], error: `"${a}" is not a valid arm id (expected one of ${ARM_IDS.join(",")})` };
+          return {
+            runs: [],
+            merge: false,
+            error: `"${a}" is not a valid arm id (expected one of ${ARM_IDS.join(",")})`,
+          };
         }
       }
       arms = armList as ArmId[];
     }
     if (runId.length === 0) {
-      return { runs: [], error: `runId is empty in "${tok}"` };
+      return { runs: [], merge: false, error: `runId is empty in "${tok}"` };
     }
     runs.push({ runId, arms });
   }
-  return { runs, error: undefined };
+  if (merge && runs.length < 2) {
+    return { runs: [], merge: false, error: "--merge requires at least two runs (e.g. runA:A1,A2 runB:A3)" };
+  }
+  return { runs, merge, error: undefined };
 }
 
 /** Parse a single positional value (a scenario folder path or a session file path).

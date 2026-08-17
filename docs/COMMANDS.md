@@ -91,6 +91,13 @@ Compare two (or more) runs — renders a config diff + a per-arm metric-delta ta
 /bench-compact:results 2026-08-09-1 2026-08-10-2:A1,A3
 ```
 
+### `/bench-compact:results --merge <runId1>[:arms] <runId2>[:arms2]` *(merged full report)*
+Combine runs' arm subsets into ONE full headline report (`report-merged.md`, written next to the first run's results) — the scoped re-run workflow: baseline arms from an earlier run + re-compact arms from a fresh scoped run, one 5-arm metric table with ΔvsA1, probe breakdown, and cost breakdowns. Arms must be disjoint (each arm from one run) and all runs must share the scenario; comparative verdicts are per-run artifacts and are omitted.
+
+```
+/bench-compact:results --merge 2026-08-16-4:A1,A2,A5 2026-08-17-2:A3,A4
+```
+
 ## Control
 
 ### `/bench-compact:pause`
