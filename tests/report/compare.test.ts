@@ -120,8 +120,8 @@ describe("renderComparison", () => {
     expect(md).not.toContain("all config + tool-version fields match");
   });
 
-  it("renders a per-arm metric table with Δ run1·arm→run2·arm (same-arm, polarity-aware)", () => {
-    // C1 footprint lowerBetter: run1=1200, run2=800 → run2 better → positive delta.
+  it("renders a per-arm metric table with Δ run1·arm→run2·arm (same-arm, raw)", () => {
+    // C1 footprint lowerBetter: run1=1200, run2=800 → run2 better → raw delta 800-1200 = -400.
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-1",
@@ -143,9 +143,9 @@ describe("renderComparison", () => {
     expect(md).toContain("run2·A3");
     expect(md).toContain("1.2K"); // run1 C1
     expect(md).toContain("800"); // run2 C1 (exact, <1000)
-    // Δ: run2 better than run1 → positive (+400), no ⚠
-    expect(md).toMatch(/\[\+400\]/);
-    expect(md).not.toContain("⚠");
+    // Δ: run2 smaller footprint → raw [-400], no ⚠ on the cell
+    expect(md).toMatch(/\[-400\]/);
+    expect(md).not.toMatch(/\[-400\]⚠/);
   });
 
   it("selecting run1:A1 derives run2 A1-less arms' ΔvsA1 (prior A1 as baseline)", () => {
@@ -172,7 +172,7 @@ describe("renderComparison", () => {
     // run2·A3 gets ΔvsA1 derived from run1·A1: +50pp
     expect(md).toContain("run2·A3");
     expect(md).toMatch(/\[\+50\]/); // (0.60 - 0.10) * 100 = +50pp
-    expect(md).not.toContain("⚠"); // better than baseline → no net-negative
+    expect(md).not.toMatch(/\[\+50\]⚠/); // better than baseline → no net-negative flag
   });
 
   it("flags net-negative when a run2 memory arm is worse than the prior A1 baseline", () => {
@@ -196,7 +196,7 @@ describe("renderComparison", () => {
         { runId: "run2", arms: ["A3"] },
       ],
     );
-    // C1 lowerBetter: run2·A3 (5000) worse than run1·A1 (500) → a1Value-armValue = 500-5000 = -4500 → ⚠
+    // C1 lowerBetter: run2·A3 (5000) worse than run1·A1 (500) → raw +4.5K → ⚠
     expect(md).toContain("⚠");
   });
 

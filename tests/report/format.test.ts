@@ -93,19 +93,19 @@ describe("formatDeltaSuffix", () => {
     const s = formatDeltaSuffix(0.52, { rate: 0.62, ci: [0.5, 0.74], n: 9 });
     expect(s).toBe(" [+52]");
   });
-  it("comparative delta → raw rank points", () => {
+  it("comparative delta → raw rank points (↓: normalized +1 = one rank better → raw -1)", () => {
     const s = formatDeltaSuffix(1, { rank: 1, rankCi: [1, 1] });
-    expect(s).toBe(" [+1]");
+    expect(s).toBe(" [-1]");
   });
-  it("exact token delta → K-suffixed count (negative → ⚠)", () => {
+  it("exact token delta → K-suffixed count (↓: normalized negative = bigger footprint → raw + and ⚠)", () => {
     const s = formatDeltaSuffix(-7200, { mean: 8400, ci: [8000, 9000] });
-    expect(s).toBe(" [-7.2K]⚠");
+    expect(s).toBe(" [+7.2K]⚠");
   });
-  it("exact token delta → raw count when < 1000 (positive → no ⚠)", () => {
+  it("exact token delta → raw count when < 1000 (↓: normalized positive = smaller footprint → raw -, no ⚠)", () => {
     const s = formatDeltaSuffix(400, { mean: 800, ci: [700, 900] });
-    expect(s).toBe(" [+400]");
+    expect(s).toBe(" [-400]");
   });
-  it("C4 cost delta → dollar-cents (negative → ⚠)", () => {
+  it("C4 cost delta → dollar-cents (↓: normalized negative = costlier → raw + and ⚠)", () => {
     const s = formatDeltaSuffix(-0.033, {
       tokensIn: 1,
       tokensOut: 1,
@@ -116,9 +116,9 @@ describe("formatDeltaSuffix", () => {
       stages: ["s"],
       phase2CompactionCount: 0,
     });
-    expect(s).toBe(" [-$0.033]⚠");
+    expect(s).toBe(" [+$0.033]⚠");
   });
-  it("C4 cost delta → positive dollar-cents (no ⚠)", () => {
+  it("C4 cost delta → cheaper (↓: normalized positive → raw -, no ⚠)", () => {
     const s = formatDeltaSuffix(0.011, {
       tokensIn: 1,
       tokensOut: 1,
@@ -129,6 +129,6 @@ describe("formatDeltaSuffix", () => {
       stages: ["s"],
       phase2CompactionCount: 0,
     });
-    expect(s).toBe(" [+$0.011]");
+    expect(s).toBe(" [-$0.011]");
   });
 });

@@ -90,7 +90,7 @@ export function renderHeadline(result: BenchResultJson): string {
 
   // --- Results table ---
   const resultsDesc = a1Present
-    ? "## Results   (rates in %; [95% CI]; ΔvsA1 polarity-aware (+ = better than A1; net-negative flagged); rank 1=best; ↑/↓ polarity)"
+    ? "## Results   (rates in %; [95% CI]; ΔvsA1 = arm − A1 (raw; ⚠ = worse than A1); rank 1=best; ↑/↓ polarity)"
     : "## Results   (rates in %; [95% CI]; rank 1=best; ↑/↓ polarity — no A1 baseline)";
   lines.push(resultsDesc);
   const header = `| Metric | ${arms.map((a) => `${a} ${result.arms[a]?.tool ?? ""}`).join(" | ")} |`;

@@ -152,7 +152,7 @@ describe("renderHeadline", () => {
     expect(md).not.toMatch(/\| 0\.62 /); // not a raw proportion in the table
   });
 
-  it("shows ΔvsA1 polarity-aware: positive for A3 E4 (higher rate better), net-negative ⚠ for C1 (lower better)", () => {
+  it("shows ΔvsA1 raw: +52pp for A3 E4 (higher rate better), +10.9K⚠ for C1 (bigger footprint, worse)", () => {
     const md = renderHeadline(syntheticResult(false));
     // E4: A3 62% vs A1 10% → +52 (higherBetter → positive delta). Find a [+...].
     expect(md).toMatch(/\[\+52\]/);
@@ -163,7 +163,7 @@ describe("renderHeadline", () => {
   it("OMITS ΔvsA1 entirely when A1 is absent", () => {
     const md = renderHeadline(syntheticResult(true));
     expect(md).not.toMatch(/\[\+\d+\]/);
-    expect(md).not.toContain("⚠");
+    expect(md).not.toMatch(/]⚠/);
     expect(md).not.toMatch(/ΔvsA1|vsA1/i);
   });
 

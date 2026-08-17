@@ -145,7 +145,7 @@ export function renderComparison(results: readonly BenchResultJson[], selections
 
   // --- Per-arm metric table ---
   lines.push(
-    "## Metric comparison   (Δ suffix per cell vs its baseline: run0 same-arm (tool-version diff), else run0 baseline arm; + = better; net-negative flagged)",
+    "## Metric comparison   (Δ suffix per cell vs its baseline: run0 same-arm (tool-version diff), else run0 baseline arm; Δ = raw difference (arm − baseline); ⚠ = worse)",
   );
   // Column headers: runId·arm + tool@version (arms labeled with their tool version).
   const header = `| Metric | ${cells.map((c) => `${c.runId}·${c.arm} ${c.tool}${c.version ? `@${c.version}` : ""}`).join(" | ")} |`;

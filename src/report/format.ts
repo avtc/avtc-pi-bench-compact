@@ -86,19 +86,22 @@ export function formatMetricValue(v: MetricJson): string {
   return count(v.mean); // exact footprint / run-cost
 }
 
-/** Render the polarity-aware delta suffix for a metric cell: " [+52]" / " [-7.2K]⚠" /
- *  " [-$0.033]⚠" / "". `delta` is the polarity-NORMALIZED delta (positive = better)
- *  from a1Delta. Binary rate-deltas render as percentage points; comparative as raw
- *  rank points; exact token deltas as K/M-suffixed counts; compaction-cost as cents. */
+/** Render the raw delta suffix for a metric cell: " [+52]" / " [-7.2K]" / " [-2.6K]⚠" /
+ *  "". The bracket is the RAW difference (this arm − baseline) in the metric's
+ *  natural unit; `delta` is the polarity-NORMALIZED delta (positive = better) from
+ *  a1Delta — ⚠ flags net-negative (worse), and ↓ metrics flip its sign for display
+ *  (smaller footprint → negative bracket). Binary rate-deltas render as percentage
+ *  points; comparative as rank points; exact token deltas as K/M-suffixed counts;
+ *  compaction-cost as cents. */
 export function formatDeltaSuffix(delta: number, v: MetricJson): string {
   let deltaStr: string;
   if ("rate" in v)
-    deltaStr = `[${signed(Math.round(delta * 100))}]`; // percentage points
+    deltaStr = `[${signed(Math.round(delta * 100))}]`; // percentage points (↑: raw = normalized)
   else if ("rank" in v)
-    deltaStr = `[${signed(delta)}]`; // rank points
+    deltaStr = `[${signed(-delta)}]`; // rank points (↓: raw = arm − baseline)
   else if ("dollars" in v)
-    deltaStr = `[${signedDollars(delta)}]`; // compaction-cost (cents)
-  else deltaStr = `[${signedCount(delta)}]`; // footprint/run-cost tokens (K-suffixed)
+    deltaStr = `[${signedDollars(-delta)}]`; // compaction-cost (↓: raw dollars)
+  else deltaStr = `[${signedCount(-delta)}]`; // footprint/run-cost tokens (↓: raw = arm − baseline)
   const flag = isNetNegative(delta) ? "⚠" : ""; // net-negative (worse than baseline)
   return ` ${deltaStr}${flag}`;
 }
