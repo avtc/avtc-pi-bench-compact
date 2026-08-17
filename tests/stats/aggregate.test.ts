@@ -57,13 +57,33 @@ describe("aggregateArmMetrics — comparative channel", () => {
 });
 
 describe("aggregateArmMetrics — exact C1/C3 channel", () => {
-  it("routes C1/C3 to {mean, ci}", () => {
+  it("routes C1/C3 to {mean, ci}; probes-only C3 samples pool to per-answer $/wall", () => {
     const grades: AllArmsGrades = {
       arms: { A1: { exact: { C1: [1200, 1300, 1100], C3: [40000, 50000, 45000] } } },
     };
     const result = aggregateArmMetrics(grades, OPTS);
     expect(result.arms.A1?.exact.C1?.mean).toBe(1200);
-    expect(result.arms.A1?.exact.C3?.mean).toBeCloseTo(45000, 5);
+    const tokenMean = result.arms.A1?.exact.C3;
+    expect(tokenMean !== undefined && "mean" in tokenMean ? tokenMean.mean : undefined).toBeCloseTo(45000, 5);
+
+    const pooled = aggregateArmMetrics(
+      {
+        arms: {
+          A1: {
+            exact: {
+              C3: [
+                { dollars: 0.4, wallMs: 60_000, answers: 10 },
+                { dollars: 0.2, wallMs: 30_000, answers: 10 },
+              ],
+            },
+          },
+        },
+      },
+      OPTS,
+    );
+    const pooledC3 = pooled.arms.A1?.exact.C3 as { dollars: number; wallMs: number; answers: number };
+    expect(pooledC3.dollars).toBeCloseTo(0.03, 10); // 0.6$/20 answers
+    expect(pooledC3).toMatchObject({ wallMs: 4500, answers: 20 }); // 90s/20
   });
 });
 

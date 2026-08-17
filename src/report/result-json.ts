@@ -57,8 +57,21 @@ export interface C4MetricJson {
   readonly stages: readonly string[];
   readonly phase2CompactionCount: number;
 }
+/** Probes-only run-cost: mean $ + wall PER probe answer (the full-run run-cost is
+ *  a token-mean `ExactMetricJson`; this shape renders like the compaction-cost cell). */
+export interface C3CostMetricJson {
+  readonly dollars: number;
+  readonly wallMs: number;
+  readonly answers: number;
+}
 /** Union of per-metric JSON shapes (discriminated by the metric's channel in metricDefs). */
-export type MetricJson = BinaryMetricJson | ComparativeMetricJson | ExactMetricJson | C2MetricJson | C4MetricJson;
+export type MetricJson =
+  | BinaryMetricJson
+  | ComparativeMetricJson
+  | ExactMetricJson
+  | C2MetricJson
+  | C4MetricJson
+  | C3CostMetricJson;
 
 /** One arm's entry in the result-JSON. */
 export interface ArmResultJson {
@@ -167,7 +180,10 @@ function mapArmMetrics(arm: ArmMetrics): Partial<Record<MetricId, MetricJson>> {
     metrics[metricId] = { rate: m.rate, ci: m.ci, n: m.n };
   }
   if (arm.exact.C1 !== undefined) metrics.C1 = { mean: arm.exact.C1.mean, ci: arm.exact.C1.ci };
-  if (arm.exact.C3 !== undefined) metrics.C3 = { mean: arm.exact.C3.mean, ci: arm.exact.C3.ci };
+  if (arm.exact.C3 !== undefined) {
+    // Two run-cost shapes: full runs (token-mean CI) and probes-only (mean $ + wall per answer).
+    metrics.C3 = "mean" in arm.exact.C3 ? { mean: arm.exact.C3.mean, ci: arm.exact.C3.ci } : arm.exact.C3;
+  }
   if (arm.exact.C2 !== undefined) {
     const c2 = arm.exact.C2;
     metrics.C2 = { mean: c2.mean, ci: c2.ci, notRecoveredRate: c2.notRecoveredRate };

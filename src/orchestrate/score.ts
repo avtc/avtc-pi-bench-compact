@@ -71,7 +71,13 @@ import {
   type ResultScenario,
   serializeResultJson,
 } from "../report/result-json.js";
-import { type AllArmsGrades, type ArmRunGrades, aggregateArmMetrics, type ProbeGrades } from "../stats/aggregate.js";
+import {
+  type AllArmsGrades,
+  type ArmRunGrades,
+  aggregateArmMetrics,
+  type ProbeCostSample,
+  type ProbeGrades,
+} from "../stats/aggregate.js";
 import type { BootstrapOptions } from "../stats/bootstrap.js";
 import type { ArmRanking } from "../stats/rank.js";
 import type { RunConfig } from "../storage/branches.js";
@@ -193,7 +199,7 @@ interface ArmAccumulators {
   readonly binary: Partial<Record<MetricId, boolean[]>>;
   readonly C1: number[];
   readonly C2: C2Result[];
-  readonly C3: number[];
+  readonly C3: (number | ProbeCostSample)[];
   readonly C4: C4Result[];
 }
 
@@ -214,10 +220,18 @@ function binaryArray(acc: ArmAccumulators, axis: MetricId): boolean[] {
 
 /** Mean output tokens per probe answer (the probes-only run-cost metric). Probes without usage
  *  (not a clean append) are excluded; 0 when none carry usage. */
-function meanProbeAnswerOutput(probes: readonly ProbeTrace[]): number {
-  const outputs = probes.flatMap((t) => (t.usage === undefined ? [] : [t.usage.tokensOut]));
-  if (outputs.length === 0) return 0;
-  return outputs.reduce((a, b) => a + b, 0) / outputs.length;
+/** One run's probe-answer cost SUMS (dollars/wall over answers; skipped entirely
+ *  when no probe carries usage — the arm then has no run-cost row). */
+function probeCostSample(probes: readonly ProbeTrace[]): ProbeCostSample | null {
+  const usages = probes.flatMap((t) => (t.usage === undefined ? [] : [t.usage]));
+  if (usages.length === 0) return null;
+  let dollars = 0;
+  let wallMs = 0;
+  for (const u of usages) {
+    dollars += u.dollars;
+    wallMs += u.wallMs;
+  }
+  return { dollars, wallMs, answers: usages.length };
 }
 
 /**
@@ -254,9 +268,10 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     const exact = computeRunExact(run.continuation, deps.pricing);
     if (exact.C1 !== undefined) acc.C1.push(exact.C1);
     // Probes-only runs have no continuation: the run-cost metric = the effort spent
-    // ANSWERING the probes from the compacted memory (mean output tokens per answer).
+    // ANSWERING the probes from the compacted memory ($ + wall per answer).
     if (deps.probesOnly === true) {
-      acc.C3.push(meanProbeAnswerOutput(run.probes));
+      const sample = probeCostSample(run.probes);
+      if (sample !== null) acc.C3.push(sample);
     } else {
       acc.C3.push(exact.C3);
     }
@@ -308,12 +323,13 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     const exactValues: {
       C1?: readonly number[];
       C2?: readonly C2Result[];
-      C3?: readonly number[];
+      C3?: readonly number[] | readonly ProbeCostSample[];
       C4?: readonly C4Result[];
     } = {};
     if (acc.C1.length > 0) exactValues.C1 = acc.C1;
     if (acc.C2.length > 0) exactValues.C2 = acc.C2;
-    if (acc.C3.length > 0) exactValues.C3 = acc.C3;
+    // The run-cost samples mix shapes only across modes — within one run they are homogeneous.
+    if (acc.C3.length > 0) exactValues.C3 = acc.C3 as readonly number[] | readonly ProbeCostSample[];
     if (acc.C4.length > 0) exactValues.C4 = acc.C4;
     const byProbe = probeDetail.get(arm);
     const probes =

@@ -1019,8 +1019,8 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     const { resultJson, markdown } = await scoreRun(runs, deps);
     // exact + probe lanes present
     expect(resultJson.arms.A1?.metrics.C4).toBeDefined();
-    // probes-only C3 = mean per-probe answer output: (60 + 180) / 2 = 120
-    expect(resultJson.arms.A1?.metrics.C3).toMatchObject({ mean: 120 });
+    // probes-only run-cost = pooled $ + wall PER answer: (0.03+0.05)/2 = /usr/bin/bash.04; (30s+10s)/2 = 20s
+    expect(resultJson.arms.A1?.metrics.C3).toEqual({ dollars: 0.04, wallMs: 20_000, answers: 2 });
     // per-probe usages serialized + the answer-cost summary line rendered
     expect(resultJson.arms.A1?.probes?.[0]?.usages).toEqual([
       { tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0, dollars: 0.03, wallMs: 30_000 },

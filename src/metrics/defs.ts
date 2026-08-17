@@ -119,7 +119,7 @@ export const METRIC_DEFS: Record<MetricId, MetricDef> = {
     name: "run-cost",
     channel: "exact",
     polarity: "lowerBetter",
-    desc: "tokens generated from compaction to done (sum of post-compaction assistant output tokens)",
+    desc: "full runs: tokens generated from compaction to done (post-compaction assistant output); probes-only: mean $ + wall per probe answer",
   },
   C4: {
     name: "compaction-cost",

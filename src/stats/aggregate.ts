@@ -25,7 +25,7 @@ import { mean } from "./util.js";
 interface ArmExactValues {
   readonly C1?: readonly number[];
   readonly C2?: readonly C2Result[];
-  readonly C3?: readonly number[];
+  readonly C3?: readonly number[] | readonly ProbeCostSample[];
   readonly C4?: readonly C4Result[];
 }
 
@@ -47,6 +47,31 @@ export interface ProbeGrades {
   /** Per-attempt probe-answer usage, aligned with `passes` (null when the probe tail
    *  was not a clean append — usage unknowable). */
   readonly usages?: readonly (ProbeUsage | null)[];
+}
+
+/** One probes-only run-cost sample (per-run SUMS over that run's probe answers).
+ *  Pooling divides total dollars/wall by total answers across runs. */
+export interface ProbeCostSample {
+  readonly dollars: number;
+  readonly wallMs: number;
+  readonly answers: number;
+}
+
+/** Probes-only run-cost aggregate: mean $ + wall PER probe answer. */
+export interface C3CostMetric {
+  readonly dollars: number;
+  readonly wallMs: number;
+  readonly answers: number;
+}
+
+/** Sum one numeric field over samples (0 over an empty list). */
+function sumField(samples: readonly object[], field: "dollars" | "wallMs" | "answers"): number {
+  let sum = 0;
+  for (const s of samples) {
+    const v = (s as Record<string, unknown>)[field];
+    if (typeof v === "number") sum += v;
+  }
+  return sum;
 }
 
 /** Recall-cost aggregate: mean over RECOVERED runs only (+ null when none recovered). */
@@ -74,7 +99,7 @@ export interface ArmMetrics {
   readonly exact: {
     readonly C1?: CiResult;
     readonly C2?: C2Metric;
-    readonly C3?: CiResult;
+    readonly C3?: CiResult | C3CostMetric;
     readonly C4?: C4Metric;
   };
   /** Per-probe detail passed through from the grades (no aggregation). */
@@ -166,10 +191,24 @@ export function aggregateArmMetrics(grades: AllArmsGrades, options: BootstrapOpt
       }
     }
     // Build the exact map mutably (its fields are readonly on the public type).
-    const exact: { C1?: CiResult; C2?: C2Metric; C3?: CiResult; C4?: C4Metric } = {};
+    const exact: { C1?: CiResult; C2?: C2Metric; C3?: CiResult | C3CostMetric; C4?: C4Metric } = {};
     const ex = armGrades.exact;
     if (ex?.C1 !== undefined && ex.C1.length > 0) exact.C1 = bootstrapCi(ex.C1, options);
-    if (ex?.C3 !== undefined && ex.C3.length > 0) exact.C3 = bootstrapCi(ex.C3, options);
+    if (ex?.C3 !== undefined && ex.C3.length > 0) {
+      exact.C3 =
+        typeof ex.C3[0] === "object"
+          ? {
+              // pooled per-answer means: total $/wall over total answers across runs
+              dollars:
+                sumField(ex.C3 as readonly ProbeCostSample[], "dollars") /
+                sumField(ex.C3 as readonly ProbeCostSample[], "answers"),
+              wallMs:
+                sumField(ex.C3 as readonly ProbeCostSample[], "wallMs") /
+                sumField(ex.C3 as readonly ProbeCostSample[], "answers"),
+              answers: sumField(ex.C3 as readonly ProbeCostSample[], "answers"),
+            }
+          : bootstrapCi(ex.C3 as readonly number[], options);
+    }
     if (ex?.C2 !== undefined) {
       const c2 = aggregateC2(ex.C2, options);
       if (c2 !== undefined) exact.C2 = c2;

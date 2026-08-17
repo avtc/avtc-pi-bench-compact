@@ -32,7 +32,8 @@ export function extractArmScalars(
     scalars[metricId] = m.rate;
   }
   if (armMetrics.exact.C1 !== undefined) scalars.C1 = armMetrics.exact.C1.mean;
-  if (armMetrics.exact.C3 !== undefined) scalars.C3 = armMetrics.exact.C3.mean;
+  if (armMetrics.exact.C3 !== undefined)
+    scalars.C3 = "mean" in armMetrics.exact.C3 ? armMetrics.exact.C3.mean : armMetrics.exact.C3.dollars;
   if (armMetrics.exact.C2 !== undefined) scalars.C2 = armMetrics.exact.C2.mean;
   if (armMetrics.exact.C4 !== undefined) scalars.C4 = armMetrics.exact.C4.dollars;
   for (const [metricId, axis] of Object.entries(comparative) as [
