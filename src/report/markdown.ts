@@ -168,6 +168,25 @@ export function renderHeadline(result: BenchResultJson): string {
       });
       lines.push(`| p${probeId} · ${q} | ${first.axis} | ${cells.join(" | ")} |`);
     }
+    // Per-arm answer-cost summary (sums over every probe × attempt with usage).
+    const costCells = probeArms.map((a) => {
+      const usages = (result.arms[a]?.probes ?? []).flatMap((p) => p.usages ?? []).filter((u) => u !== null);
+      if (usages.length === 0) return `${a} —`;
+      const sum = usages.reduce(
+        (acc, u) => ({
+          tokensIn: acc.tokensIn + u.tokensIn,
+          tokensOut: acc.tokensOut + u.tokensOut,
+          dollars: acc.dollars + u.dollars,
+          wallMs: acc.wallMs + u.wallMs,
+        }),
+        { tokensIn: 0, tokensOut: 0, dollars: 0, wallMs: 0 },
+      );
+      return `${a} ${count(sum.tokensIn)}in ${count(sum.tokensOut)}out ${dollars(sum.dollars)} ${(sum.wallMs / 1000).toFixed(0)}s`;
+    });
+    if (costCells.some((cell) => !cell.endsWith("—"))) {
+      lines.push("");
+      lines.push(`answer cost per arm: ${costCells.join(" | ")}`);
+    }
     lines.push("");
   }
 

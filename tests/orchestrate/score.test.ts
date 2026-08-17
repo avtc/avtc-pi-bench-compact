@@ -770,8 +770,8 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
 
     // per-probe breakdown: serialized per arm with the manifest question + per-attempt passes
     expect(a3?.probes).toEqual([
-      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [true] },
-      { probeId: "2", axis: "E6", question: "decide Y?", passes: [true] },
+      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [true], usages: [null] },
+      { probeId: "2", axis: "E6", question: "decide Y?", passes: [true], usages: [null] },
     ]);
     expect(resultJson.arms.A1?.probes).toEqual(a3?.probes);
 
@@ -810,7 +810,7 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     };
     const { resultJson, markdown } = await scoreRun(runs, deps);
     expect(resultJson.arms.A1?.probes).toEqual([
-      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [false, false] },
+      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [false, false], usages: [null, null] },
     ]);
     expect(markdown).toContain("| p1 · what is the formula? | E5 | 0/2 |");
   });
@@ -953,7 +953,26 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
   it("grades C1/C3/C4 + probe lanes, skips recall-cost + trace-binary + comparative", async () => {
     const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
     const trace = traceOf([userEntry("u0", null), c1.entry], [c1]); // base-shaped: no continuation entries
-    const probes = [{ arm: "A1" as const, attempt: 1, probeId: "1", branch: "A1-base", answer: "formula", kept: true }];
+    const probes = [
+      {
+        arm: "A1" as const,
+        attempt: 1,
+        probeId: "1",
+        branch: "A1-base",
+        answer: "formula",
+        kept: true,
+        usage: { tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0, dollars: 0.03, wallMs: 30_000 },
+      },
+      {
+        arm: "A1" as const,
+        attempt: 1,
+        probeId: "2",
+        branch: "A1-base",
+        answer: "I refuse",
+        kept: true,
+        usage: { tokensIn: 300, tokensOut: 180, cacheRead: 0, cacheWrite: 0, dollars: 0.05, wallMs: 10_000 },
+      },
+    ];
     const runs: ArmAttemptRun[] = [
       {
         arm: "A1",
@@ -997,9 +1016,16 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
       meta: integMeta(),
     };
 
-    const { resultJson } = await scoreRun(runs, deps);
+    const { resultJson, markdown } = await scoreRun(runs, deps);
     // exact + probe lanes present
     expect(resultJson.arms.A1?.metrics.C4).toBeDefined();
+    // probes-only C3 = mean per-probe answer output: (60 + 180) / 2 = 120
+    expect(resultJson.arms.A1?.metrics.C3).toMatchObject({ mean: 120 });
+    // per-probe usages serialized + the answer-cost summary line rendered
+    expect(resultJson.arms.A1?.probes?.[0]?.usages).toEqual([
+      { tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0, dollars: 0.03, wallMs: 30_000 },
+    ]);
+    expect(markdown).toContain("answer cost per arm: A1 600in 240out $0.080 40s");
     // continuation-judged lanes never ran (recall-cost included: the synthesized
     // row's trace IS the arm-base build transcript — no post-compaction continuation
     // exists, so tokens-to-first-use would measure build cost, not recall)

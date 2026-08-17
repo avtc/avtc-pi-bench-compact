@@ -76,6 +76,18 @@ export interface ProbeBreakdownJson {
   readonly axis: MetricId;
   readonly question: string;
   readonly passes: readonly boolean[];
+  /** Per-attempt answer usage aligned with `passes` (null = not a clean append). */
+  readonly usages?: readonly (ProbeUsageJson | null)[];
+}
+
+/** One probe answer's effort (tokens + dollars + wall), captured at probe settle. */
+export interface ProbeUsageJson {
+  readonly tokensIn: number;
+  readonly tokensOut: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly dollars: number;
+  readonly wallMs: number;
 }
 
 /** A comparative axis's order + Elo (the `ranks` block; full cross-arm detail). */

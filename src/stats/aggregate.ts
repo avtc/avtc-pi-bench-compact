@@ -16,6 +16,7 @@ import type { ArmId } from "../config/types.js";
 import type { C2Result } from "../metrics/c2.js";
 import type { MetricId } from "../metrics/defs.js";
 import type { C4Result } from "../metrics/exact.js";
+import type { ProbeUsage } from "../orchestrate/probes.js";
 import { type BinaryRateResult, type BootstrapOptions, binaryRate, bootstrapCi, type CiResult } from "./bootstrap.js";
 import { type ArmRanking, aggregateRanks, type ComparativeAxisResult } from "./rank.js";
 import { mean } from "./util.js";
@@ -43,6 +44,9 @@ export interface ProbeGrades {
   readonly axis: MetricId;
   readonly question: string;
   readonly passes: readonly boolean[];
+  /** Per-attempt probe-answer usage, aligned with `passes` (null when the probe tail
+   *  was not a clean append — usage unknowable). */
+  readonly usages?: readonly (ProbeUsage | null)[];
 }
 
 /** Recall-cost aggregate: mean over RECOVERED runs only (+ null when none recovered). */

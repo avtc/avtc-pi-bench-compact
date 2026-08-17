@@ -212,6 +212,14 @@ function binaryArray(acc: ArmAccumulators, axis: MetricId): boolean[] {
   return arr;
 }
 
+/** Mean output tokens per probe answer (the probes-only run-cost metric). Probes without usage
+ *  (not a clean append) are excluded; 0 when none carry usage. */
+function meanProbeAnswerOutput(probes: readonly ProbeTrace[]): number {
+  const outputs = probes.flatMap((t) => (t.usage === undefined ? [] : [t.usage.tokensOut]));
+  if (outputs.length === 0) return 0;
+  return outputs.reduce((a, b) => a + b, 0) / outputs.length;
+}
+
 /**
  * Score every captured run into a BenchResultJson + headline markdown. Routes each
  * metric to its mechanism (exact / judge-boundaried exact / binary / comparative),
@@ -245,7 +253,13 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     deps.onScoreProgress?.(`arm ${input.indexOf(run) + 1}/${input.length} (${run.arm}) — exact metrics`);
     const exact = computeRunExact(run.continuation, deps.pricing);
     if (exact.C1 !== undefined) acc.C1.push(exact.C1);
-    acc.C3.push(exact.C3);
+    // Probes-only runs have no continuation: the run-cost metric = the effort spent
+    // ANSWERING the probes from the compacted memory (mean output tokens per answer).
+    if (deps.probesOnly === true) {
+      acc.C3.push(meanProbeAnswerOutput(run.probes));
+    } else {
+      acc.C3.push(exact.C3);
+    }
     acc.C4.push(exact.C4);
 
     if (deps.probesOnly !== true) {
@@ -254,6 +268,8 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
 
     for (const { axis, pass, probeId } of await gradeProbeAxesForRun(run, deps)) {
       binaryArray(acc, axis).push(pass);
+      // The probe trace carries this attempt's answer usage (aligned by probeId).
+      const usage = run.probes.find((t) => t.probeId === probeId)?.usage ?? null;
       let byProbe = probeDetail.get(run.arm);
       if (byProbe === undefined) {
         byProbe = new Map();
@@ -262,9 +278,15 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
       const entry = byProbe.get(probeId);
       if (entry === undefined) {
         const probe = deps.manifest.probes[Number(probeId) - 1];
-        byProbe.set(probeId, { probeId, axis, question: probe?.question ?? "", passes: [pass] });
+        byProbe.set(probeId, {
+          probeId,
+          axis,
+          question: probe?.question ?? "",
+          passes: [pass],
+          usages: [usage],
+        });
       } else {
-        byProbe.set(probeId, { ...entry, passes: [...entry.passes, pass] });
+        byProbe.set(probeId, { ...entry, passes: [...entry.passes, pass], usages: [...(entry.usages ?? []), usage] });
       }
     }
 

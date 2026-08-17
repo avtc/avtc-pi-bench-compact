@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addedSessionLines, isQaOnlyBranch } from "../../src/storage/probe-lifecycle.js";
+import { addedSessionLines, isQaOnlyBranch, probeUsageFromSession } from "../../src/storage/probe-lifecycle.js";
 import { checkout, commitAll, forkBranch, initScenarioRepo } from "../../src/storage/repo.js";
 
 // Synthetic JSONL entries (pi shape: {type:"message", message:{role, content:[{type,...}]}})
@@ -117,6 +117,38 @@ describe("isQaOnlyBranch (real git + two session files)", () => {
   it("false when the probe added a compaction entry (memory tool ran mid-probe — conservative keep)", () => {
     const probeFile = probeBranch("p-compaction", [COMPACTION_ENTRY, ASSISTANT_TEXT("ans")], false);
     expect(isQaOnlyBranch(repo, BASE_BRANCH, "p-compaction", baseSessionFile, probeFile)).toBe(false);
+  });
+});
+
+describe("probeUsageFromSession (pure helper)", () => {
+  const ASSISTANT_USAGE = (t: string, u: { input: number; output: number; dollars: number }, ts: string) =>
+    `{"type":"message","id":"a-${t}","timestamp":"${ts}","message":{"role":"assistant","content":[{"type":"text","text":"${t}"}],"usage":{"input":${u.input},"output":${u.output},"cacheRead":0,"cacheWrite":0,"cost":{"total":${u.dollars}}}}}`;
+
+  it("sums the probe tail's assistant usage (tokens + dollars) + wall from timestamps", () => {
+    const base = [SESSION, USER("q")].join("\n");
+    const probe = [
+      SESSION,
+      USER("q"),
+      ASSISTANT_USAGE("a1", { input: 100, output: 20, dollars: 0.01 }, "2026-08-17T10:00:00Z"),
+      ASSISTANT_USAGE("a2", { input: 200, output: 40, dollars: 0.02 }, "2026-08-17T10:00:30Z"),
+    ].join("\n");
+    expect(probeUsageFromSession(base, probe)).toEqual({
+      tokensIn: 300,
+      tokensOut: 60,
+      cacheRead: 0,
+      cacheWrite: 0,
+      dollars: 0.03,
+      wallMs: 30_000,
+    });
+  });
+
+  it("skips non-assistant entries; null when not a clean append", () => {
+    const base = [SESSION, USER("q")].join("\n");
+    const probe = [SESSION, USER("q"), CUSTOM_CACHE("portrait-cache")].join("\n");
+    const usage = probeUsageFromSession(base, probe);
+    expect(usage).not.toBeNull();
+    if (usage !== null) expect(usage.tokensOut).toBe(0);
+    expect(probeUsageFromSession(base, [SESSION, USER("changed")].join("\n"))).toBeNull();
   });
 });
 

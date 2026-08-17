@@ -23,8 +23,11 @@
 // `ProbeStoppedError`; the run driver catches + notifies. An abort (run signal)
 // is `probe-hung`; any other error is `probe-failed`.
 
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+
+export type { ProbeUsage } from "../storage/probe-lifecycle.js";
+
 import { isolateArmOrStop } from "../arms/switch.js";
 import type { ArmId } from "../config/types.js";
 import { log } from "../log.js";
@@ -36,7 +39,8 @@ import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendProbeAttempt } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
-import { isQaOnlyBranch } from "../storage/probe-lifecycle.js";
+import type { ProbeUsage } from "../storage/probe-lifecycle.js";
+import { isQaOnlyBranch, probeUsageFromSession } from "../storage/probe-lifecycle.js";
 import {
   branchExists,
   checkout,
@@ -100,6 +104,9 @@ export interface ProbeTrace {
   readonly answer: string;
   /** Whether the branch was KEPT (false = Q&A-only, deleted; true = the agent tool-called/edited). */
   readonly kept: boolean;
+  /** The probe-answer effort (tokens/$/wall summed over the probe tail past the base).
+   *  Absent when the tail is not a clean append (usage unknowable). */
+  readonly usage?: ProbeUsage;
 }
 
 /** Result of {@link runProbes}: the captured probe traces (one per probe) + the FINAL
@@ -135,6 +142,9 @@ export interface ProbeOps {
   sessionExists: (sessionPath: string) => boolean;
   /** Read the agent's answer (the last assistant message text) off the probe branch's session file. */
   readAnswer: (sessionPath: string) => string;
+  /** Sum the probe-tail usage (tokens/$/wall) off the base+probe session contents.
+   *  Returns null when the tail is not a clean append (usage unknowable). */
+  readUsage: (baseSessionFile: string, probeSessionFile: string) => ProbeUsage | null;
 }
 
 /** Inputs to {@link runProbes}. `cmdCtx` is threaded across probes (each switchSession
@@ -247,6 +257,13 @@ const DEFAULT_OPS: ProbeOps = {
   deleteBranch: resetBranch,
   sessionExists: (sessionPath) => existsSync(sessionPath),
   readAnswer: readProbeAnswer,
+  readUsage: (baseSessionFile, probeSessionFile): ProbeUsage | null => {
+    try {
+      return probeUsageFromSession(readFileSync(baseSessionFile, "utf8"), readFileSync(probeSessionFile, "utf8"));
+    } catch {
+      return null; // a missing/unreadable session file — usage unknowable, settle proceeds
+    }
+  },
 };
 
 // --- runProbes ---------------------------------------------------------------
@@ -298,6 +315,7 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       // so the deviation is recorded without a permanent git ref.
       const settleProbe = (branch: string, sessionPath: string): { answer: string; kept: boolean } => {
         const answer = ops.readAnswer(sessionPath);
+        const usage = ops.readUsage(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
         // Probe-lifecycle: a Q&A-only branch (diff is exclusively message entries) is
         // clean; anything else (the agent tool-called/edited) is flagged kept. The session
         // transcript is compared by reading the base + probe session FILES directly.
@@ -317,7 +335,11 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
           );
         }
         ops.deleteBranch(deps.repo, branch);
-        traces.push({ arm, attempt, probeId, branch, answer, kept });
+        traces.push(
+          usage === null
+            ? { arm, attempt, probeId, branch, answer, kept }
+            : { arm, attempt, probeId, branch, answer, kept, usage },
+        );
         return { answer, kept };
       };
 
@@ -326,7 +348,12 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
         // The branch was pruned at settle, but the session file carries the answer.
         const prior = ops.sessionExists(sessionPath) ? ops.readAnswer(sessionPath) : "";
         if (prior !== "") {
-          traces.push({ arm, attempt, probeId, branch: probeBranch, answer: prior, kept: false });
+          const usage = ops.readUsage(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
+          traces.push(
+            usage === null
+              ? { arm, attempt, probeId, branch: probeBranch, answer: prior, kept: false }
+              : { arm, attempt, probeId, branch: probeBranch, answer: prior, kept: false, usage },
+          );
           log.info(
             `phase-2b: arm ${arm} probe ${probeId} (attempt ${attempt}) already settled (resumed) — re-read pruned branch's session, skip`,
           );
