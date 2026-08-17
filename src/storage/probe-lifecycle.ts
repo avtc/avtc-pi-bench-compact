@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Probe-branch lifecycle. A probe fork is ALWAYS created (the agent's response is
-// non-deterministic — it may tool-call or edit files even for a "simple" question). After the probe
-// settles: if the branch differs from its arm base ONLY by Q&A message entries (no tool-call /
-// file-mutating entries), the harness DELETES it (clean Q&A-only branch); otherwise (the agent made
-// changes) it is KEPT. Deletion is conservative: only a branch whose diff is exclusively message
-// entries is removable; anything unexpected is kept.
+// non-deterministic — it may tool-call or edit files even for a "simple" question), and
+// ALWAYS pruned after settle: no judge or scoring path consumes probe branches — the
+// per-branch SESSION FILE (outside the repo) is the single durable artifact (question,
+// tool calls/results, answer). `isQaOnlyBranch` decides the informational `kept` trace
+// flag — did the agent go beyond a clean Q&A (any tool call / file mutation / anything
+// unexpected)? — and the caller logs the changed-file list for kept probes. Conservative:
+// anything unexpected reads as kept (flagged), never silently clean.
 //
 // The session transcript lives OUTSIDE the repo (in a per-branch sessions store), so the Q&A check
 // compares the two session FILES directly (base vs probe) instead of git-diffing session.jsonl.

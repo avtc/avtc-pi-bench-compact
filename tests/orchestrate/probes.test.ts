@@ -81,6 +81,7 @@ interface FakeProbeOps {
   copySeed: ReturnType<typeof vi.fn>;
   awaitSettled: ReturnType<typeof vi.fn>;
   isQaOnly: ReturnType<typeof vi.fn>;
+  changedFiles: ReturnType<typeof vi.fn>;
   deleteBranch: ReturnType<typeof vi.fn>;
   readAnswer: ReturnType<typeof vi.fn>;
   freshPis: FreshPi[];
@@ -123,6 +124,7 @@ function makeFakeProbeOps(opts: { qaOnly?: boolean; answer?: string; reject?: Er
       if (reject !== undefined) throw reject;
     }),
     isQaOnly: vi.fn(() => qaOnly),
+    changedFiles: vi.fn((): string[] => []),
     deleteBranch: vi.fn(),
     readAnswer: vi.fn((): string => answer),
     freshPis,
@@ -329,8 +331,9 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     expect(traces.every((t) => t.kept === false)).toBe(true);
   });
 
-  it("a non-Q&A-only probe branch (isQaOnly=false) is KEPT (not deleted) + reported kept=true", async () => {
+  it("a non-Q&A-only probe (isQaOnly=false, agent tool-called/edited) is PRUNED TOO + reported kept=true + mutation logged", async () => {
     const ops = makeFakeProbeOps({ qaOnly: false });
+    ops.changedFiles = vi.fn(() => ["package.json"]);
     const { traces } = await runProbes({
       cmdCtx,
       armBase: makeArmBase("A1", "bare-pi", undefined),
@@ -342,7 +345,10 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       ops: ops as unknown as ProbeOps,
     });
 
-    expect(ops.deleteBranch).not.toHaveBeenCalled();
+    // no judge/scoring path consumes probe branches — the session file is the single
+    // durable artifact, so EVERY probe branch is pruned; `kept` stays informational
+    expect(ops.deleteBranch).toHaveBeenCalledTimes(2);
+    expect(ops.changedFiles).toHaveBeenCalled(); // the changed-file list feeds the log
     expect(traces.every((t) => t.kept === true)).toBe(true);
   });
 
@@ -459,7 +465,7 @@ describe("runProbes — crash resume (skip committed probes)", () => {
     clearMemoryProxies();
   });
 
-  it("skips a committed probe branch: answer re-read off the session file, lifecycle re-checked, NO fork/load/commit", async () => {
+  it("skips a committed probe branch: answer re-read off the session file, lifecycle recorded, branch PRUNED, NO fork/load/commit", async () => {
     const ops = makeFakeProbeOps({ answer: "the remembered answer" });
     ops.branchExists = vi.fn(() => true);
     ops.commitCountAhead = vi.fn(() => 1);
@@ -482,8 +488,10 @@ describe("runProbes — crash resume (skip committed probes)", () => {
       expect(trace).toMatchObject({ arm: "A1", attempt: 1, answer: "the remembered answer", kept: true });
       // the answer is re-read off the probe's EXISTING session file
       expect(ops.readAnswer).toHaveBeenCalledWith(branchSessionFile(join(repo, "sessions"), trace.branch));
-      // the lifecycle is re-checked against the base (so a crash between commit + Q&A delete still deletes)
+      // the lifecycle is re-checked (kept recorded informationally) — then the branch
+      // is pruned regardless: one-time sweep of kept branches from the old policy
       expect(ops.isQaOnly).toHaveBeenCalled();
+      expect(ops.deleteBranch).toHaveBeenCalledWith(repo, trace.branch);
     }
     expect(ops.fork).not.toHaveBeenCalled();
     expect(ops.loadSession).not.toHaveBeenCalled();
