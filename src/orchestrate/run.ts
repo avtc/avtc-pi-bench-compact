@@ -39,7 +39,7 @@ import {
 } from "../storage/paths.js";
 import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
-import { setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
+import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
 import {
   type ArmBase,
@@ -549,13 +549,15 @@ function buildScoreMeta(
  *  from the run config's judge fields), the evaluated-model pricing, a seeded rank
  *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read.
  *
- *  No live-progress widget forwarding: the score phase is inherently concurrent —
+ *  No live TOKEN forwarding: the score phase is inherently concurrent —
  *  gradeComparativeRouting runs slice (resume/task-quality) + summary (redo-plan/goal)
  *  axes in parallel (plus per-arm trace-binary), so concurrent judge calls would
  *  interleave into the widget's shared two-tier token accumulator (meaningless
- *  tok/ctx). The score phase cell (advanced via startPhase("score") in startRun)
- *  still signals progress; the judge's per-call tokens are not surfaced. Metrics are
- *  read from the trace. */
+ *  tok/ctx). Coarse TEXTUAL progress IS forwarded (onScoreProgress → the active
+ *  widget's detail line: one line per arm + per graded probe slice — concurrency-safe
+ *  by construction, so a long local-judge score phase is never a black box). The
+ *  score phase cell (advanced via startPhase("score") in startRun) still signals the
+ *  phase; the judge's per-call tokens are not surfaced. Metrics are read from the trace. */
 export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
   const transport = defaultJudgeTransport(args.ctx, {
     maxTokens: JUDGE_MAX_TOKENS,
@@ -580,6 +582,9 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     // fast eval: skip the continuation-judged lanes (no continuation transcript exists).
     probesOnly: args.runConfig.fastEval === "probes-only",
     meta: args.meta,
+    onScoreProgress: (line) => {
+      getActiveWidget()?.setDetail(line);
+    },
   };
 }
 

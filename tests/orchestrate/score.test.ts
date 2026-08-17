@@ -963,3 +963,46 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     expect(resultJson.ranks).toEqual({}); // no comparative axes
   });
 });
+
+describe("scoreRun — score-phase progress lines (onScoreProgress)", () => {
+  it("emits one line per arm + one per graded probe slice (probes-only)", async () => {
+    const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
+    const probes = [
+      { arm: "A1" as const, attempt: 1, probeId: "1", branch: "A1-base", answer: "formula", kept: false },
+      { arm: "A1" as const, attempt: 1, probeId: "2", branch: "A1-base", answer: "42", kept: false },
+    ];
+    const runs: ArmAttemptRun[] = [
+      {
+        arm: "A1",
+        attempt: 1,
+        continuation: trace,
+        probes,
+        testSpecResult: undefined,
+        repo: "/repo",
+        branch: "A1-base",
+      },
+    ];
+    const lines: string[] = [];
+    const deps: ScoreRunDeps = {
+      manifest: integManifest,
+      callJudges: [integCallJudge({ E5: true, E6: true })],
+      stageSeams: [],
+      shuffle: identityShuffle,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+      bootstrapOptions: null,
+      pricing: ZERO_PRICING,
+      checkout: () => undefined,
+      probesOnly: true,
+      meta: integMeta(),
+      onScoreProgress: (line) => lines.push(line),
+    };
+
+    await scoreRun(runs, deps);
+    expect(lines.some((l) => /^arm 1\/1 \(A1\) — exact metrics$/.test(l))).toBe(true);
+    expect(lines.filter((l) => /^arm A1 — probe [12]\/2 grading$/.test(l))).toHaveLength(2);
+    // probes-only: no comparative line
+    expect(lines.some((l) => l.includes("comparative"))).toBe(false);
+  });
+});

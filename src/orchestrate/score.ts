@@ -177,6 +177,9 @@ export interface ScoreRunDeps {
    *  lanes render n/a. The compaction/summary cost metrics (from the arm-base
    *  compaction) + the probe lanes still grade. */
   readonly probesOnly?: boolean;
+  /** Coarse textual progress for the score phase (widget detail): one line per arm +
+   *  one per graded probe slice / lane. Concurrency-safe by design (no token counters). */
+  readonly onScoreProgress?: (line: string) => void;
   readonly meta: ScoreRunMeta;
 }
 
@@ -232,6 +235,7 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
   // --- per-run routing: exact + recall-cost + probe-binary + trace-binary ---
   for (const run of input) {
     const acc = accOf(run.arm);
+    deps.onScoreProgress?.(`arm ${input.indexOf(run) + 1}/${input.length} (${run.arm}) — exact metrics`);
     const exact = computeRunExact(run.continuation, deps.pricing);
     if (exact.C1 !== undefined) acc.C1.push(exact.C1);
     acc.C3.push(exact.C3);
@@ -246,6 +250,7 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     }
 
     if (deps.probesOnly !== true) {
+      deps.onScoreProgress?.(`arm (${run.arm}) — trajectory`);
       for (const [axis, pass] of Object.entries(await gradeTraceBinaryForRun(run, deps)) as [MetricId, boolean][]) {
         binaryArray(acc, axis).push(pass);
       }
@@ -253,6 +258,7 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
   }
 
   // --- comparative routing: resume/task-quality slices + redo-plan/goal summaries ---
+  if (deps.probesOnly !== true) deps.onScoreProgress?.("all arms — comparative");
   const comparative = deps.probesOnly === true ? {} : await gradeComparativeRouting(input, deps);
 
   // --- assemble AllArmsGrades ---
@@ -355,6 +361,9 @@ export interface ProbeRoutingDeps {
   readonly callJudges: readonly CallJudge[];
   /** Malformed-JSON re-prompt budget for gradeSlice (default 2). */
   readonly maxRetries?: number;
+  /** Coarse textual progress per graded slice (widget detail; concurrency-safe —
+   *  one line per slice regardless of the K parallel judges inside it). */
+  readonly onScoreProgress?: (line: string) => void;
 }
 
 /**
@@ -375,6 +384,7 @@ export async function gradeProbeAxesForRun(
     const idx = Number(probeTrace.probeId) - 1;
     const probe = deps.manifest.probes[idx];
     if (probe === undefined) continue; // probeId out of range
+    deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} grading`);
     const axis = axisForProbe(probe, deps.manifest);
     if (axis === null) continue; // malformed probe (no axis)
     const slice = buildProbeAnswerSlice(
