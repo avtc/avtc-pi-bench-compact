@@ -198,6 +198,27 @@ describe("makeRunScenarioHandler — --resume", () => {
     expect(notifies.some((n) => n.level === "warning" && n.msg.includes("already complete"))).toBe(true);
   });
 
+  it("--resume=<complete runId> --rescore → proceeds (rescore on the resume target)", async () => {
+    const { ctx } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture(["2026-08-16-3"]);
+    await handler(`${FOLDER} --resume=2026-08-16-3 --rescore`, ctx);
+    expect(executeRun).toHaveBeenCalled();
+    const arg = executeRun.mock.calls[0][0] as {
+      resume?: { runId: string; cfgId: string; rescore?: boolean };
+    };
+    expect(arg.resume).toEqual({ runId: "2026-08-16-3", cfgId: "cfg-bd0f9a", rescore: true });
+  });
+
+  it("--rescore without an explicit --resume=<runId> → parse warning, no executeRun", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const { handler, executeRun } = makeResumeFixture([]);
+    await handler(`${FOLDER} --rescore`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(
+      notifies.some((n) => n.level === "warning" && n.msg.includes("--rescore requires an explicit --resume=<runId>")),
+    ).toBe(true);
+  });
+
   it("explicit --resume=<unknown runId> → no-branches warning, no executeRun", async () => {
     const { ctx, notifies } = fakeCommandCtx();
     const { handler, executeRun } = makeResumeFixture([]);

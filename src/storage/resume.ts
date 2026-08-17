@@ -22,6 +22,9 @@ import { parseRunNamespace, type RunNamespace } from "./branches.js";
 export interface ResumeTarget extends RunNamespace {
   readonly allowConfigChange?: boolean;
   readonly reuseBases?: boolean;
+  /** --rescore: resume an already-complete run (results.json exists) to re-run
+   *  scoring — every phase replays from durable artifacts. */
+  readonly rescore?: boolean;
 }
 
 /** Group a branch list into unique namespaces keyed by runId. One runId normally

@@ -259,6 +259,10 @@ export interface RunScenarioArgs {
    *  tool version when the current version's base is absent (skip re-compaction
    *  after a tool fix that did not change compaction behavior). */
   reuseBases: boolean;
+  /** `--rescore`: on an explicit `--resume=<runId>`, bypass the complete-run
+   *  refusal — every phase replays from its durable artifacts and scoring re-runs
+   *  (the verdict journal replays unchanged slices). */
+  rescore: boolean;
   /** Set when a flag is malformed (e.g. `--resume=` with no id). */
   error: string | undefined;
 }
@@ -268,6 +272,7 @@ const RESUME_FLAG = "--resume";
 const RESUME_EQ = "--resume=";
 const ALLOW_CONFIG_CHANGE_FLAG = "--allow-config-change";
 const REUSE_BASES_FLAG = "--reuse-bases";
+const RESCORE_FLAG = "--rescore";
 
 /** Parse `run-scenario` args: one positional scenario folder + `--resume` (bare —
  *  auto-detect the latest incomplete run) or `--resume=<runId>` (explicit). The
@@ -281,6 +286,7 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
   let resume: string | true | undefined;
   let allowConfigChange = false;
   let reuseBases = false;
+  let rescore = false;
   let error: string | undefined;
 
   for (let i = 0; i < tokens.length; i++) {
@@ -302,6 +308,8 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
       allowConfigChange = true;
     } else if (tok === REUSE_BASES_FLAG) {
       reuseBases = true;
+    } else if (tok === RESCORE_FLAG) {
+      rescore = true;
     } else if (tok.startsWith("--")) {
       error = `unknown flag "${tok}"`;
       break;
@@ -319,12 +327,16 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
   if (error === undefined && reuseBases && resume === undefined) {
     error = "--reuse-bases requires --resume";
   }
+  if (error === undefined && rescore && (resume === undefined || resume === true)) {
+    error = "--rescore requires an explicit --resume=<runId>";
+  }
 
   return {
     folder: positionals.length === 1 ? positionals[0] : undefined,
     resume,
     allowConfigChange,
     reuseBases,
+    rescore,
     error,
   };
 }

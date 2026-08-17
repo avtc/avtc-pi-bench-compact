@@ -210,6 +210,7 @@ describe("parseRunScenarioArgs", () => {
       resume: undefined,
       allowConfigChange: false,
       reuseBases: false,
+      rescore: false,
       error: undefined,
     });
   });
@@ -229,6 +230,7 @@ describe("parseRunScenarioArgs", () => {
       resume: "2026-08-16-4",
       allowConfigChange: false,
       reuseBases: false,
+      rescore: false,
       error: undefined,
     });
     expect(b).toEqual({
@@ -236,6 +238,7 @@ describe("parseRunScenarioArgs", () => {
       resume: "2026-08-16-4",
       allowConfigChange: false,
       reuseBases: false,
+      rescore: false,
       error: undefined,
     });
   });
@@ -267,6 +270,17 @@ describe("parseRunScenarioArgs", () => {
   it("rejects --allow-config-change without --resume", () => {
     const r = parseRunScenarioArgs("/scen/abc --allow-config-change");
     expect(r.error).toContain("--allow-config-change requires --resume");
+  });
+
+  it("rejects --rescore with a bare --resume (an explicit runId is required)", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resume --rescore");
+    expect(r.error).toContain("--rescore requires an explicit --resume=<runId>");
+  });
+
+  it("parses --rescore alongside an explicit --resume=<runId>", () => {
+    const r = parseRunScenarioArgs("/scen/abc --resume=2026-08-16-4 --rescore");
+    expect(r.error).toBeUndefined();
+    expect(r.rescore).toBe(true);
   });
 
   it("allows --resume with no folder yet (completeness is preflight's job)", () => {

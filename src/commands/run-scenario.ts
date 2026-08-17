@@ -96,9 +96,13 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
         }
         resume = target;
       } else {
-        // Explicit runId: refuse an already-complete run, then resolve its namespace.
-        if (resultsExist(parsed.resume)) {
-          notify(`run ${parsed.resume} is already complete (results.json exists) — nothing to resume`, "warning");
+        // Explicit runId: refuse an already-complete run unless --rescore (re-run
+        // scoring on the completed run), then resolve its namespace.
+        if (resultsExist(parsed.resume) && parsed.rescore !== true) {
+          notify(
+            `run ${parsed.resume} is already complete (results.json exists) — nothing to resume (use --rescore to re-run scoring)`,
+            "warning",
+          );
           return;
         }
         const target = findRunNamespace(branches, parsed.resume);
@@ -111,11 +115,12 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
         }
         resume = target;
       }
-      if (parsed.allowConfigChange || parsed.reuseBases) {
+      if (parsed.allowConfigChange || parsed.reuseBases || parsed.rescore) {
         resume = {
           ...resume,
           ...(parsed.allowConfigChange ? { allowConfigChange: true } : {}),
           ...(parsed.reuseBases ? { reuseBases: true } : {}),
+          ...(parsed.rescore ? { rescore: true } : {}),
         };
       }
       notify(
