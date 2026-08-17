@@ -599,7 +599,7 @@ describe("startRun — live-progress widget wiring", () => {
       "startPhase:probe:-",
       "setArm:1/1:tool-A1",
       "startPhase:score:-",
-      "setStatus:done:/bench-compact:results",
+      "setStatus:done:/bench-compact:results 2026-08-11-1",
     ]);
   });
 

@@ -379,7 +379,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     writeFileSync(resultsPath, JSON.stringify(resultJson, null, JSON_INDENT));
     writeFileSync(reportPath, markdown);
 
-    widget?.setStatus("done", "/bench-compact:results");
+    widget?.setStatus("done", `/bench-compact:results ${runId}`);
     // A cleanly-finished run clears the state singleton — `/bench-compact:status` goes
     // back to "not started" (stop-and-surface states persist so the stop stays queryable).
     clearRunState();
