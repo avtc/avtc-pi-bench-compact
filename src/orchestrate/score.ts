@@ -39,7 +39,7 @@
 
 import type { CompactionEntry } from "@earendil-works/pi-coding-agent";
 import type { ArmId } from "../config/types.js";
-import { findFirstCorrectUse } from "../judge/c2-boundary.js";
+import { type C2Boundary, findFirstCorrectUse } from "../judge/c2-boundary.js";
 import { majorityVote, rankEnsemble, runBinaryEnsemble, unionC2Boundaries } from "../judge/ensemble.js";
 import { BenchJudgeError } from "../judge/errors.js";
 import { axisForProbe } from "../judge/probe-axis.js";
@@ -57,6 +57,7 @@ import {
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { summarizeTrajectory } from "../judge/summarize-trajectory.js";
 import { gradeTrajectory, type TrajectoryGrade } from "../judge/trajectory.js";
+import type { VerdictStore } from "../judge/verdict-journal.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { type C2Result, computeC2 } from "../metrics/c2.js";
 import type { MetricId } from "../metrics/defs.js";
@@ -180,6 +181,10 @@ export interface ScoreRunDeps {
   /** Coarse textual progress for the score phase (widget detail): one line per arm +
    *  one per graded probe slice / lane. Concurrency-safe by design (no token counters). */
   readonly onScoreProgress?: (line: string) => void;
+  /** Incremental verdict store (crash-resume for the score phase): completed judge
+   *  units (probe slices, boundaries, trajectory grades, rankings) replay from here;
+   *  absent/null = no persistence (judge every unit). */
+  readonly verdicts?: VerdictStore | null;
   readonly meta: ScoreRunMeta;
 }
 
@@ -307,6 +312,8 @@ export interface C2RoutingDeps {
   readonly rateLimitOptions?: RateLimitOptions | null;
   /** Switch the repo to the run's branch before the stage inspects the working tree. */
   readonly checkout: (repo: string, branch: string) => void;
+  /** Incremental verdict store (crash-resume): a settled boundary set replays. */
+  readonly verdicts?: VerdictStore | null;
 }
 
 /**
@@ -319,6 +326,14 @@ export interface C2RoutingDeps {
  */
 export async function gradeC2ForRun(run: ArmAttemptRun, deps: C2RoutingDeps): Promise<C2Result[]> {
   if (deps.manifest.recallFacts.length === 0) return [];
+  // Crash-resume: a settled boundary set replays (computeC2 is pure off the trace).
+  const verdictKey = `c2:${run.arm}:${run.attempt}`;
+  const cached = deps.verdicts?.get(verdictKey) as ReadonlyArray<{ factId?: unknown }> | undefined;
+  if (Array.isArray(cached) && cached.every((b) => typeof b?.factId === "string")) {
+    return (cached as readonly C2Boundary[]).map((boundary) =>
+      computeC2(run.continuation, boundary.firstCorrectUseEntryId),
+    );
+  }
   deps.checkout(run.repo, run.branch);
   const judgePromises = deps.stageSeams.map((seams) =>
     findFirstCorrectUse({
@@ -332,6 +347,7 @@ export async function gradeC2ForRun(run: ArmAttemptRun, deps: C2RoutingDeps): Pr
     }),
   );
   const boundaries = await unionC2Boundaries(judgePromises);
+  deps.verdicts?.put(verdictKey, boundaries);
   return boundaries.map((boundary) => computeC2(run.continuation, boundary.firstCorrectUseEntryId));
 }
 
@@ -364,6 +380,9 @@ export interface ProbeRoutingDeps {
   /** Coarse textual progress per graded slice (widget detail; concurrency-safe —
    *  one line per slice regardless of the K parallel judges inside it). */
   readonly onScoreProgress?: (line: string) => void;
+  /** Incremental verdict store (crash-resume for the score phase): completed judge
+   *  units replay from here; absent/null = no persistence (judge every unit). */
+  readonly verdicts?: VerdictStore | null;
 }
 
 /**
@@ -384,18 +403,36 @@ export async function gradeProbeAxesForRun(
     const idx = Number(probeTrace.probeId) - 1;
     const probe = deps.manifest.probes[idx];
     if (probe === undefined) continue; // probeId out of range
-    deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} grading`);
     const axis = axisForProbe(probe, deps.manifest);
     if (axis === null) continue; // malformed probe (no axis)
-    const slice = buildProbeAnswerSlice(
-      { probe, answerText: probeTrace.answer, supersessionEntryIds },
-      DEFAULT_SLICE_OPTIONS,
+    // Crash-resume: a settled slice replays its verdict (no judge calls).
+    const verdictKey = `probe:${run.arm}:${probeTrace.attempt}:${probeTrace.probeId}`;
+    const cached = deps.verdicts?.get(verdictKey) as { axis?: unknown; judgePasses?: unknown } | undefined;
+    if (
+      typeof cached?.axis === "string" &&
+      Array.isArray(cached?.judgePasses) &&
+      cached.judgePasses.every((p) => typeof p === "boolean")
+    ) {
+      deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} cached`);
+      out.push({
+        axis: cached.axis as MetricId,
+        pass: majorityVote(cached.judgePasses as readonly boolean[]),
+      });
+      continue;
+    }
+    deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} grading`);
+    const judgePasses = await Promise.all(
+      deps.callJudges.map(async (callJudge) => {
+        const slice = buildProbeAnswerSlice(
+          { probe, answerText: probeTrace.answer, supersessionEntryIds },
+          DEFAULT_SLICE_OPTIONS,
+        );
+        const grade = await gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
+        return grade.pass;
+      }),
     );
-    const judgePromises = deps.callJudges.map(async (callJudge) => {
-      const grade = await gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
-      return grade.pass;
-    });
-    out.push({ axis, pass: await runBinaryEnsemble(judgePromises) });
+    deps.verdicts?.put(verdictKey, { axis, judgePasses });
+    out.push({ axis, pass: majorityVote(judgePasses) });
   }
   return out;
 }
@@ -409,6 +446,8 @@ export interface TraceBinaryRoutingDeps {
   readonly signal: AbortSignal;
   readonly rateLimitOptions?: RateLimitOptions | null;
   readonly maxRetries?: number;
+  /** Incremental verdict store (crash-resume): a settled trajectory grade replays. */
+  readonly verdicts?: VerdictStore | null;
   /** Switch the repo to the run's branch before the trajectory inspects the working tree. */
   readonly checkout: (repo: string, branch: string) => void;
 }
@@ -428,6 +467,21 @@ export async function gradeTraceBinaryForRun(
   run: ArmAttemptRun,
   deps: TraceBinaryRoutingDeps,
 ): Promise<Partial<Record<MetricId, boolean>>> {
+  // Crash-resume: a settled trajectory verdict (per-axis per-judge passes) replays.
+  const verdictKey = `traj:${run.arm}:${run.attempt}`;
+  const cached = deps.verdicts?.get(verdictKey) as Record<string, unknown> | undefined;
+  if (cached !== undefined && typeof cached === "object") {
+    const replay: Partial<Record<MetricId, boolean>> = {};
+    let valid = true;
+    for (const [axis, passes] of Object.entries(cached)) {
+      if (!Array.isArray(passes) || !passes.every((p) => typeof p === "boolean")) {
+        valid = false;
+        break;
+      }
+      replay[axis as MetricId] = majorityVote(passes as readonly boolean[]);
+    }
+    if (valid && Object.keys(replay).length > 0) return replay;
+  }
   deps.checkout(run.repo, run.branch);
   const postEntries = postCompactionEntries(run.continuation.entries);
   const e2Long = postEntries.length > E2_LONG_RUN_THRESHOLD_ENTRIES;
@@ -447,20 +501,26 @@ export async function gradeTraceBinaryForRun(
     ),
   );
   const out: Partial<Record<MetricId, boolean>> = {};
+  const passesByAxis: Record<string, boolean[]> = {};
   for (const axis of trajectoryAxes) {
-    out[axis] = majorityVote(trajResults.map((grades) => trajectoryGradeForAxis(grades, axis)));
+    passesByAxis[axis] = trajResults.map((grades) => trajectoryGradeForAxis(grades, axis));
+    out[axis] = majorityVote(passesByAxis[axis] as readonly boolean[]);
   }
   if (!e2Long) {
     const slice = buildTwoCheckpointSlice(
       { doneOps: deps.manifest.doneOps, runActions: postEntries },
       DEFAULT_SLICE_OPTIONS,
     );
-    const e2Promises = deps.callJudges.map(async (callJudge) => {
-      const grade = await gradeSlice({ axis: "E2", slice, callJudge, maxRetries: deps.maxRetries });
-      return grade.pass;
-    });
-    out.E2 = await runBinaryEnsemble(e2Promises);
+    const e2Passes = await Promise.all(
+      deps.callJudges.map(async (callJudge) => {
+        const grade = await gradeSlice({ axis: "E2", slice, callJudge, maxRetries: deps.maxRetries });
+        return grade.pass;
+      }),
+    );
+    passesByAxis.E2 = e2Passes;
+    out.E2 = majorityVote(e2Passes);
   }
+  deps.verdicts?.put(verdictKey, passesByAxis);
   return out;
 }
 
@@ -487,6 +547,8 @@ export interface ComparativeRoutingDeps {
   readonly maxRetries?: number;
   /** Switch the repo to an arm's branch before each summarize stage inspects it. */
   readonly checkout: (repo: string, branch: string) => void;
+  /** Incremental verdict store (crash-resume): settled per-axis rankings replay. */
+  readonly verdicts?: VerdictStore | null;
 }
 
 /** The distinct arm ids present in the input, in canonical order (bare-pi, om-default, memkeeper-builder, memkeeper-selector, om-full). */
@@ -516,6 +578,56 @@ function buildComparativeSlice(axis: "E1" | "E7", run: ArmAttemptRun, manifest: 
   );
 }
 
+/** Read a cached per-axis per-attempt ensemble ranking from the verdict store
+ *  (crash-resume replay), or null when absent/torn. */
+function cachedRanking(deps: ComparativeRoutingDeps, axis: MetricId, attemptIndex: number): ArmRanking | null {
+  const cached = deps.verdicts?.get(`rank:${axis}:${attemptIndex}`) as { order?: unknown } | undefined;
+  if (Array.isArray(cached?.order) && cached.order.every((a) => typeof a === "string")) {
+    return { order: cached.order as readonly ArmId[] };
+  }
+  return null;
+}
+
+/** Crash-resume replay: push a cached ranking + report the hit (caller skips judging). */
+function pushCachedRanking(
+  deps: ComparativeRoutingDeps,
+  axis: MetricId,
+  attemptIndex: number,
+  rankings: ArmRanking[],
+): boolean {
+  const cached = cachedRanking(deps, axis, attemptIndex);
+  if (cached === null) return false;
+  rankings.push(cached);
+  return true;
+}
+
+/** Persist a fresh ensemble ranking + collect it. */
+function settleRanking(
+  deps: ComparativeRoutingDeps,
+  axis: MetricId,
+  rankings: ArmRanking[],
+  ranking: ArmRanking,
+): void {
+  deps.verdicts?.put(`rank:${axis}:${rankings.length}`, { order: ranking.order });
+  rankings.push(ranking);
+}
+
+/** The shared per-attempt ranking loop: replay a cached ranking when settled,
+ *  otherwise compute the fresh ensemble ranking via `judgeOne` + persist it. */
+async function rankPerAttempt(
+  deps: ComparativeRoutingDeps,
+  axis: MetricId,
+  byAttempt: ReturnType<typeof groupByAttempt>,
+  judgeOne: (armRuns: ReadonlyArray<readonly [ArmId, ArmAttemptRun]>) => Promise<ArmRanking>,
+): Promise<ArmRanking[]> {
+  const rankings: ArmRanking[] = [];
+  for (const armRuns of byAttempt) {
+    if (pushCachedRanking(deps, axis, rankings.length, rankings)) continue;
+    settleRanking(deps, axis, rankings, await judgeOne(armRuns));
+  }
+  return rankings;
+}
+
 /** Rank a slice-based axis per attempt: build each arm's pure slice, kick K rankAxis
  *  calls (one per judge), Borda-aggregate. No checkout (slices are pure). */
 async function rankSliceAxisPerAttempt(
@@ -524,16 +636,14 @@ async function rankSliceAxisPerAttempt(
   deps: ComparativeRoutingDeps,
   enabledArms: readonly ArmId[],
 ): Promise<ArmRanking[]> {
-  const rankings: ArmRanking[] = [];
-  for (const armRuns of byAttempt) {
+  return rankPerAttempt(deps, axis, byAttempt, async (armRuns) => {
     const armSlices: Record<string, string> = {};
     for (const [arm, run] of armRuns) armSlices[arm] = buildComparativeSlice(axis, run, deps.manifest);
     const judgePromises = deps.callJudges.map((callJudge) =>
       rankAxis({ callJudge, axis, armSlices, shuffle: deps.shuffle, options: { maxRetries: deps.maxRetries } }),
     );
-    rankings.push(toArmRanking(await rankEnsemble(judgePromises, enabledArms)));
-  }
-  return rankings;
+    return toArmRanking(await rankEnsemble(judgePromises, enabledArms));
+  });
 }
 
 /** Grade the slice-based comparative axes (resume / task-quality), grouped by
@@ -563,8 +673,7 @@ async function rankSummaryAxisPerAttempt(
   deps: ComparativeRoutingDeps,
   enabledArms: readonly ArmId[],
 ): Promise<ArmRanking[]> {
-  const rankings: ArmRanking[] = [];
-  for (const armRuns of byAttempt) {
+  return rankPerAttempt(deps, axis, byAttempt, async (armRuns) => {
     // Phase 1: build per-judge per-arm summaries. ONE checkout per arm; all K
     // judges summarize that arm in parallel on the same checked-out tree.
     const summariesByJudge = new Map<number, Record<string, string>>();
@@ -602,9 +711,8 @@ async function rankSummaryAxisPerAttempt(
         options: { maxRetries: deps.maxRetries },
       }),
     );
-    rankings.push(toArmRanking(await rankEnsemble(judgeRankings, enabledArms)));
-  }
-  return rankings;
+    return toArmRanking(await rankEnsemble(judgeRankings, enabledArms));
+  });
 }
 
 /** Grade the summary-based comparative axes (redo-plan / goal), grouped by

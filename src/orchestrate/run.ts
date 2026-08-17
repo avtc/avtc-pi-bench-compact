@@ -14,15 +14,16 @@
 // prior ctx; the final ctx of one phase seeds the next). Stop-and-surface on any
 // phase halt — never auto-retry.
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearArmConfig } from "../arms/config.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
-import type { ArmId, BenchConfig } from "../config/types.js";
+import { type ArmId, type BenchConfig, judgeEnsembleFields } from "../config/types.js";
 import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
 import { buildJudgeEnsemble, defaultJudgeTransport } from "../judge/seams.js";
 import { seededShuffle } from "../judge/shuffle.js";
+import { openVerdictJournal, scoringFingerprint } from "../judge/verdict-journal.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { Pricing } from "../metrics/pricing.js";
@@ -59,7 +60,14 @@ import {
   setRunState,
   updateRunState,
 } from "./run-state.js";
-import { type ArmAttemptRun, type ScoreRunDeps, type ScoreRunInput, type ScoreRunMeta, scoreRun } from "./score.js";
+import {
+  type ArmAttemptRun,
+  E2_LONG_RUN_THRESHOLD_ENTRIES,
+  type ScoreRunDeps,
+  type ScoreRunInput,
+  type ScoreRunMeta,
+  scoreRun,
+} from "./score.js";
 import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
 import { runTestSpec, TestSpecFaultError } from "./testspec.js";
 import { captureTrace, type RunTrace } from "./trace.js";
@@ -566,6 +574,24 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
   });
   const ensemble = buildJudgeEnsemble(args.runConfig, transport);
   const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);
+  // Incremental score-phase checkpoint: every completed judge unit lands in
+  // runs/<runId>/judge/verdicts.jsonl; a resumed/ re-run score replays settled
+  // verdicts instead of re-judging them (a crash mid-scoring costs only the
+  // in-flight unit). Bound to the scoring fingerprint — a re-authored manifest or a
+  // changed judge ensemble invalidates the file wholesale.
+  mkdirSync(args.meta.artifacts.judgeDir, { recursive: true });
+  const verdicts = openVerdictJournal({
+    path: join(args.meta.artifacts.judgeDir, "verdicts.jsonl"),
+    fingerprint: scoringFingerprint({
+      manifestJson: JSON.stringify(args.manifest),
+      judgeEnsembleFields: judgeEnsembleFields(args.runConfig),
+      maxTokens: JUDGE_MAX_TOKENS,
+      probesOnly: args.runConfig.fastEval === "probes-only",
+      e2LongThreshold: E2_LONG_RUN_THRESHOLD_ENTRIES,
+    }),
+    fs: { existsSync, readFileSync: (p) => readFileSync(p, "utf8"), appendFileSync, writeFileSync },
+    onRestart: (path) => log.info(`score: verdict journal restarted (scoring conditions changed) — ${path}`),
+  });
   return {
     manifest: args.manifest,
     callJudges: ensemble.callJudges,
@@ -585,6 +611,7 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     onScoreProgress: (line) => {
       getActiveWidget()?.setDetail(line);
     },
+    verdicts,
   };
 }
 

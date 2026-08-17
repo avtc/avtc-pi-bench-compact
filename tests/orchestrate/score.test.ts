@@ -7,7 +7,7 @@
 // patterns so the trace shapes match real session.jsonl.
 
 import type { CompactionEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Pricing } from "../../src/metrics/pricing.js";
 import { computeRunExact } from "../../src/orchestrate/score.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
@@ -147,6 +147,7 @@ describe("computeRunExact (C1 guarded / C3 / C4)", () => {
 // --- C2 routing (21c) ------------------------------------------------------
 
 import type { JsonToolStageSeams } from "../../src/judge/stage-runner.js";
+import type { VerdictStore } from "../../src/judge/verdict-journal.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import type { ArmAttemptRun } from "../../src/orchestrate/score.js";
 import { gradeC2ForRun } from "../../src/orchestrate/score.js";
@@ -1004,5 +1005,69 @@ describe("scoreRun — score-phase progress lines (onScoreProgress)", () => {
     expect(lines.filter((l) => /^arm A1 — probe [12]\/2 grading$/.test(l))).toHaveLength(2);
     // probes-only: no comparative line
     expect(lines.some((l) => l.includes("comparative"))).toBe(false);
+  });
+});
+
+describe("scoreRun — verdict journal replay (crash-resume for scoring)", () => {
+  function memStore(): VerdictStore {
+    const m = new Map<string, unknown>();
+    return {
+      has: (k) => m.has(k),
+      get: (k) => m.get(k),
+      put: (k, p) => void m.set(k, p),
+    };
+  }
+  const buildDeps = (
+    verdicts: VerdictStore | null,
+    judge: ReturnType<typeof vi.fn<() => Promise<string>>>,
+  ): ScoreRunDeps => ({
+    manifest: integManifest,
+    callJudges: [(_sys: string, _user: string) => judge() as unknown as Promise<string>],
+    stageSeams: [],
+    shuffle: identityShuffle,
+    maxTokens: 4096,
+    signal: new AbortController().signal,
+    bootstrapOptions: null,
+    pricing: ZERO_PRICING,
+    checkout: () => undefined,
+    probesOnly: true,
+    meta: integMeta(),
+    verdicts,
+  });
+  const buildRuns = (): ArmAttemptRun[] => {
+    const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry], [c1]);
+    return [
+      {
+        arm: "A1",
+        attempt: 1,
+        continuation: trace,
+        probes: [{ arm: "A1" as const, attempt: 1, probeId: "1", branch: "A1-base", answer: "formula", kept: false }],
+        testSpecResult: undefined,
+        repo: "/repo",
+        branch: "A1-base",
+      },
+    ];
+  };
+
+  it("first pass judges + persists; second pass replays with ZERO judge calls + identical results", async () => {
+    const verdicts = memStore();
+    const judge = vi.fn(async (): Promise<string> => JSON.stringify({ pass: true, evidence: "e" }));
+    const first = await scoreRun(buildRuns(), buildDeps(verdicts, judge));
+    expect(judge).toHaveBeenCalledTimes(1); // one probe slice, K=1
+    expect(verdicts.has("probe:A1:1:1")).toBe(true);
+
+    judge.mockClear();
+    const second = await scoreRun(buildRuns(), buildDeps(verdicts, judge));
+    expect(judge).not.toHaveBeenCalled(); // replayed from the journal
+    expect(second.resultJson).toEqual(first.resultJson);
+  });
+
+  it("a corrupted cached payload (wrong shape) is ignored — judges re-run", async () => {
+    const verdicts = memStore();
+    verdicts.put("probe:A1:1:1", { axis: "E5", judgePasses: ["not-bool"] });
+    const judge = vi.fn(async (): Promise<string> => JSON.stringify({ pass: true, evidence: "e" }));
+    await scoreRun(buildRuns(), buildDeps(verdicts, judge));
+    expect(judge).toHaveBeenCalledTimes(1);
   });
 });
