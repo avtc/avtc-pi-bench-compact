@@ -288,7 +288,11 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
     if (tok === RESUME_FLAG) {
       resume = true;
     } else if (tok.startsWith(RESUME_EQ)) {
-      const runId = tok.slice(RESUME_EQ.length);
+      const raw = tok.slice(RESUME_EQ.length);
+      // Accept the branch-name style too (`--resume=run-2026-08-16-4`) — run branch
+      // paths carry a `run-` prefix while runIds (run dirs, results) do not; normalize
+      // so the explicit-id lookup cannot silently miss on the prefixed form.
+      const runId = raw.startsWith("run-") ? raw.slice("run-".length) : raw;
       if (runId.length === 0) {
         error = "--resume= requires a non-empty runId";
         break;

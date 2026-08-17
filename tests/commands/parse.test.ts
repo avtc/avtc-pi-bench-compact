@@ -316,3 +316,21 @@ describe("parsePrepareArgs — --re-author <folder>", () => {
     expect(parsePrepareArgs("--re-author --force").error).toMatch(/requires a value/);
   });
 });
+
+describe("parseRunScenarioArgs — --resume=<runId> format tolerance", () => {
+  it("accepts the bare date-id form", () => {
+    const r = parseRunScenarioArgs("C:/s --resume=2026-08-16-4");
+    expect(r.error).toBeUndefined();
+    expect(r.resume).toBe("2026-08-16-4");
+  });
+
+  it("normalizes the run- prefixed form (branch-name style) to the bare runId", () => {
+    const r = parseRunScenarioArgs("C:/s --resume=run-2026-08-16-4");
+    expect(r.error).toBeUndefined();
+    expect(r.resume).toBe("2026-08-16-4");
+  });
+
+  it("still rejects an empty value", () => {
+    expect(parseRunScenarioArgs("C:/s --resume=").error).toMatch(/non-empty runId/);
+  });
+});
