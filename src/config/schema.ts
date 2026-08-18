@@ -156,12 +156,14 @@ const SETTINGS: readonly SettingSchema[] = [
     description:
       "Path/id of a prepared scenario folder to run by default. null = the folder must be passed to /bench-compact:run-scenario.",
     type: "string",
+    supportsCustomValues: true, // free-form path — opens the text editor directly (no preset list)
     defaultValue: DEFAULTS.scenario,
   }),
   setting("outputDir", {
     label: "Output directory",
     description: "Where run artifacts (manifest, results, judge outputs) are stored. Empty = ~/.pi/bench-compact/.",
     type: "string",
+    supportsCustomValues: true, // free-form path — opens the text editor directly (no preset list)
     defaultValue: DEFAULTS.outputDir,
   }),
   // --- Arms tab ---

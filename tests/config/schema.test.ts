@@ -78,8 +78,8 @@ describe("BENCH_SCHEMA", () => {
     it("fastEval presets are exactly [off, probes-only]", () => {
       expect(row("fastEval").presets).toEqual(["off", "probes-only"]);
     });
-    it("scenario: string, default null", () => {
-      expect(row("scenario")).toMatchObject({ type: "string", defaultValue: null });
+    it("scenario: open string (free-form editor), default null", () => {
+      expect(row("scenario")).toMatchObject({ type: "string", defaultValue: null, supportsCustomValues: true });
     });
     it("outputDir: string, default null", () => {
       expect(row("outputDir")).toMatchObject({ type: "string", defaultValue: null });
