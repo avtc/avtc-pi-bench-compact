@@ -58,7 +58,8 @@ import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { summarizeTrajectory } from "../judge/summarize-trajectory.js";
 import { gradeTrajectory, type TrajectoryGrade } from "../judge/trajectory.js";
 import type { VerdictStore } from "../judge/verdict-journal.js";
-import type { ScenarioManifest } from "../manifest/schema.js";
+import type { LatentProbe } from "../manifest/latent.js";
+import type { Probe, ScenarioManifest } from "../manifest/schema.js";
 import { type C2Result, computeC2 } from "../metrics/c2.js";
 import type { MetricId } from "../metrics/defs.js";
 import { type C4Result, computeC1, computeC3, computeC4 } from "../metrics/exact.js";
@@ -164,6 +165,9 @@ export function computeRunExact(trace: RunTrace, pricing: Pricing): RunExactMetr
 // so scoreRun threads ONE deps object through every routing helper.
 export interface ScoreRunDeps {
   readonly manifest: ScenarioManifest;
+  /** Active latent probes keyed "<arm>:<poolId>" (routed by probe class; absent on
+   *  off-mode runs — an empty map and absent behave identically). */
+  readonly latent?: ReadonlyMap<string, LatentProbe> | null;
   /** K judge single-call seams (paired by index with stageSeams; both length K). */
   readonly callJudges: readonly CallJudge[];
   /** K judge stage seams (paired by index with callJudges; both length K). */
@@ -292,11 +296,12 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
       }
       const entry = byProbe.get(probeId);
       if (entry === undefined) {
+        const latentQuestion = (deps as ProbeRoutingDeps).latent?.get(`${run.arm}:${probeId}`)?.question;
         const probe = deps.manifest.probes[Number(probeId) - 1];
         byProbe.set(probeId, {
           probeId,
           axis,
-          question: probe?.question ?? "",
+          question: latentQuestion ?? probe?.question ?? "",
           passes: [pass],
           usages: [usage],
         });
@@ -431,6 +436,8 @@ function trajectoryGradeForAxis(grades: readonly TrajectoryGrade[], axis: Metric
 /** The narrow deps the probe binary routing needs (the full ScoreRunDeps satisfies this). */
 export interface ProbeRoutingDeps {
   readonly manifest: ScenarioManifest;
+  /** Active latent probes keyed "<arm>:<poolId>" (axis + accept come from the pool). */
+  readonly latent?: ReadonlyMap<string, LatentProbe> | null;
   /** K judge single-call seams (one per configured judge). */
   readonly callJudges: readonly CallJudge[];
   /** Malformed-JSON re-prompt budget for gradeSlice (default 2). */
@@ -457,10 +464,18 @@ export async function gradeProbeAxesForRun(
 ): Promise<ReadonlyArray<{ readonly axis: MetricId; readonly pass: boolean; readonly probeId: string }>> {
   const out: Array<{ readonly axis: MetricId; readonly pass: boolean; readonly probeId: string }> = [];
   for (const probeTrace of run.probes) {
-    const idx = Number(probeTrace.probeId) - 1;
-    const probe = deps.manifest.probes[idx];
+    const latentProbe = deps.latent?.get(`${run.arm}:${probeTrace.probeId}`);
+    const probe: Probe =
+      latentProbe === undefined
+        ? deps.manifest.probes[Number(probeTrace.probeId) - 1]
+        : { question: latentProbe.question, accept: [...latentProbe.accept], targets: [], lanes: ["direct-probe"] };
     if (probe === undefined) continue; // probeId out of range
-    const axis = axisForProbe(probe, deps.manifest);
+    const axis =
+      latentProbe === undefined
+        ? axisForProbe(probe, deps.manifest)
+        : latentProbe.probeClass === "cued"
+          ? "E5.2"
+          : "E5.3";
     if (axis === null) continue; // malformed probe (no axis)
     // Crash-resume: a settled slice replays its verdict (no judge calls).
     const verdictKey = `probe:${run.arm}:${probeTrace.attempt}:${probeTrace.probeId}`;

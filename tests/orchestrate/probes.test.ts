@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearMemoryProxies, type MemoryProxies, setMemoryProxies } from "../../src/arms/proxies.js";
+import type { LatentProbe } from "../../src/manifest/latent.js";
 import type { Probe, ScenarioManifest } from "../../src/manifest/schema.js";
 import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
 import type { ArmBase } from "../../src/orchestrate/phase1.js";

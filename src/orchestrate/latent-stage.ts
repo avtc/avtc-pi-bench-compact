@@ -12,6 +12,7 @@ import type { ArmId } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { log } from "../log.js";
+import { activeLatentProbes, type LatentProbe } from "../manifest/latent.js";
 import { type LatentCounts, runLatentAuthoringAgent } from "../manifest/latent-author.js";
 import { readArmCompaction } from "../session/compaction-record.js";
 import type { LatentPoolFile } from "../storage/latent-pool.js";
@@ -185,6 +186,19 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
 /** The stage entry: dispatch by mode ("off" is handled by the caller). */
 export function runLatentStage(deps: LatentStageDeps, mode: "per-arm" | "shared"): Promise<LatentStageResult> {
   return mode === "per-arm" ? runLatentStagePerArm(deps) : runLatentStageShared(deps);
+}
+
+/** The arm's ACTIVE latent probes from the persisted pools (the probe + scoring
+ *  phases read them from disk — [] when off or no pool exists). */
+export function activeLatentForArm(
+  runPath: string,
+  mode: "off" | "per-arm" | "shared",
+  arm: ArmId,
+): readonly LatentProbe[] {
+  if (mode === "off") return [];
+  const path = mode === "per-arm" ? join(runPath, `latent-pool-${arm}.json`) : join(runPath, "latent-pool.json");
+  if (!existsSync(path)) return [];
+  return activeLatentProbes(readLatentPool(path).probes, mode === "per-arm" ? "per-arm" : "shared", arm);
 }
 
 export type { LatentCounts };

@@ -9,6 +9,7 @@ import type { JsonToolStageSeams } from "../../src/judge/stage-runner.js";
 import type { LatentProbe } from "../../src/manifest/latent.js";
 import type { LatentAuthoringResult } from "../../src/manifest/latent-author.js";
 import {
+  activeLatentForArm,
   type LatentStageDeps,
   runLatentStagePerArm,
   runLatentStageShared,
@@ -160,6 +161,33 @@ describe("runLatentStagePerArm", () => {
         baseDeps(dir, { arms: [{ arm: "A1", sessionPath: bare }], author: fakeAuthor({ calls: { n: 0 } }).deps }),
       ),
     ).rejects.toThrow("latent: arm A1 has no compaction record");
+  });
+});
+
+describe("activeLatentForArm", () => {
+  it("returns [] when off, or when no pool file exists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    expect(activeLatentForArm(dir, "off", "A1")).toEqual([]);
+    expect(activeLatentForArm(dir, "per-arm", "A1")).toEqual([]);
+    expect(activeLatentForArm(dir, "shared", "A1")).toEqual([]);
+  });
+
+  it("per-arm pool: only the owning arm's absent probes; shared pool: probes absent for THAT arm", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const r = await runLatentStagePerArm(baseDeps(dir, { author: fakeAuthor({ calls: { n: 0 } }).deps }));
+    if (r.kind !== "done") throw new Error("expected done");
+    const active = activeLatentForArm(dir, "per-arm", "A1");
+    expect(active.map((p) => p.id)).toEqual(["l1", "l2"]);
+    expect(activeLatentForArm(dir, "per-arm", "A3")).toEqual([]); // wrong arm: pool is A1's
+
+    // a flipped verdict deactivates
+    const pool = r.pools.A1;
+    if (pool === undefined) throw new Error("missing pool");
+    writeFileSync(
+      join(dir, "latent-pool-A1.json"),
+      JSON.stringify({ ...pool, probes: [...pool.probes.map((p) => ({ ...p, verdicts: { A1: "answerable" } }))] }),
+    );
+    expect(activeLatentForArm(dir, "per-arm", "A1")).toEqual([]);
   });
 });
 

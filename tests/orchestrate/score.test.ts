@@ -8,6 +8,7 @@
 
 import type { CompactionEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { LatentProbe } from "../../src/manifest/latent.js";
 import type { Pricing } from "../../src/metrics/pricing.js";
 import { computeRunExact } from "../../src/orchestrate/score.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
@@ -344,6 +345,59 @@ describe("gradeProbeAxesForRun (E5.1/E6/E8 probe binary)", () => {
     expect(results).toEqual([
       { axis: "E5.1", pass: true, probeId: "1" },
       { axis: "E6", pass: false, probeId: "2" },
+    ]);
+  });
+
+  it("routes a latent probe trace by its class (cued -> E5.2, uncued -> E5.3) using the pool accept", async () => {
+    const trace = traceOf([userEntry("u0", null), assistantEntry("a1", "u0", 10)], []);
+    const latent = new Map<string, LatentProbe>([
+      [
+        "A3:l1",
+        {
+          id: "l1",
+          question: "why was write-through rejected?",
+          accept: ["it serialized writes"],
+          entryIds: ["e9"],
+          probeClass: "cued",
+          note: "n",
+          arm: "A3",
+          verdicts: { A3: "absent" },
+        },
+      ],
+      [
+        "A3:l2",
+        {
+          id: "l2",
+          question: "what did the agent notice about the parser?",
+          accept: ["the off-by-one"],
+          entryIds: ["e8"],
+          probeClass: "uncued",
+          note: "n",
+          arm: "A3",
+          verdicts: { A3: "absent" },
+        },
+      ],
+    ]);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [
+        { arm: "A3", attempt: 1, probeId: "l1", branch: "b", answer: "it serialized writes", kept: true },
+        { arm: "A3", attempt: 1, probeId: "l2", branch: "b", answer: "the off-by-one", kept: true },
+      ],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    const results = await gradeProbeAxesForRun(run, {
+      manifest: probeManifest,
+      latent,
+      callJudges: [callJudgeByAxis({ "E5.1": true })],
+      maxRetries: 2,
+    });
+    expect(results).toEqual([
+      { axis: "E5.2", pass: true, probeId: "l1" },
+      { axis: "E5.3", pass: true, probeId: "l2" },
     ]);
   });
 

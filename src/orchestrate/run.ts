@@ -26,6 +26,7 @@ import { buildJudgeEnsemble, defaultJudgeTransport } from "../judge/seams.js";
 import { seededShuffle } from "../judge/shuffle.js";
 import { openVerdictJournal, scoringFingerprint } from "../judge/verdict-journal.js";
 import { log } from "../log.js";
+import type { LatentProbe } from "../manifest/latent.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
@@ -46,7 +47,7 @@ import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
-import { type LatentStageResult, LatentStageStoppedError, runLatentStage } from "./latent-stage.js";
+import { activeLatentForArm, LatentStageStoppedError, runLatentStage } from "./latent-stage.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -393,6 +394,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         N: deps.config.N,
         probesOnly,
         manifest: deps.manifest,
+        latentProbes: activeLatentForArm(runPath, deps.config.latentProbes, base.arm),
         repo: deps.scenarioRepo,
         sessionsDir,
         omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
@@ -432,14 +434,25 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       captureTrace: deps.traceCapture ?? captureTrace,
     });
     const meta = buildScoreMeta(deps, runConfig, bases, contResult.traces, runId, nsCfgId, root, runPath, now);
-    const scoreDeps = buildScoreDeps({
-      ctx: probeCtx,
-      runConfig,
-      manifest: deps.manifest,
-      meta,
-      signal,
-      modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
-    });
+    const latentMap = new Map<string, LatentProbe>();
+    if (deps.config.latentProbes !== "off") {
+      for (const base of bases) {
+        for (const probe of activeLatentForArm(runPath, deps.config.latentProbes, base.arm)) {
+          latentMap.set(`${base.arm}:${probe.id}`, probe);
+        }
+      }
+    }
+    const scoreDeps = {
+      ...buildScoreDeps({
+        ctx: probeCtx,
+        runConfig,
+        manifest: deps.manifest,
+        meta,
+        signal,
+        modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
+      }),
+      latent: latentMap,
+    };
     const { resultJson, markdown } = await score(input, scoreDeps);
 
     const resultsPath = join(runPath, "results.json");

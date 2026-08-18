@@ -31,6 +31,7 @@ export type { ProbeUsage } from "../storage/probe-lifecycle.js";
 import { isolateArmOrStop } from "../arms/switch.js";
 import type { ArmId } from "../config/types.js";
 import { log } from "../log.js";
+import type { LatentProbe } from "../manifest/latent.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
 import { type InjectMode, inject } from "../session/inject.js";
@@ -163,6 +164,9 @@ export interface ProbeDeps {
   readonly probesOnly?: boolean;
   /** The scenario manifest (its `probes[]` are the direct probes to run). */
   readonly manifest: ScenarioManifest;
+  /** The arm's ACTIVE latent probes (per-run artifacts authored after compaction;
+   *  their pool ids l1..lN namespace them apart from the positional manifest ids). */
+  readonly latentProbes?: readonly LatentProbe[];
   /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
   readonly repo: string;
   /** The om-full arm's reflection-threshold override (threaded to per-arm isolation). */
@@ -287,11 +291,16 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
 
   let currentCtx: ExtensionCommandContext = deps.cmdCtx;
   const traces: ProbeTrace[] = [];
+  // The unified probe work list: positional manifest probes + this arm's active
+  // latent probes (identical fork/ask/settle machinery; only the scoring differs).
+  const workItems: readonly { probeId: string; question: string }[] = [
+    ...deps.manifest.probes.map((p, i) => ({ probeId: String(i + ONE_BASED_OFFSET), question: p.question })),
+    ...(deps.latentProbes ?? []).map((l) => ({ probeId: l.id, question: l.question })),
+  ];
   for (let attempt = 1; attempt <= deps.N; attempt++) {
-    for (let i = FIRST_INDEX; i < deps.manifest.probes.length; i++) {
-      const probe = deps.manifest.probes[i];
-      deps.widget?.setDetail(`${i + 1}/${deps.manifest.probes.length} · attempt ${attempt}/${deps.N}`);
-      const probeId = String(i + ONE_BASED_OFFSET); // 1-based positional (probes carry no id in the schema)
+    for (let i = FIRST_INDEX; i < workItems.length; i++) {
+      const { probeId, question } = workItems[i];
+      deps.widget?.setDetail(`${i + 1}/${workItems.length} · attempt ${attempt}/${deps.N}`);
       const probeBranch = appendProbeAttempt(baseBranch, probeId, attempt);
       const sessionPath = branchSessionFile(deps.sessionsDir, probeBranch);
 
@@ -419,7 +428,7 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
           (msg) => new ProbeStoppedError(arm, probeId, "config-failed", msg),
         );
         try {
-          const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${deps.probesOnly === true ? `${PAUSE_GOAL_PROMPT}${ANTI_PEEK_SEPARATOR}` : ""}${probe.question}`;
+          const body = `${ANTI_PEEK_PROMPT}${ANTI_PEEK_SEPARATOR}${deps.probesOnly === true ? `${PAUSE_GOAL_PROMPT}${ANTI_PEEK_SEPARATOR}` : ""}${question}`;
           inject(pi, body, DELIVER_AS_FOLLOW_UP);
           await ops.awaitSettled(pi, { signal });
         } catch (err) {
