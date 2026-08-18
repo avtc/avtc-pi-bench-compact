@@ -56,6 +56,9 @@ export const LATENT_PROBE_ITEM_SCHEMA: TSchema = Type.Object({
   note: NonEmptyString,
 });
 
+/** The finalize_latent payload: it takes no arguments. */
+export const LATENT_FINALIZE_SCHEMA: TSchema = Type.Object({});
+
 /** A pool record: the author item + harness-derived identity and verdicts. */
 export interface LatentProbe extends AuthorLatentProbe {
   readonly id: string;

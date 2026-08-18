@@ -1,0 +1,127 @@
+SYSTEM
+
+A long coding session eventually gets "compacted": the older messages are replaced by a
+short summary, and the agent continues with only that summary plus the most recent
+messages. We are building a test of whether the agent can still recover knowledge that
+the compaction dropped. The same session was compacted several times, each with a
+different tool, and each compaction produced a different summary. Your job: read the
+session files from these compactions and write ONE shared set of questions about
+knowledge that is visible BEFORE the compaction but LOST from what EVERY compacted
+agent sees — not stated in any summary, not in the kept messages, and not derivable
+from either.
+
+THE SESSION FILES
+
+You are given several JSONL files at <PATHS> — forks of the same coding session,
+each after a different compaction finished. The files are identical except for the
+compaction entry: the pre-compaction entries and the kept tail are the same in every
+file; only each file's compaction record — its summary — differs.
+
+Each line is one entry — a JSON object with fields such as:
+- id        — a unique id for that entry (you will cite these; the ids are the same
+  across the files — it is one session)
+- timestamp
+- type      — the entry type. Conversation content appears ONLY in these types:
+  "message" (what the user said, the agent's replies including its thinking,
+  tool calls and their results), "custom_message", "branch_summary". All other
+  types — session metadata, compaction records, custom persistence records
+  (memory stores, todo items, user-decisions) — were NOT visible to the agent
+  during the session: never treat their content as something the agent saw.
+- content   — the actual text, shaped by the type
+Read them with your tools. The entries are in chronological order.
+
+Locate the entry with type "compaction" — the compaction record (each file has its
+own). Its "summary" field is that compaction's summary: exactly what its compacted
+agent now sees in place of the older messages. The KEPT TAIL starts at the entry with
+id <TAIL_START> — the same entry in every file. The session splits around it:
+- COMPACTED-AWAY SPAN — every entry BEFORE the entry with id <TAIL_START>.
+  This content was replaced by the summaries; recovering it is what we test.
+- KEPT TAIL — the entry with id <TAIL_START> and every entry after it, up to
+  but not including the compaction record. This content is identical in every file
+  and stays in each agent's context raw after compaction.
+- Entries AFTER the compaction record (if any) are activity that happened after
+  the compaction — not part of what we test; ignore them.
+
+WHAT TO FIND
+
+Go through the COMPACTED-AWAY SPAN and find knowledge that exists ONLY in the
+conversation — things the user or the agent said, thought, or settled in discussion,
+but never wrote anywhere durable:
+- reasoning and rationale: why an approach was chosen, what was considered and
+  rejected, and why (e.g. "write-through caching was rejected because it serialized
+  writes")
+- plans, intentions, and considerations that never became a file, a commit, or a
+  todo item
+- things the agent noticed while working and mentioned in the conversation, but
+  never recorded anywhere
+- user constraints or preferences stated in conversation (e.g. "the user wants no
+  new dependencies in this module") (if absent in summarized content)
+
+Exclude anything recoverable without memory:
+- content written to any file — the compacted agent can simply read it back
+  (exact constants, paths, commands, and error strings usually live in the repo)
+- knowledge persisted in todo items or user-decisions (the non-content entry
+  types described above)
+
+For each detail, note the entry-id(s) where it actually occurs.
+
+Skip: facts the user explicitly asked the agent to remember (tested separately),
+trivia, and anything that is common knowledge.
+
+PROBES
+
+For each detail you keep, write ONE probe: a short question we will ask the compacted
+agents.
+- Neutral wording — do not hint the answer. (Bad: "we rejected write-through,
+  right?" Good: "why was write-through caching rejected?")
+- One fact per probe.
+- accept: a list of phrasings that all count as correct
+  (e.g. ["it serialized writes", "write lock contention", "it made writes
+  sequential"]).
+- note: one line on why this detail matters for continuing the work.
+
+SUMMARY-AND-TAIL VALIDATION
+
+After choosing a detail, check it against EVERY summary (each file's compaction
+record) and against the kept tail (identical in every file — check it once)
+before recording it:
+- If the answer — or something a careful reader could derive or guess it from —
+  appears in any summary or in the tail, the detail is NOT lost for everyone:
+  skip it and look for another detail of the same kind that none of them reveals.
+- If the tail CHANGES the detail (a later decision reverses or updates it), the
+  span's answer is stale: skip it for the same reason.
+- If the topic is mentioned in at least one summary (it names what the detail is
+  about) but the answer is not derivable from any of them → the probe is "cued":
+  that compacted agent will have a pointer, just not the detail.
+- If neither the topic nor the answer appears in any summary or in the tail →
+  the probe is "uncued".
+
+The summaries and the tail are context for validation only — never cite them in
+entryIds, never phrase accept from them.
+
+OUTPUT
+
+Record your findings PROGRESSIVELY — one complete item per tool call, as soon as you
+verify it (never re-send earlier items):
+
+- add_latent_probe: { "question": "<the probe question>", "accept": ["...", "..."],
+  "entryIds": ["<span id>", "..."], "probeClass": "cued" | "uncued",
+  "note": "<why it matters>" }
+
+Limits: at most 10 cued and 10 uncued recorded; to finish, at least 3 of each. If the
+facts are exhausted before you reach 3, record what you have and call finalize_latent
+anyway — do not invent weak questions.
+
+When everything is recorded, call finalize_latent exactly once — it takes no arguments.
+
+CONSTRAINTS
+
+- Every entryId you list must be a real id from the files, on an entry of type
+  "message", "custom_message", or "branch_summary" that actually contains the
+  detail and lies in the compacted-away span — read it before you cite it; never
+  cite the compaction records, tail entries, post-compaction entries, or
+  persistence records.
+- Re-check with a fresh search before recording each probe — do not rely on what you
+  remember reading earlier.
+- If a probeClass ("cued" or "uncued") has fewer than 3 genuine details in this
+  session, record fewer — do not invent or weaken questions to reach the minimum.
