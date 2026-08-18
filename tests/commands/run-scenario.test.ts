@@ -76,6 +76,38 @@ describe("makeRunScenarioHandler", () => {
     expect(arg.manifest.id).toBe("scen-1");
   });
 
+  it("no folder arg + configured default → runs the default scenario folder", async () => {
+    const { ctx } = fakeCommandCtx();
+    const folder = "/scen";
+    const manifest = VALID_MANIFEST;
+    const executeRun = vi
+      .fn()
+      .mockResolvedValue({ kind: "done", runId: "r", cfgId: "c", resultsPath: "/p", reportPath: "/r" });
+    const handler = makeRunScenarioHandler({
+      executeRun,
+      exists: (p: string): boolean => p === folder || p === join(folder, "repo") || p === join(folder, "manifest.json"),
+      readManifest: (): string => JSON.stringify(manifest),
+      defaultScenarioFolder: () => folder,
+    });
+    await handler("", ctx); // no args at all — the setting fills in
+    expect(executeRun).toHaveBeenCalledOnce();
+    const arg = executeRun.mock.calls[0][0] as { scenarioRepo: string };
+    expect(arg.scenarioRepo).toBe(join(folder, "repo"));
+  });
+
+  it("no folder arg + NO default → warning notify (folder still required)", async () => {
+    const { ctx, notifies } = fakeCommandCtx();
+    const executeRun = vi.fn();
+    const handler = makeRunScenarioHandler({
+      executeRun,
+      exists: (): boolean => true,
+      defaultScenarioFolder: () => null,
+    });
+    await handler("", ctx);
+    expect(notifies.some((n) => n.msg.includes("provide a scenario folder path"))).toBe(true);
+    expect(executeRun).not.toHaveBeenCalled();
+  });
+
   it("invalid manifest JSON → error notify (load failure)", async () => {
     const { ctx, notifies } = fakeCommandCtx();
     const folder = "/scen/repo";

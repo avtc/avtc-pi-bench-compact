@@ -287,14 +287,31 @@ export function detectIncompleteRunHint(config: BenchConfig, io: IncompleteRunHi
   const exists = io?.exists ?? existsSync;
   const branchList = io?.listBranches ?? listBranches;
   const root = benchRoot(config.outputDir);
-  const repoPath = scenarioRepo(root, config.scenario);
-  if (!exists(repoPath)) return null;
-  const target = detectLatestIncompleteRun(branchList(repoPath, "bench-compact/run-*"), (runId) =>
+  const folder = resolveDefaultScenarioFolder(config.scenario, root, exists);
+  if (folder === null) return null;
+  const layout = resolveScenarioLayout(folder, exists);
+  if (!layout.ok) return null;
+  const target = detectLatestIncompleteRun(branchList(layout.repoPath, "bench-compact/run-*"), (runId) =>
     exists(join(runDir(root, runId), "results.json")),
   );
   return target === null
     ? null
     : `incomplete run detected: ${target.runId} — /bench-compact:run-scenario <folder> --resume`;
+}
+
+/** Resolve the `scenario` setting to a usable folder: it may be a FULL path (the
+ *  scenario dir or the repo dir) or a bare scenario id under the bench root's
+ *  scenarios/. null when the setting is absent or points nowhere (the command
+ *  then requires the folder argument). */
+export function resolveDefaultScenarioFolder(
+  raw: string | null,
+  root: string,
+  exists: (path: string) => boolean,
+): string | null {
+  if (raw === null) return null;
+  if (exists(raw)) return raw;
+  const byId = scenarioDir(root, raw);
+  return exists(byId) ? byId : null;
 }
 
 /** Register a command handler on `pi` (shared registerCommand boilerplate). */

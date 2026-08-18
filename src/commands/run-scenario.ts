@@ -27,6 +27,7 @@ import {
   notifyOf,
   type RunHandlerContext,
   registerHandler,
+  resolveDefaultScenarioFolder,
   resolveScenarioLayout,
 } from "./run-shared.js";
 
@@ -40,6 +41,9 @@ export interface RunScenarioHandlerOptions {
   readonly readManifest?: (path: string, opts: { encoding: "utf-8" }) => string;
   /** Branch lister for --resume resolution (default = real `listBranches`). */
   readonly listBranches?: (repo: string, pattern: string) => string[];
+  /** The configured default scenario folder (default = the `scenario` setting,
+   *  resolved as path-or-id; null = no default — the folder argument is required). */
+  readonly defaultScenarioFolder?: () => string | null;
 }
 
 /** Build the handler for `/bench-compact:run-scenario`. */
@@ -48,6 +52,12 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
   const readManifest = opts.readManifest ?? readFileSync;
   const run = opts.executeRun ?? executeRun;
   const branchList = opts.listBranches ?? listBranches;
+  const defaultScenarioFolder =
+    opts.defaultScenarioFolder ??
+    (() => {
+      const config = getBenchConfig();
+      return resolveDefaultScenarioFolder(config.scenario, benchRoot(config.outputDir), existsSync);
+    });
   return async (args: string, ctx: unknown): Promise<void> => {
     const handlerCtx = ctx as RunHandlerContext;
     const notify = notifyOf(handlerCtx);
@@ -57,8 +67,16 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
       notify(parsed.error, "warning");
       return;
     }
-    if (!guardPreflight(handlerCtx, "run-scenario", { value: parsed.folder }, exists)) return;
-    const folder = parsed.folder ?? ""; // preflight rejected undefined above
+    if (
+      !guardPreflight(
+        handlerCtx,
+        "run-scenario",
+        { value: parsed.folder ?? defaultScenarioFolder() ?? undefined },
+        exists,
+      )
+    )
+      return;
+    const folder = parsed.folder ?? defaultScenarioFolder() ?? ""; // preflight rejected undefined above
 
     const layout = resolveScenarioLayout(folder, exists);
     if (!layout.ok) {

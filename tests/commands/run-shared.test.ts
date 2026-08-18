@@ -12,6 +12,7 @@ import {
   guardPreflight,
   invokeShorthand,
   loadManifestFile,
+  resolveDefaultScenarioFolder,
   resolveScenarioLayout,
 } from "../../src/commands/run-shared.js";
 import type { BenchConfig } from "../../src/config/types.js";
@@ -593,7 +594,8 @@ describe("detectIncompleteRunHint (status crash-recovery hint)", () => {
         "bench-compact/run-2026-08-16-3/cfg-bd0f9a/arm-om-default", // complete
         "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default", // crashed mid-run
       ],
-      exists: (p) => p === S1_REPO || p === join("root", "runs", "2026-08-16-3", "results.json"),
+      exists: (p) =>
+        p === S1 || p === S1_MANIFEST || p === S1_REPO || p === join("root", "runs", "2026-08-16-3", "results.json"),
     });
     expect(hint).toBe("incomplete run detected: 2026-08-16-4 — /bench-compact:run-scenario <folder> --resume");
   });
@@ -601,7 +603,8 @@ describe("detectIncompleteRunHint (status crash-recovery hint)", () => {
   it("returns null when every branched run is complete", () => {
     const hint = detectIncompleteRunHint(CONFIG, {
       listBranches: () => ["bench-compact/run-2026-08-16-3/cfg-bd0f9a/arm-om-default"],
-      exists: (p) => p === S1_REPO || p === join("root", "runs", "2026-08-16-3", "results.json"),
+      exists: (p) =>
+        p === S1 || p === S1_MANIFEST || p === S1_REPO || p === join("root", "runs", "2026-08-16-3", "results.json"),
     });
     expect(hint).toBeNull();
   });
@@ -611,5 +614,24 @@ describe("detectIncompleteRunHint (status crash-recovery hint)", () => {
       detectIncompleteRunHint({ scenario: null } as unknown as BenchConfig, { listBranches: () => [] }),
     ).toBeNull();
     expect(detectIncompleteRunHint(CONFIG, { listBranches: () => [], exists: () => false })).toBeNull();
+  });
+});
+
+describe("resolveDefaultScenarioFolder (the scenario setting: full path OR bare id)", () => {
+  it("accepts a full scenario-dir path, a repo path, or a bare id under the bench root", () => {
+    const exists = (p: string): boolean => p === S1 || p === S1_REPO || p === S1_MANIFEST;
+    expect(resolveDefaultScenarioFolder(S1, "root", exists)).toBe(S1); // full scenario dir
+    expect(resolveDefaultScenarioFolder(S1_REPO, "root", exists)).toBe(S1_REPO); // repo path
+    expect(resolveDefaultScenarioFolder("s1", "root", exists)).toBe(S1); // bare id resolves under root
+    expect(resolveDefaultScenarioFolder(null, "root", exists)).toBeNull(); // unset
+    expect(resolveDefaultScenarioFolder("nope", "root", exists)).toBeNull(); // points nowhere
+  });
+
+  it("the incomplete-run hint also works with a FULL-path setting (was id-only)", () => {
+    const hint = detectIncompleteRunHint({ scenario: S1, outputDir: "root" } as unknown as BenchConfig, {
+      listBranches: () => ["bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default"],
+      exists: (p) => p === S1 || p === S1_MANIFEST || p === S1_REPO,
+    });
+    expect(hint).toBe("incomplete run detected: 2026-08-16-4 — /bench-compact:run-scenario <folder> --resume");
   });
 });
