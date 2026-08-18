@@ -83,6 +83,35 @@ export interface ArmResultJson {
   readonly probes?: readonly ProbeBreakdownJson[];
 }
 
+/** Normalize a loaded result-JSON written before the recall-accuracy split: the
+ *  former single recall-accuracy metric maps onto its explicit-recall lane so
+ *  re-rendered reports keep the row instead of silently dropping it (semantics:
+ *  those runs probed only planted facts). No-op on post-split results. */
+export function normalizeLegacyResultJson(result: BenchResultJson): BenchResultJson {
+  const mapMetrics = <T>(m: Readonly<Partial<Record<MetricId, T>>>): Readonly<Partial<Record<MetricId, T>>> => {
+    const legacy = m as Readonly<Record<string, T | undefined>>;
+    if (!("E5" in legacy) || legacy.E5 === undefined || legacy["E5.1"] !== undefined) return m;
+    const out: Record<string, T> = { ...m };
+    delete out.E5;
+    out["E5.1"] = legacy.E5;
+    return out as Readonly<Partial<Record<MetricId, T>>>;
+  };
+  let touched = false;
+  const arms: Partial<Record<ArmId, ArmResultJson>> = {};
+  for (const [arm, entry] of Object.entries(result.arms) as [ArmId, ArmResultJson][]) {
+    const metrics = mapMetrics(entry.metrics);
+    const legacyAxis = ("E5" as MetricId) as string;
+    const hasLegacyProbe = entry.probes?.some((p) => (p.axis as string) === legacyAxis) === true;
+    const probes = hasLegacyProbe
+      ? entry.probes?.map((p) => ((p.axis as string) === legacyAxis ? { ...p, axis: "E5.1" as const } : p))
+      : entry.probes;
+    if (metrics !== entry.metrics || probes !== entry.probes) touched = true;
+    arms[arm] = probes === undefined ? { ...entry, metrics } : { ...entry, metrics, probes };
+  }
+  if (!touched) return result;
+  return { ...result, arms };
+}
+
 /** One probe's per-attempt binary grades (the report's probe breakdown). */
 export interface ProbeBreakdownJson {
   readonly probeId: string;

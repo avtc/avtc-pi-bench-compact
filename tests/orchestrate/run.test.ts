@@ -394,7 +394,7 @@ describe("startRun — Phase-2 stop-and-surface", () => {
     const order: string[] = [];
     const doneStage = vi.fn(async (_deps: unknown, _mode: string) => {
       order.push("latent");
-      return { kind: "done", pools: {} };
+      return { kind: "done" as const, pools: {}, reAuthored: [] };
     });
     const deps = makeDeps({
       arms: ["A1", "A3"],
@@ -758,6 +758,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
         meta: { runId: "x", cfgId: "cfg-x" } as unknown as Parameters<typeof buildProductionScoreDeps>[0]["meta"],
         signal: new AbortController().signal,
         modelsPath: join(root, "no-such-models.json"),
+        latentDigest: null,
       }),
     ).toThrow(/model-unavailable|pricing for evaluated model/);
   });
@@ -778,6 +779,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
       meta: {} as BuildScoreDepsArgs["meta"],
       signal: new AbortController().signal,
       modelsPath: "x",
+      latentDigest: null,
     } satisfies BuildScoreDepsArgs;
     // score deps carry no widget-coupled seam at all.
     expect(Object.keys(args)).not.toContain("widget");

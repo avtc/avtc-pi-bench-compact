@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   RESULT_SCHEMA,
   serializeResultJson,
+  normalizeLegacyResultJson,
 } from "../../src/report/result-json.js";
 import type { AggregateResult } from "../../src/stats/aggregate.js";
 import type { RunConfig, ToolVersion } from "../../src/storage/branches.js";
@@ -221,5 +222,53 @@ describe("serializeResultJson", () => {
     const json = serializeResultJson({ ...baseDeps, root: "/tmp/bench-compact" });
     expect(json.artifacts.results).toBe(path.join("/tmp/bench-compact", "runs", baseDeps.runId, "results.json"));
     // the caller-provided artifacts.results (if any) is overwritten by the derived path.
+  });
+});
+
+describe("normalizeLegacyResultJson", () => {
+  const legacy = {
+    runId: "r",
+    cfgId: "cfg-x",
+    timestamp: "t",
+    scenario: { id: "s", description: "d" },
+    config: { N: 1 },
+    toolVersions: {},
+    metricDefs: {},
+    arms: {
+      A1: {
+        tool: "bare-pi",
+        runsCompleted: 1,
+        runsFailed: 0,
+        metrics: { E5: { rate: 0.5, ci: [0.1, 0.9], n: 4 } },
+        probes: [{ probeId: "1", axis: "E5", question: "q", passes: [true], usages: [null] }],
+      },
+    },
+    ranks: {},
+    failures: [],
+    artifacts: { root: "/x", resultsPath: "/x/results.json", reportPath: "/x/report.md" },
+  } as unknown as Parameters<typeof normalizeLegacyResultJson>[0];
+
+  it("maps a legacy E5 row onto E5.1 (planted-fact recall) so re-renders keep the row", () => {
+    const out = normalizeLegacyResultJson(legacy);
+    const a1 = out.arms.A1 as unknown as { metrics: Record<string, unknown>; probes: { axis: string }[] };
+    expect(a1.metrics.E5).toBeUndefined();
+    expect(a1.metrics["E5.1"]).toEqual({ rate: 0.5, ci: [0.1, 0.9], n: 4 });
+    expect(a1.probes[0]?.axis).toBe("E5.1");
+  });
+
+  it("is a no-op on post-split results (E5.1 already present)", () => {
+    const post = {
+      ...legacy,
+      arms: {
+        A1: {
+          tool: "bare-pi",
+          runsCompleted: 1,
+          runsFailed: 0,
+          metrics: { "E5.1": { rate: 1, ci: [1, 1], n: 2 }, E6: { rate: 1, ci: [1, 1], n: 2 } },
+          probes: [{ probeId: "1", axis: "E6", question: "q", passes: [true], usages: [null] }],
+        },
+      },
+    } as unknown as Parameters<typeof normalizeLegacyResultJson>[0];
+    expect(normalizeLegacyResultJson(post)).toBe(post);
   });
 });

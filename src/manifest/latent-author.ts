@@ -19,6 +19,7 @@ import { type AskUi, askOperator } from "../ui/ask.js";
 import {
   type AuthorLatentProbe,
   LATENT_FINALIZE_SCHEMA,
+  LATENT_PROBE_CLASS_CAP,
   LATENT_PROBE_ITEM_SCHEMA,
   type LatentAuthoringMode,
   type LatentProbe,
@@ -30,7 +31,7 @@ import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "./lat
  *  path lets the operator accept fewer via the deadlock dialog). */
 export const LATENT_MIN_PER_CLASS = 3;
 /** The per-probeClass cap: the 11th probe of a class is rejected at add time. */
-export const LATENT_CAP_PER_CLASS = 10;
+export const LATENT_CAP_PER_CLASS = LATENT_PROBE_CLASS_CAP;
 
 /** Approved cap rejection (counts interpolated; mode-independent). */
 const capRejection = (probeClass: string, otherClass: string): string =>
@@ -299,7 +300,12 @@ export function spanContentEntryIds(sessionPaths: readonly string[], tailStartsA
     const ids = new Set<string>();
     for (const line of readFileSync(path, "utf8").split("\n")) {
       if (line.trim().length === 0) continue;
-      const entry = JSON.parse(line) as { id?: string; type?: string };
+      let entry: { id?: string; type?: string };
+      try {
+        entry = JSON.parse(line) as { id?: string; type?: string };
+      } catch {
+        continue; // torn trailing line (crash mid-append) — skip, like readArmCompaction
+      }
       if (entry.id === tailStartsAtEntryId) break; // tail begins — span done
       if (entry.id !== undefined && entry.type !== undefined && CONTENT_TYPES.has(entry.type)) {
         ids.add(entry.id);

@@ -48,7 +48,9 @@ export function readLatentPool(path: string): LatentPoolFile {
 export function staleVerdictArms(pool: LatentPoolFile, currentDigests: Readonly<Record<string, string>>): ArmId[] {
   const stale: ArmId[] = [];
   for (const [arm, digest] of Object.entries(currentDigests)) {
-    if (pool.summaryDigests[arm] !== undefined && pool.summaryDigests[arm] !== digest) {
+    // A missing recorded digest means the pool never covered this arm (e.g. an arm
+    // added on a config-change resume) — its probes would silently all be inactive.
+    if (pool.summaryDigests[arm] === undefined || pool.summaryDigests[arm] !== digest) {
       stale.push(arm as ArmId);
     }
   }

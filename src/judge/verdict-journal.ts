@@ -68,6 +68,11 @@ export function scoringFingerprint(input: {
   readonly maxTokens: number;
   readonly probesOnly: boolean;
   readonly e2LongThreshold: number;
+  /** Digest of the run's active latent probes (null when none) — a pool change
+   *  (re-author, mode switch, activation flip) must restart the journal: latent
+   *  probe ids restart at l1, so old verdicts would otherwise be replayed for
+   *  questions that were never asked. */
+  readonly latent: string | null;
 }): string {
   const canonical = JSON.stringify({
     manifest: input.manifestJson,
@@ -75,6 +80,7 @@ export function scoringFingerprint(input: {
     maxTokens: input.maxTokens,
     probesOnly: input.probesOnly,
     e2LongThreshold: input.e2LongThreshold,
+    latent: input.latent,
   });
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }

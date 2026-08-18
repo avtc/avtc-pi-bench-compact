@@ -58,6 +58,8 @@ const CONFIG_FIELDS: readonly (keyof BenchResultJson["config"])[] = [
   "N",
   "compactionBoundary",
   "backupMode",
+  "fastEval",
+  "latentProbes",
   "omFullReflectionThresholdTokens",
   "armsEnabled",
 ];

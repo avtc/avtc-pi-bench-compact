@@ -47,7 +47,13 @@ import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
-import { activeLatentForArm, LatentStageStoppedError, runLatentStage } from "./latent-stage.js";
+import {
+  activeLatentForArm,
+  LatentStageStoppedError,
+  latentProbesDigest,
+  purgeLatentProbeArtifacts,
+  runLatentStage,
+} from "./latent-stage.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -179,6 +185,9 @@ export interface BuildScoreDepsArgs {
   signal: RunSignal;
   /** models.json path for {@link readPricing} (default = `~/.pi/agent/models.json`). */
   modelsPath: string;
+  /** Digest of the run's active latent probes (null when none) — feeds the verdict-journal
+   *  fingerprint so a pool change restarts the journal (stale verdicts never replay). */
+  latentDigest: string | null;
 }
 
 /** Per-run output-token cap for the judge stages (single-call slices + agentLoop summaries). */
@@ -348,6 +357,17 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       if (latentResult.kind === "stopped") {
         throw new LatentStageStoppedError(latentResult.arm, { message: latentResult.message });
       }
+      // A re-authored pool restarts ids at l1 — purge the OLD latent probe branches +
+      // session files so a resume cannot replay dead answers for the new questions.
+      if (latentResult.reAuthored.length > 0) {
+        purgeLatentProbeArtifacts(
+          deps.scenarioRepo,
+          sessionsDir,
+          bases
+            .filter((b) => latentResult.kind === "done" && latentResult.reAuthored.includes(b.arm))
+            .map((b) => ({ arm: b.arm, branch: b.branch })),
+        );
+      }
     } else {
       log.info("latent: off — skipped");
     }
@@ -442,6 +462,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         }
       }
     }
+    const latentDigest = latentProbesDigest(latentMap);
     const scoreDeps = {
       ...buildScoreDeps({
         ctx: probeCtx,
@@ -450,6 +471,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         meta,
         signal,
         modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
+        latentDigest,
       }),
       latent: latentMap,
     };
@@ -540,7 +562,10 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
     widget?.setStatus("stopped", "/bench-compact:resume");
     deps.notify?.(`bench-compact stopped (scoring): ${message}`);
     log.warn(`run ${runId} stopped: scoring ${category} — ${message}`);
-    return { kind: "stopped", arm: null, attempt: null, phase: "score", reason: category, message, runId };
+    // The judge machinery is shared by the latent-authoring stage — report the
+    // CURRENT phase ("latent" there) instead of hardcoding "score".
+    const phase = getRunState()?.phase === "latent" ? "latent" : "score";
+    return { kind: "stopped", arm: null, attempt: null, phase, reason: category, message, runId };
   }
   // Unexpected error (fs fault, git fault, bug): re-throw for the command layer's
   // catch — but FIRST record the stop so the run-state doesn't keep looking live
@@ -696,6 +721,7 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
       maxTokens: JUDGE_MAX_TOKENS,
       probesOnly: args.runConfig.fastEval === "probes-only",
       e2LongThreshold: E2_LONG_RUN_THRESHOLD_ENTRIES,
+      latent: args.latentDigest,
     }),
     fs: { existsSync, readFileSync: (p) => readFileSync(p, "utf8"), appendFileSync, writeFileSync },
     onRestart: (path) => log.info(`score: verdict journal restarted (scoring conditions changed) — ${path}`),

@@ -54,10 +54,11 @@ describe("latent pool persistence", () => {
     expect(summaryDigest("the summary")).not.toBe(summaryDigest("the summary v2"));
   });
 
-  it("staleVerdictArms flags only arms whose digest changed", () => {
+  it("staleVerdictArms flags changed digests + arms the pool never covered", () => {
     expect(staleVerdictArms(pool, { A1: "d1", A3: "d3" })).toEqual([]);
     expect(staleVerdictArms(pool, { A1: "d1", A3: "changed" })).toEqual(["A3"]);
-    // an arm absent from the pool's digests is not flagged (nothing recorded to stale)
-    expect(staleVerdictArms(pool, { A5: "new" })).toEqual([]);
+    // an arm with NO recorded digest (e.g. added on a config-change resume) is stale —
+    // otherwise its probes would silently all be inactive under the reused pool
+    expect(staleVerdictArms(pool, { A5: "new" })).toEqual(["A5"]);
   });
 });

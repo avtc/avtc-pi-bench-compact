@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,10 +11,15 @@ import type { LatentAuthoringResult } from "../../src/manifest/latent-author.js"
 import {
   activeLatentForArm,
   type LatentStageDeps,
+  latentProbesDigest,
+  purgeLatentProbeArtifacts,
   runLatentStagePerArm,
   runLatentStageShared,
 } from "../../src/orchestrate/latent-stage.js";
+import { appendProbeAttempt } from "../../src/storage/branches.js";
 import { readLatentPool, summaryDigest } from "../../src/storage/latent-pool.js";
+import { branchSessionFile } from "../../src/storage/paths.js";
+import { branchExists, forkBranch, initScenarioRepo, listBranches } from "../../src/storage/repo.js";
 
 const SIGNAL = new AbortController().signal;
 const NO_SEAMS: JsonToolStageSeams = null as unknown as JsonToolStageSeams; // the fake author never uses them
@@ -134,6 +139,70 @@ describe("runLatentStagePerArm", () => {
     expect(calls.n).toBe(2); // A1 re-authored (stale) + A3 authored fresh (no pool)
     if (r.kind !== "done") return;
     expect(r.pools.A1?.probes).toHaveLength(2); // replaced by the fake author's pool
+    expect(r.reAuthored).toEqual(["A1"]); // the caller purges this arm's stale l-probe artifacts
+  });
+
+  it("reports no re-authored arms on a full reuse (nothing to purge)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const calls = { n: 0 };
+    for (const [arm, summary] of [
+      ["A1", "summary one"],
+      ["A3", "summary three"],
+    ] as const) {
+      writeFileSync(
+        join(dir, `latent-pool-${arm}.json`),
+        JSON.stringify({
+          mode: "per-arm",
+          arm,
+          tailStartsAtEntryId: "cut-1",
+          summaryDigests: { [arm]: summaryDigest(summary) },
+          probes: [probe("l1", "cued")],
+        }),
+      );
+    }
+    const r = await runLatentStagePerArm(baseDeps(dir, { author: fakeAuthor({ calls }).deps }));
+    if (r.kind !== "done") throw new Error("expected done");
+    expect(r.reAuthored).toEqual([]);
+  });
+
+  it("latentProbesDigest: null when empty; changes with any probe field", () => {
+    const p = probe("l1", "cued");
+    expect(latentProbesDigest(new Map())).toBe(null);
+    const d1 = latentProbesDigest(new Map([["A1:l1", p]]));
+    expect(d1).toMatch(/^[0-9a-f]{16}$/);
+    expect(latentProbesDigest(new Map([["A1:l1", { ...p, probeClass: "uncued" }]]))).not.toBe(d1);
+    expect(
+      latentProbesDigest(
+        new Map([
+          ["A1:l1", p],
+          ["A3:l1", probe("l1", "cued")],
+        ]),
+      ),
+    ).not.toBe(d1);
+  });
+
+  it("purgeLatentProbeArtifacts deletes only the arm's l-probe branches + session files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-purge-"));
+    const repo = join(dir, "repo");
+    mkdirSync(repo);
+    initScenarioRepo(repo);
+    const sessionsDir = join(dir, "sessions");
+    mkdirSync(sessionsDir);
+    const base = "bench-compact/run-1/cfg-a/arm-bare-pi";
+    // stale latent probe branch + session, a manifest-probe branch + session, another arm's
+    forkBranch(repo, "main", appendProbeAttempt(base, "l1", 1));
+    forkBranch(repo, "main", appendProbeAttempt(base, "l2", 2));
+    forkBranch(repo, "main", appendProbeAttempt(base, "3", 1));
+    const other = "bench-compact/run-1/cfg-a/arm-om-default";
+    forkBranch(repo, "main", appendProbeAttempt(other, "l1", 1));
+    writeFileSync(branchSessionFile(sessionsDir, appendProbeAttempt(base, "l1", 1)), "{}");
+    writeFileSync(branchSessionFile(sessionsDir, appendProbeAttempt(base, "2", 1)), "{}");
+    purgeLatentProbeArtifacts(repo, sessionsDir, [{ arm: "A1", branch: base }]);
+    expect(listBranches(repo, `${base}-probe-l*`)).toEqual([]);
+    expect(branchExists(repo, appendProbeAttempt(base, "3", 1))).toBe(true); // numeric probe kept
+    expect(branchExists(repo, appendProbeAttempt(other, "l1", 1))).toBe(true); // other arm kept
+    expect(existsSync(branchSessionFile(sessionsDir, appendProbeAttempt(base, "l1", 1)))).toBe(false);
+    expect(existsSync(branchSessionFile(sessionsDir, appendProbeAttempt(base, "2", 1)))).toBe(true);
   });
 
   it("stopped outcome carries the approved message with arm + counts", async () => {

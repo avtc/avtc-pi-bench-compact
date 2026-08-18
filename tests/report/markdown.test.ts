@@ -122,6 +122,37 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
 }
 
 describe("renderHeadline", () => {
+  it("probe breakdown: manifest probes union across arms; latent ids render PER ARM (same id names a different question per arm)", () => {
+    const base = syntheticResult(false);
+    const withProbes: BenchResultJson = {
+      ...base,
+      arms: {
+        ...base.arms,
+        A1: {
+          ...(base.arms.A1 as NonNullable<BenchResultJson["arms"]["A1"]>),
+          probes: [
+            { probeId: "1", axis: "E6", question: "shared manifest question", passes: [true, false], usages: [null, null] },
+            { probeId: "l1", axis: "E5.2", question: "A1's latent question", passes: [true], usages: [null] },
+          ],
+        },
+        A3: {
+          ...(base.arms.A3 as NonNullable<BenchResultJson["arms"]["A3"]>),
+          probes: [
+            { probeId: "1", axis: "E6", question: "shared manifest question", passes: [true, true], usages: [null, null] },
+            { probeId: "l1", axis: "E5.3", question: "A3's DIFFERENT latent question", passes: [false], usages: [null] },
+          ],
+        },
+      },
+    };
+    const md = renderHeadline(withProbes);
+    // manifest probe: one shared row
+    expect(md).toContain("| p1 · shared manifest question | E6 | 1/2 | 2/2 |");
+    // latent probes: one row PER ARM, labeled with the arm, not unioned
+    expect(md).toContain("pl1 (A1) · A1's latent question");
+    expect(md).toContain("pl1 (A3) · A3's DIFFERENT latent question");
+    expect(md).not.toContain("| pl1 · ");
+  });
+
   it("renders the header: scenario/runId/cfgId + config + tool versions", () => {
     const md = renderHeadline(syntheticResult(false));
     expect(md).toContain("tycoon");

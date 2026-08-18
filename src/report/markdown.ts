@@ -151,11 +151,15 @@ export function renderHeadline(result: BenchResultJson): string {
     lines.push("## Probe breakdown   (passes per probe × arm; cell = passed/graded)");
     lines.push(`| Probe | Axis | ${probeArms.map((a) => a).join(" | ")} |`);
     lines.push(`|---|---|${probeArms.map(() => "---").join("|")}|`);
-    // Rows: the union of probeIds across arms, in numeric order.
-    const probeIds = [
-      ...new Set(probeArms.flatMap((a) => (result.arms[a]?.probes ?? []).map((p) => p.probeId))),
+    // Rows: manifest probes (positional ids) union across arms in numeric order —
+    // the SAME question in every arm. Latent pool ids (l*) name a DIFFERENT question
+    // per arm, so they render one row per arm (a cross-arm union would mix questions).
+    const numericIds = [
+      ...new Set(
+        probeArms.flatMap((a) => (result.arms[a]?.probes ?? []).map((p) => p.probeId).filter((id) => /^\d+$/.test(id))),
+      ),
     ].sort((x, y) => Number(x) - Number(y));
-    for (const probeId of probeIds) {
+    for (const probeId of numericIds) {
       const first = probeArms
         .map((a) => (result.arms[a]?.probes ?? []).find((p) => p.probeId === probeId))
         .find((p) => p !== undefined);
@@ -167,6 +171,13 @@ export function renderHeadline(result: BenchResultJson): string {
         return `${p.passes.filter(Boolean).length}/${p.passes.length}`;
       });
       lines.push(`| p${probeId} · ${q} | ${first.axis} | ${cells.join(" | ")} |`);
+    }
+    for (const a of probeArms) {
+      const latentRows = (result.arms[a]?.probes ?? []).filter((p) => !/^\d+$/.test(p.probeId));
+      for (const p of latentRows) {
+        const q = p.question.length > 64 ? `${p.question.slice(0, 61)}...` : p.question;
+        lines.push(`| p${p.probeId} (${a}) · ${q} | ${p.axis} | ${probeArms.map((arm) => (arm === a ? `${p.passes.filter(Boolean).length}/${p.passes.length}` : "—")).join(" | ")} |`);
+      }
     }
     // Per-arm answer-cost summary (sums over every probe × attempt with usage).
     const costCells = probeArms.map((a) => {

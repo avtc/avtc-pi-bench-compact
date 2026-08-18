@@ -6,17 +6,20 @@
 // shared = one run over all files. Existing pools whose recorded summary digests
 // still match are REUSED (resume re-validation); a changed digest re-authors.
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { ArmId } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { log } from "../log.js";
 import { activeLatentProbes, type LatentProbe } from "../manifest/latent.js";
-import { type LatentCounts, runLatentAuthoringAgent } from "../manifest/latent-author.js";
+import { runLatentAuthoringAgent } from "../manifest/latent-author.js";
 import { readArmCompaction } from "../session/compaction-record.js";
 import type { LatentPoolFile } from "../storage/latent-pool.js";
 import { readLatentPool, staleVerdictArms, summaryDigest, writeLatentPool } from "../storage/latent-pool.js";
+import { branchSessionFile } from "../storage/paths.js";
+import { listBranches, resetBranch } from "../storage/repo.js";
 import type { AskUi } from "../ui/ask.js";
 
 /** One arm's post-compaction input. */
@@ -41,9 +44,12 @@ export interface LatentStageDeps {
 }
 
 /** Stage outcome: done carries the per-arm pools (shared mode: the single pool
- *  under every arm key); stopped carries the notify message for the operator. */
+ *  under every arm key) + which arms' pools were RE-AUTHORED this pass (pool ids
+ *  restart at l1 — the caller purges those arms' stale latent probe branches +
+ *  session files so resumes cannot replay dead answers); stopped carries the
+ *  notify message for the operator. */
 export type LatentStageResult =
-  | { kind: "done"; pools: Readonly<Partial<Record<ArmId, LatentPoolFile>>> }
+  | { kind: "done"; pools: Readonly<Partial<Record<ArmId, LatentPoolFile>>>; reAuthored: readonly ArmId[] }
   | { kind: "stopped"; arm: ArmId | null; message: string };
 
 /** The latent stage's stop-and-surface error (the run driver maps it to a stopped
@@ -62,6 +68,7 @@ export class LatentStageStoppedError extends Error {
 export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<LatentStageResult> {
   const author = deps.author ?? runLatentAuthoringAgent;
   const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
+  const reAuthored: ArmId[] = [];
   for (const { arm, sessionPath } of deps.arms) {
     const compaction = readArmCompaction(sessionPath);
     if (compaction === null) {
@@ -77,6 +84,7 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
         continue;
       }
       log.info(`latent: arm ${arm} summary changed — re-authoring`);
+      reAuthored.push(arm);
     }
     const result = await author({
       seams: deps.seams,
@@ -111,7 +119,7 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
     log.info(`latent: arm ${arm} authored ${pool.probes.length} probes (cued ${cued}, uncued ${uncued}) → ${poolPath}`);
     pools[arm] = pool;
   }
-  return { kind: "done", pools };
+  return { kind: "done", pools, reAuthored };
 }
 
 /** Run the latent stage in shared mode (one authoring run, one pool). */
@@ -142,7 +150,7 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
       log.info("latent: shared pool valid (summaries unchanged) — reuse");
       const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
       for (const { arm } of compactions) pools[arm] = pool;
-      return { kind: "done", pools };
+      return { kind: "done", pools, reAuthored: [] };
     }
     log.info("latent: shared summary changed — re-authoring");
   }
@@ -180,7 +188,7 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
   log.info(`latent: shared set authored — ${pool.probes.length} probes → ${poolPath}`);
   const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
   for (const { arm } of compactions) pools[arm] = pool;
-  return { kind: "done", pools };
+  return { kind: "done", pools, reAuthored: compactions.map((c) => c.arm) };
 }
 
 /** The stage entry: dispatch by mode ("off" is handled by the caller). */
@@ -201,4 +209,42 @@ export function activeLatentForArm(
   return activeLatentProbes(readLatentPool(path).probes, mode === "per-arm" ? "per-arm" : "shared", arm);
 }
 
-export type { LatentCounts };
+/** A digest of the run's ACTIVE latent probes (scored-arm-keyed). Part of the
+ *  verdict-journal fingerprint: any pool change (re-author, mode switch, activation
+ *  flip) restarts the journal so stale probe verdicts are never replayed. null when
+ *  the map is empty (off mode / all probes inactive) — no latent samples exist. */
+export function latentProbesDigest(latent: ReadonlyMap<string, LatentProbe>): string | null {
+  if (latent.size === 0) return null;
+  const canonical = [...latent.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, p]) => `${key}\u0000${p.id}\u0000${p.probeClass}\u0000${p.accept.join("\u0001")}\u0000${p.question}`)
+    .join("\u0002");
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
+}
+
+/** Delete an arm's latent probe branches + session files after its pool was
+ *  re-authored: pool ids restart at l1, so the OLD l-branches/sessions would
+ *  otherwise be mistaken for the new probes' on resume (stale answers replayed for
+ *  questions that were never asked). The `-probe-l` name segment matches ONLY
+ *  latent probe artifacts (manifest probes are positional numbers). */
+export function purgeLatentProbeArtifacts(
+  repo: string,
+  sessionsDir: string,
+  arms: readonly { arm: ArmId; branch: string }[],
+): void {
+  for (const { branch } of arms) {
+    // The session file name is the sanitized branch (see branchSessionFile) — derive
+    // the prefix from it so the purge matches exactly what runProbes wrote.
+    const sanitized = basename(branchSessionFile(sessionsDir, branch)).replace(/\.jsonl$/, "");
+    const prefix = `${sanitized}-probe-l`;
+    for (const b of listBranches(repo, `${branch}-probe-l*`)) {
+      resetBranch(repo, b);
+    }
+    for (const f of readdirSync(sessionsDir)) {
+      if (f.startsWith(`${prefix}`) && f.endsWith(".jsonl")) {
+        rmSync(join(sessionsDir, f));
+        log.info(`latent: purged stale probe session ${f}`);
+      }
+    }
+  }
+}

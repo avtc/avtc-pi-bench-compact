@@ -337,8 +337,17 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     if (acc.C3.length > 0) exactValues.C3 = acc.C3 as readonly number[] | readonly ProbeCostSample[];
     if (acc.C4.length > 0) exactValues.C4 = acc.C4;
     const byProbe = probeDetail.get(arm);
-    const probes =
-      byProbe === undefined ? undefined : [...byProbe.values()].sort((a, b) => Number(a.probeId) - Number(b.probeId));
+    // Numeric-aware: positional manifest ids numerically first, latent pool ids (l*)
+    // keep their authored order after them (Number("l1") is NaN under a plain sort).
+    const byProbeId = (a: ProbeGrades, b: ProbeGrades): number => {
+      const na = Number(a.probeId);
+      const nb = Number(b.probeId);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+      if (!Number.isNaN(na)) return -1;
+      if (!Number.isNaN(nb)) return 1;
+      return a.probeId < b.probeId ? -1 : a.probeId > b.probeId ? 1 : 0;
+    };
+    const probes = byProbe === undefined ? undefined : [...byProbe.values()].sort(byProbeId);
     arms[arm] =
       probes === undefined
         ? { binary: acc.binary, exact: exactValues }

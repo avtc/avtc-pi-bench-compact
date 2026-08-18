@@ -19,7 +19,12 @@ import type { MetricId } from "../metrics/defs.js";
 import { renderComparison } from "../report/compare.js";
 import { renderHeadline } from "../report/markdown.js";
 import { mergeResultJsons } from "../report/merge.js";
-import type { ArmResultJson, BenchResultJson, RankAxisJson } from "../report/result-json.js";
+import {
+  type ArmResultJson,
+  type BenchResultJson,
+  normalizeLegacyResultJson,
+  type RankAxisJson,
+} from "../report/result-json.js";
 import { benchRoot, runDir } from "../storage/paths.js";
 import { parseResultsArgs } from "./parse.js";
 
@@ -132,7 +137,7 @@ export function registerResultsCommand(pi: ExtensionAPI): void {
         loadResultJson: (runId) => {
           const file = path.join(runDir(root, runId), "results.json");
           try {
-            return JSON.parse(readFileSync(file, "utf8")) as BenchResultJson;
+            return normalizeLegacyResultJson(JSON.parse(readFileSync(file, "utf8")) as BenchResultJson);
           } catch {
             return undefined;
           }
