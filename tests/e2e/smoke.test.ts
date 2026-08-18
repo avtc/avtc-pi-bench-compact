@@ -63,6 +63,98 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("latent mode ON: pools authored post-Phase-1 thread through probes + score -> E5.1/E5.2/E5.3 rows", async () => {
+    const arms: readonly ArmId[] = ["A1", "A3"];
+    const traces = buildArmTraces(arms);
+    const bases = fakeBases(arms);
+
+    // Fake latent stage: writes REAL pool files to the run's artifacts dir (what the
+    // real stage persists), so the run driver's pool reads exercise the disk path.
+    const latentStage = vi.fn(async (d: { arms: { arm: ArmId }[]; runPath: string }) => {
+      const pools: Record<string, unknown> = {};
+      for (const { arm } of d.arms) {
+        const probes = [
+          {
+            id: "l1",
+            question: `why was caching rejected (${arm})?`,
+            accept: ["it serialized writes"],
+            entryIds: ["e1"],
+            probeClass: "cued",
+            note: "n",
+            arm,
+            verdicts: { [arm]: "absent" },
+          },
+          {
+            id: "l2",
+            question: `what escaped attention (${arm})?`,
+            accept: ["the off-by-one"],
+            entryIds: ["e1"],
+            probeClass: "uncued",
+            note: "n",
+            arm,
+            verdicts: { [arm]: "absent" },
+          },
+        ];
+        const pool = { mode: "per-arm", arm, tailStartsAtEntryId: "cut-1", summaryDigests: { [arm]: "d" }, probes };
+        writeFileSync(join(d.runPath, `latent-pool-${arm}.json`), JSON.stringify(pool));
+        pools[arm] = pool;
+      }
+      return { kind: "done" as const, pools, reAuthored: [] as ArmId[] };
+    });
+
+    // Probe seam: returns the manifest traces AND the latent traces for the ACTIVE
+    // set the driver resolved from disk (the latentProbes field IS the threading proof).
+    const probes = vi.fn(async (d: { armBase: ArmBase; latentProbes?: readonly { id: string }[] }) => {
+      const latent = (d.latentProbes ?? []).map((l) => ({
+        arm: d.armBase.arm,
+        attempt: 1,
+        probeId: l.id,
+        branch: `probe-${d.armBase.arm}-${l.id}`,
+        answer: "it serialized writes",
+        kept: true,
+      }));
+      return { traces: [...buildProbeAnswers(d.armBase.arm), ...latent], finalCtx: FINAL_CTX };
+    });
+
+    const deps: StartRunDeps = {
+      ...makeSmokeDeps(root, arms),
+      config: { ...makeSmokeDeps(root, arms).config, latentProbes: "per-arm" as const },
+      phase1: async () => ({ bases, finalCtx: FINAL_CTX }),
+      continuations: async () => ({ traces, finalCtx: FINAL_CTX }),
+      probes,
+      testSpec: () => ({ kind: "skipped" as const }),
+      latentStage,
+    } as unknown as StartRunDeps;
+
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    if (result.kind !== "done") return;
+    expect(latentStage).toHaveBeenCalledTimes(1);
+
+    // probes received the ACTIVE per-arm set resolved from the pools on disk
+    const probeDeps = probes.mock.calls[0]?.[0] as { latentProbes?: readonly { id: string }[] };
+    expect(probeDeps.latentProbes?.map((l) => l.id)).toEqual(["l1", "l2"]);
+
+    // results: the three recall lanes exist per arm
+    const json = readResultJson(result.resultsPath);
+    const a1 = json.arms.A1 as { metrics: Record<string, { rate: number; n: number }> };
+    expect(a1.metrics["E5.1"]).toMatchObject({ n: 1 });
+    expect(a1.metrics["E5.2"]).toMatchObject({ n: 1, rate: 1 });
+    expect(a1.metrics["E5.3"]).toMatchObject({ n: 1, rate: 1 });
+
+    // report: three rows + per-arm latent breakdown rows
+    const report = readFileSync(result.reportPath, "utf8");
+    for (const line of [
+      "recall-accuracy-explicit",
+      "recall-accuracy-from-summary",
+      "recall-accuracy-absent-in-summary",
+    ]) {
+      expect(report).toContain(line);
+    }
+    expect(report).toContain("pl1 (A1) ·");
+    expect(report).toContain("pl1 (A3) ·");
+  });
+
   it("produces a full result-v1 results.json + report.md for a 2-arm (A1 + A3) run", async () => {
     const arms: readonly ArmId[] = ["A1", "A3"];
     const traces = buildArmTraces(arms); // native A1 single-stage + memory A3 multi-stage
