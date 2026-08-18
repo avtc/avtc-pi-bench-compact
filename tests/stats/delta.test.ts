@@ -17,7 +17,7 @@ const ci: readonly [number, number] = [0, 1];
 describe("extractArmScalars", () => {
   it("extracts rate (binary), mean (C1/C3), dollars (C4), rank (comparative)", () => {
     const metrics = armMetrics({
-      binary: { E5: { rate: 0.8, ci, n: 10 } },
+      binary: { "E5.1": { rate: 0.8, ci, n: 10 } },
       exact: {
         C1: { mean: 1000, ci },
         C3: { mean: 40000, ci },
@@ -38,7 +38,7 @@ describe("extractArmScalars", () => {
       E1: { order: ["A3"], elo: { A3: 1000 }, ranks: { A3: { rank: 2, rankCi: ci } } },
     };
     const scalars = extractArmScalars("A3", metrics, comparative);
-    expect(scalars.E5).toBe(0.8);
+    expect(scalars["E5.1"]).toBe(0.8);
     expect(scalars.C1).toBe(1000);
     expect(scalars.C3).toBe(40000);
     expect(scalars.C2).toBe(150);
@@ -53,16 +53,16 @@ describe("extractArmScalars", () => {
 });
 
 describe("a1Delta — polarity-aware (+ = better than A1)", () => {
-  it("higherBetter (E5 rate): arm higher than A1 → positive delta", () => {
-    const delta = a1Delta({ E5: 0.8 }, { E5: 0.5 }, METRIC_DEFS);
-    expect(delta.E5).toBeCloseTo(0.3, 10);
-    expect(isNetNegative(delta.E5 ?? null)).toBe(false);
+  it("higherBetter (E5.1 rate): arm higher than A1 → positive delta", () => {
+    const delta = a1Delta({ "E5.1": 0.8 }, { "E5.1": 0.5 }, METRIC_DEFS);
+    expect(delta["E5.1"]).toBeCloseTo(0.3, 10);
+    expect(isNetNegative(delta["E5.1"] ?? null)).toBe(false);
   });
 
-  it("higherBetter (E5 rate): arm lower than A1 → negative (net-negative)", () => {
-    const delta = a1Delta({ E5: 0.2 }, { E5: 0.6 }, METRIC_DEFS);
-    expect(delta.E5).toBeCloseTo(-0.4, 10);
-    expect(isNetNegative(delta.E5 ?? null)).toBe(true);
+  it("higherBetter (E5.1 rate): arm lower than A1 → negative (net-negative)", () => {
+    const delta = a1Delta({ "E5.1": 0.2 }, { "E5.1": 0.6 }, METRIC_DEFS);
+    expect(delta["E5.1"]).toBeCloseTo(-0.4, 10);
+    expect(isNetNegative(delta["E5.1"] ?? null)).toBe(true);
   });
 
   it("lowerBetter (C1 mean): arm LOWER cost than A1 → positive delta", () => {
@@ -100,20 +100,20 @@ describe("a1Delta — polarity-aware (+ = better than A1)", () => {
   });
 
   it("A1 scalar absent → delta null (metric A1 didn't produce)", () => {
-    const delta = a1Delta({ E5: 0.8 }, {}, METRIC_DEFS);
-    expect(delta.E5).toBeNull();
+    const delta = a1Delta({ "E5.1": 0.8 }, {}, METRIC_DEFS);
+    expect(delta["E5.1"]).toBeNull();
   });
 
   it("A1 entirely absent (disabled) → every delta null (conditional attribution)", () => {
-    const armScalars: Partial<Record<MetricId, number | null>> = { E5: 0.8, C1: 1000, C4: 0.03 };
+    const armScalars: Partial<Record<MetricId, number | null>> = { "E5.1": 0.8, C1: 1000, C4: 0.03 };
     const delta = a1Delta(armScalars, {}, METRIC_DEFS);
     for (const v of Object.values(delta)) expect(v).toBeNull();
   });
 
   it("equal arm + A1 → delta 0 (not net-negative)", () => {
-    const delta = a1Delta({ E5: 0.5 }, { E5: 0.5 }, METRIC_DEFS);
-    expect(delta.E5).toBe(0);
-    expect(isNetNegative(delta.E5 ?? null)).toBe(false);
+    const delta = a1Delta({ "E5.1": 0.5 }, { "E5.1": 0.5 }, METRIC_DEFS);
+    expect(delta["E5.1"]).toBe(0);
+    expect(isNetNegative(delta["E5.1"] ?? null)).toBe(false);
   });
 
   it("NaN scalar → delta null", () => {

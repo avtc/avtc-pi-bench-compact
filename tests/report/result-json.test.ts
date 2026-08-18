@@ -31,7 +31,7 @@ const runConfig: RunConfig = {
   toolVersions: { A3: gitVer("aabbccdd"), A2: npmVer("0.4.2") },
 };
 
-// A synthetic aggregate: A1 (bare) + A3 (memkeeper). Binary E2/E4/E5; comparative
+// A synthetic aggregate: A1 (bare) + A3 (memkeeper). Binary E2/E4/"E5.1"; comparative
 // E1 (A3 beats A1); exact C1/C2/C3/C4. Exercises every channel shape.
 const aggregate: AggregateResult = {
   arms: {
@@ -39,7 +39,7 @@ const aggregate: AggregateResult = {
       binary: {
         E2: { rate: 0.72, ci: [0.45, 0.92], n: 10 },
         E4: { rate: 0.1, ci: [0.0, 0.3], n: 10 },
-        E5: { rate: 0.3, ci: [0.1, 0.5], n: 10 },
+        "E5.1": { rate: 0.3, ci: [0.1, 0.5], n: 10 },
       },
       exact: {
         C1: { mean: 1200, ci: [1100, 1300] },
@@ -60,7 +60,7 @@ const aggregate: AggregateResult = {
     A3: {
       binary: {
         E2: { rate: 0.51, ci: [0.4, 0.62], n: 9 },
-        E5: { rate: 0.9, ci: [0.8, 0.96], n: 9 },
+        "E5.1": { rate: 0.9, ci: [0.8, 0.96], n: 9 },
       },
       exact: {
         C4: {
@@ -141,7 +141,7 @@ describe("serializeResultJson", () => {
     expect(json.toolVersions.A1).toBeUndefined(); // bare-pi has no tool version
   });
 
-  it("embeds the self-describing metricDefs for all 13 metrics", () => {
+  it("embeds the self-describing metricDefs for all 15 metrics", () => {
     const json = serializeResultJson({ ...baseDeps, root: "/tmp" });
     expect(Object.keys(json.metricDefs).sort()).toEqual([
       "C1",
@@ -153,7 +153,9 @@ describe("serializeResultJson", () => {
       "E2",
       "E3",
       "E4",
-      "E5",
+      "E5.1",
+      "E5.2",
+      "E5.3",
       "E6",
       "E7",
       "E8",

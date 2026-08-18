@@ -30,10 +30,10 @@ const OPTS = { samples: 500, seed: 1 };
 describe("aggregateArmMetrics — binary channel", () => {
   it("routes a binary metric to {rate, ci, n}", () => {
     const grades: AllArmsGrades = {
-      arms: { A1: { binary: { E5: [true, false, true, true, false] } } },
+      arms: { A1: { binary: { "E5.1": [true, false, true, true, false] } } },
     };
     const result = aggregateArmMetrics(grades, OPTS);
-    const e5 = result.arms.A1?.binary.E5;
+    const e5 = result.arms.A1?.binary["E5.1"];
     expect(e5).toBeDefined();
     expect(e5?.rate).toBeCloseTo(0.6, 10);
     expect(e5?.n).toBe(5);
@@ -156,11 +156,11 @@ describe("aggregateArmMetrics — routing completeness", () => {
     const grades: AllArmsGrades = {
       arms: {
         A1: {
-          binary: { E5: [true, true] },
+          binary: { "E5.1": [true, true] },
           exact: { C1: [1000], C3: [40000], C4: [c4(0.001, 2000, ["native-summary"], 0)] },
         },
         A3: {
-          binary: { E5: [true, false] },
+          binary: { "E5.1": [true, false] },
           exact: { C1: [1100], C3: [41000], C4: [c4(0.03, 40000, ["Observer", "Builder"], 0)] },
         },
       },
@@ -169,8 +169,8 @@ describe("aggregateArmMetrics — routing completeness", () => {
     };
     const result = aggregateArmMetrics(grades, OPTS);
     expect(Object.keys(result.arms).sort()).toEqual(["A1", "A3"]);
-    expect(result.arms.A1?.binary.E5?.rate).toBe(1);
-    expect(result.arms.A3?.binary.E5?.rate).toBe(0.5);
+    expect(result.arms.A1?.binary["E5.1"]?.rate).toBe(1);
+    expect(result.arms.A3?.binary["E5.1"]?.rate).toBe(0.5);
     expect(result.arms.A1?.exact.C1?.mean).toBe(1000);
     expect(result.arms.A3?.exact.C4?.stages).toEqual(["Observer", "Builder"]);
     expect(result.comparative.E1?.order).toEqual(["A3", "A1"]);
@@ -178,7 +178,7 @@ describe("aggregateArmMetrics — routing completeness", () => {
 
   it("is deterministic given a seed", () => {
     const grades: AllArmsGrades = {
-      arms: { A1: { binary: { E5: [true, false, true] }, exact: { C1: [100, 200, 300] } } },
+      arms: { A1: { binary: { "E5.1": [true, false, true] }, exact: { C1: [100, 200, 300] } } },
     };
     const a = aggregateArmMetrics(grades, OPTS);
     const b = aggregateArmMetrics(grades, OPTS);

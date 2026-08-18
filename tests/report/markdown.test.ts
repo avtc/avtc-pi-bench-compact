@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { renderHeadline } from "../../src/report/markdown.js";
 import type { BenchResultJson } from "../../src/report/result-json.js";
 
-/** A synthetic result-JSON: A1 (bare) + A3 (memkeeper). A3 beats A1 on E4/E5
+/** A synthetic result-JSON: A1 (bare) + A3 (memkeeper). A3 beats A1 on E4/"E5.1"
  * (higher rate → positive Δ) but is WORSE on C1 footprint (higher tokens →
  * net-negative ⚠, lowerBetter polarity). Exercises ΔvsA1 both signs + a ⚠. */
 function syntheticResult(omitA1: boolean | null): BenchResultJson {
@@ -18,7 +18,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
             runsFailed: 1,
             metrics: {
               E4: { rate: 0.62, ci: [0.5, 0.74], n: 9 },
-              E5: { rate: 0.9, ci: [0.8, 0.96], n: 9 },
+              "E5.1": { rate: 0.9, ci: [0.8, 0.96], n: 9 },
               E1: { rank: 1, rankCi: [1, 1] },
               C1: { mean: 12100, ci: [11000, 13000] },
               C4: {
@@ -41,7 +41,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
             runsFailed: 0,
             metrics: {
               E4: { rate: 0.1, ci: [0.0, 0.3], n: 10 },
-              E5: { rate: 0.3, ci: [0.1, 0.5], n: 10 },
+              "E5.1": { rate: 0.3, ci: [0.1, 0.5], n: 10 },
               E1: { rank: 2, rankCi: [2, 2] },
               C1: { mean: 1200, ci: [1100, 1300] },
               C4: {
@@ -62,7 +62,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
             runsFailed: 1,
             metrics: {
               E4: { rate: 0.62, ci: [0.5, 0.74], n: 9 },
-              E5: { rate: 0.9, ci: [0.8, 0.96], n: 9 },
+              "E5.1": { rate: 0.9, ci: [0.8, 0.96], n: 9 },
               E1: { rank: 1, rankCi: [1, 1] },
               C1: { mean: 12100, ci: [11000, 13000] },
               C4: {
@@ -104,7 +104,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
     metricDefs: {
       E1: { name: "resume", channel: "comparative", polarity: "rankLowerBetter", desc: "d" },
       E4: { name: "proactive-recall", channel: "binary", polarity: "higherBetter", desc: "d" },
-      E5: { name: "recall-accuracy", channel: "binary", polarity: "higherBetter", desc: "d" },
+      "E5.1": { name: "recall-accuracy", channel: "binary", polarity: "higherBetter", desc: "d" },
       C1: { name: "footprint", channel: "exact", polarity: "lowerBetter", desc: "d" },
       C4: { name: "compaction-cost", channel: "exact", polarity: "lowerBetter", desc: "d" },
     } as BenchResultJson["metricDefs"],

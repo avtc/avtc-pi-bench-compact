@@ -38,9 +38,9 @@ describe("openVerdictJournal", () => {
   it("round-trips put → has/get and appends one line per put", () => {
     const fs = fakeFs(null);
     const j = openVerdictJournal({ path: "/v.jsonl", fingerprint: FP, fs });
-    j.put("probe:A1:1:3", { axis: "E5", judgePasses: [true, true, false] });
+    j.put("probe:A1:1:3", { axis: "E5.1", judgePasses: [true, true, false] });
     expect(j.has("probe:A1:1:3")).toBe(true);
-    expect(j.get("probe:A1:1:3")).toEqual({ axis: "E5", judgePasses: [true, true, false] });
+    expect(j.get("probe:A1:1:3")).toEqual({ axis: "E5.1", judgePasses: [true, true, false] });
     expect(fs.content().split("\n").filter(Boolean)).toHaveLength(2); // header + 1 verdict
   });
 

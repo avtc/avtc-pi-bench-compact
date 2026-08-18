@@ -32,7 +32,7 @@ describe("buildSimulatorSystemPrompt", () => {
   it("contains NO bench jargon: no [STOP], no record_steer, no tool names, no metric ids", () => {
     expect(prompt).not.toContain("[STOP]");
     expect(prompt).not.toContain("record_steer");
-    expect(prompt).not.toMatch(/\bE[0-9]\b/); // metric ids like E4/E5
+    expect(prompt).not.toMatch(/\bE[0-9]\b/); // metric ids like E4/"E5.1"
     expect(prompt).not.toContain("recallFact");
     expect(prompt).not.toContain("doneOp");
     expect(prompt).not.toContain("supersession");

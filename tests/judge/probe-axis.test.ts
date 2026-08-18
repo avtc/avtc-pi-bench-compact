@@ -66,9 +66,9 @@ describe("axisForProbe", () => {
     expect(axisForProbe(probe(["e-ss1"], { accept: ["new"] }), manifest)).toBe("E8");
   });
 
-  it("maps an accept[] probe targeting a recallFact to E5 (recall-accuracy)", () => {
+  it("maps an accept[] probe targeting a recallFact to E5.1 (recall-accuracy)", () => {
     const manifest = manifestWith({ recallFacts: ["rf1"], supersessions: [] });
-    expect(axisForProbe(probe(["e-rf1"], { accept: ["yes"] }), manifest)).toBe("E5");
+    expect(axisForProbe(probe(["e-rf1"], { accept: ["yes"] }), manifest)).toBe("E5.1");
   });
 
   it("maps an accept[] probe with mixed targets to E8 when any target is a supersession", () => {
@@ -76,9 +76,9 @@ describe("axisForProbe", () => {
     expect(axisForProbe(probe(["e-rf1", "e-ss1"], { accept: ["x"] }), manifest)).toBe("E8");
   });
 
-  it("defaults an accept[] probe with unknown targets to E5 (recall-style)", () => {
+  it("defaults an accept[] probe with unknown targets to E5.1 (recall-style)", () => {
     const manifest = manifestWith({ recallFacts: [], supersessions: [] });
-    expect(axisForProbe(probe(["e-unknown"], { accept: ["x"] }), manifest)).toBe("E5");
+    expect(axisForProbe(probe(["e-unknown"], { accept: ["x"] }), manifest)).toBe("E5.1");
   });
 
   it("returns null for a malformed probe (no accept, no correctRefusal)", () => {
@@ -93,9 +93,9 @@ describe("axisForProbe", () => {
 
   it("does NOT match a supersession condition id used as a target (targets are entry ids)", () => {
     // Regression guard: a probe that mistakenly targets the condition id (`ss1`) instead of
-    // the entry id (`e-ss1`) must NOT route to E8 — it falls through to E5 (recall-style).
+    // the entry id (`e-ss1`) must NOT route to E8 — it falls through to "E5.1" (recall-style).
     // This pins the schema contract (targets = entry ids) the resolver now honors.
     const manifest = manifestWith({ recallFacts: [], supersessions: ["ss1"] });
-    expect(axisForProbe(probe(["ss1"], { accept: ["new"] }), manifest)).toBe("E5");
+    expect(axisForProbe(probe(["ss1"], { accept: ["new"] }), manifest)).toBe("E5.1");
   });
 });

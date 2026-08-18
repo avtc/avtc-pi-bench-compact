@@ -283,10 +283,18 @@ import {
  * extracts the axis from the system prompt (the rubric line "E<n> — "). */
 function callJudgeByAxis(grades: Partial<Record<MetricId, boolean>>): CallJudge {
   return async (systemPrompt: string) => {
-    const match = systemPrompt.match(/E\d+/);
-    const axis = (match?.[0] ?? "E5") as MetricId;
-    const pass = grades[axis] ?? true;
-    return JSON.stringify({ pass, evidence: `fake ${axis}` });
+    // The rubrics carry no metric ids — detect the axis by its grading title.
+    const axis = (
+      systemPrompt.includes("abstention")
+        ? "E6"
+        : systemPrompt.includes("supersession")
+          ? "E8"
+          : systemPrompt.includes("recall accuracy")
+            ? "E5.1"
+            : null
+    ) as MetricId | null;
+    const pass = (axis !== null ? grades[axis] : undefined) ?? true;
+    return JSON.stringify({ pass, evidence: `fake ${axis ?? "unknown"}` });
   };
 }
 
@@ -309,12 +317,12 @@ const probeManifest: ScenarioManifest = {
   abstentions: [{ id: "ab1", question: "undecided?", correctRefusal: true, entryIds: [], lanes: [] }],
   taskObjective: { description: "goal", testSpec: "" },
   probes: [
-    { question: "what is rf1?", accept: ["yes"], targets: ["rf1"], lanes: ["direct-probe"] }, // E5
+    { question: "what is rf1?", accept: ["yes"], targets: ["rf1"], lanes: ["direct-probe"] }, // "E5.1"
     { question: "decide X?", correctRefusal: true, targets: ["ab1"], lanes: ["direct-probe"] }, // E6
   ],
 };
 
-describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
+describe("gradeProbeAxesForRun (E5.1/E6/E8 probe binary)", () => {
   it("resolves each probe's axis + grades it (one {axis,pass,probeId} per probe)", async () => {
     const trace = traceOf([userEntry("u0", null), assistantEntry("a1", "u0", 10)], []);
     const run: ArmAttemptRun = {
@@ -330,11 +338,11 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
     };
     const results = await gradeProbeAxesForRun(run, {
       manifest: probeManifest,
-      callJudges: [callJudgeByAxis({ E5: true, E6: false })],
+      callJudges: [callJudgeByAxis({ "E5.1": true, E6: false })],
       maxRetries: 2,
     });
     expect(results).toEqual([
-      { axis: "E5", pass: true, probeId: "1" },
+      { axis: "E5.1", pass: true, probeId: "1" },
       { axis: "E6", pass: false, probeId: "2" },
     ]);
   });
@@ -357,13 +365,13 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
     };
     await gradeProbeAxesForRun(run, {
       manifest: probeManifest,
-      callJudges: [callJudgeByAxis({ E5: true }), callJudgeByAxis({ E5: false })],
+      callJudges: [callJudgeByAxis({ "E5.1": true }), callJudgeByAxis({ "E5.1": false })],
       maxRetries: 2,
       verdicts: verdicts as unknown as VerdictStore,
     });
     const stored = m.get("probe:A3:1:1") as { judgePasses: boolean[]; judgeEvidence: string[] };
     expect(stored.judgePasses).toEqual([true, false]);
-    expect(stored.judgeEvidence).toEqual(["fake E5", "fake E5"]);
+    expect(stored.judgeEvidence).toEqual(["fake E5.1", "fake E5.1"]);
   });
 
   it("E6 stale-value face: correctRefusal probe with face stale → slice says FLAG AS STALE (not REFUSE)", async () => {
@@ -673,7 +681,7 @@ const integManifest: ScenarioManifest = {
   abstentions: [{ id: "ab1", question: "undecided?", correctRefusal: true, entryIds: [], lanes: [] }],
   taskObjective: { description: "build the thing", testSpec: "" },
   probes: [
-    { question: "what is the formula?", accept: ["formula"], targets: ["rf1"], lanes: ["direct-probe"] }, // E5
+    { question: "what is the formula?", accept: ["formula"], targets: ["rf1"], lanes: ["direct-probe"] }, // "E5.1"
     { question: "decide Y?", correctRefusal: true, face: "refuse", targets: ["ab1"], lanes: ["direct-probe"] }, // E6
   ],
 };
@@ -682,7 +690,7 @@ const integManifest: ScenarioManifest = {
 function integCallJudge(binaryPasses: Partial<Record<MetricId, boolean>>): CallJudge {
   return async (sys: string) => {
     if (sys.includes("RANKING")) return JSON.stringify({ order: ["A", "B"] }); // A(=A1) > B(=A3)
-    const axis = (sys.match(/E\d+/)?.[0] ?? "E5") as MetricId;
+    const axis = (sys.match(/E\d+/)?.[0] ?? "E5.1") as MetricId;
     return JSON.stringify({ pass: binaryPasses[axis] ?? true, evidence: `fake ${axis}` });
   };
 }
@@ -751,7 +759,7 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     ];
     const deps: ScoreRunDeps = {
       manifest: integManifest,
-      callJudges: [integCallJudge({ E2: false, E4: true, E5: true, E6: true })],
+      callJudges: [integCallJudge({ E2: false, E4: true, "E5.1": true, E6: true })],
       stageSeams: [
         multiStageSeams({
           report_boundary: () => ({ boundaries: [{ factId: "rf1", entryId: "a1", evidence: "used rf1" }] }),
@@ -781,10 +789,10 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     expect(a3?.metrics.C3).toBeDefined();
     expect(a3?.metrics.C4).toBeDefined();
 
-    // binary metrics present (E2 + E4 trace, E5 + E6 probe)
+    // binary metrics present (E2 + E4 trace, "E5.1" + E6 probe)
     expect(a3?.metrics.E2).toBeDefined();
     expect(a3?.metrics.E4).toBeDefined();
-    expect(a3?.metrics.E5).toBeDefined();
+    expect(a3?.metrics["E5.1"]).toBeDefined();
     expect(a3?.metrics.E6).toBeDefined();
 
     // comparative ranks present for all 4 axes
@@ -798,7 +806,7 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
 
     // per-probe breakdown: serialized per arm with the manifest question + per-attempt passes
     expect(a3?.probes).toEqual([
-      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [true], usages: [null] },
+      { probeId: "1", axis: "E5.1", question: "what is the formula?", passes: [true], usages: [null] },
       { probeId: "2", axis: "E6", question: "decide Y?", passes: [true], usages: [null] },
     ]);
     expect(resultJson.arms.A1?.probes).toEqual(a3?.probes);
@@ -807,14 +815,14 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).toContain("scen-integ");
     expect(markdown).toContain("## Probe breakdown");
-    expect(markdown).toContain("| p1 · what is the formula? | E5 | 1/1 | 1/1 |");
+    expect(markdown).toContain("| p1 · what is the formula? | E5.1 | 1/1 | 1/1 |");
     expect(markdown).toContain("| p2 · decide Y? | E6 | 1/1 | 1/1 |");
   });
 
   it("probe breakdown accumulates passes across attempts", async () => {
     const c1 = compaction("c1", "u0", "summary", makeUsage(100, 20), null);
     const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 50)], [c1]);
-    const fail = integCallJudge({ E5: false });
+    const fail = integCallJudge({ "E5.1": false });
     const runs: ArmAttemptRun[] = [1, 2].map((attempt) => ({
       arm: "A1" as const,
       attempt,
@@ -838,9 +846,9 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     };
     const { resultJson, markdown } = await scoreRun(runs, deps);
     expect(resultJson.arms.A1?.probes).toEqual([
-      { probeId: "1", axis: "E5", question: "what is the formula?", passes: [false, false], usages: [null, null] },
+      { probeId: "1", axis: "E5.1", question: "what is the formula?", passes: [false, false], usages: [null, null] },
     ]);
-    expect(markdown).toContain("| p1 · what is the formula? | E5 | 0/2 |");
+    expect(markdown).toContain("| p1 · what is the formula? | E5.1 | 0/2 |");
   });
 
   it("C2 recall-cost flows through (recovered fact -> finite mean; notRecoveredRate 0)", async () => {
@@ -895,11 +903,11 @@ describe("K-judge ensemble (K>1)", () => {
     // 3 judges: pass, fail, pass -> majority pass
     const passes = [true, false, true];
     const callJudges: CallJudge[] = passes.map((p) => async (sys: string) => {
-      const axis = (sys.match(/E\d+/)?.[0] ?? "E5") as MetricId;
-      return JSON.stringify({ pass: p && axis === "E5", evidence: "x" });
+      const axis = (sys.match(/E\d+/)?.[0] ?? "E5.1") as MetricId;
+      return JSON.stringify({ pass: p && axis === "E5.1", evidence: "x" });
     });
     const results = await gradeProbeAxesForRun(run, { manifest, callJudges });
-    expect(results).toEqual([{ axis: "E5", pass: true, probeId: "1" }]); // 2 of 3 -> pass
+    expect(results).toEqual([{ axis: "E5.1", pass: true, probeId: "1" }]); // 2 of 3 -> pass
   });
 
   it("gradeTraceBinaryForRun: K=3 majority vote on the trajectory axis", async () => {
@@ -1025,7 +1033,7 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     let boundaryCalls = 0;
     const deps: ScoreRunDeps = {
       manifest: integManifest,
-      callJudges: [integCallJudge({ E2: false, E4: true, E5: true, E6: true })],
+      callJudges: [integCallJudge({ E2: false, E4: true, "E5.1": true, E6: true })],
       stageSeams: [
         multiStageSeams({
           report_boundary: () => {
@@ -1076,7 +1084,7 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     expect(traceBinaryCalls).toBe(0);
     expect(comparativeCalls).toBe(0);
     expect(boundaryCalls).toBe(0);
-    expect(resultJson.arms.A1?.metrics.E5).toBeDefined(); // probe lane graded
+    expect(resultJson.arms.A1?.metrics["E5.1"]).toBeDefined(); // probe lane graded
     expect(resultJson.arms.A1?.metrics.E4).toBeUndefined(); // trajectory lane absent
     expect(resultJson.arms.A1?.metrics.C2).toBeUndefined(); // recall-cost lane absent
     expect(resultJson.ranks).toEqual({}); // no comparative axes
@@ -1105,7 +1113,7 @@ describe("scoreRun — score-phase progress lines (onScoreProgress)", () => {
     const lines: string[] = [];
     const deps: ScoreRunDeps = {
       manifest: integManifest,
-      callJudges: [integCallJudge({ E5: true, E6: true })],
+      callJudges: [integCallJudge({ "E5.1": true, E6: true })],
       stageSeams: [],
       shuffle: identityShuffle,
       maxTokens: 4096,
@@ -1183,7 +1191,7 @@ describe("scoreRun — verdict journal replay (crash-resume for scoring)", () =>
 
   it("a corrupted cached payload (wrong shape) is ignored — judges re-run", async () => {
     const verdicts = memStore();
-    verdicts.put("probe:A1:1:1", { axis: "E5", judgePasses: ["not-bool"] });
+    verdicts.put("probe:A1:1:1", { axis: "E5.1", judgePasses: ["not-bool"] });
     const judge = vi.fn(async (): Promise<string> => JSON.stringify({ pass: true, evidence: "e" }));
     await scoreRun(buildRuns(), buildDeps(verdicts, judge));
     expect(judge).toHaveBeenCalledTimes(1);

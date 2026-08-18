@@ -19,10 +19,25 @@ type MetricChannel = "exact" | "binary" | "comparative";
 export type MetricPolarity = "lowerBetter" | "higherBetter" | "rankLowerBetter";
 
 /** The canonical metric identifiers (the keys of METRIC_DEFS). */
-export type MetricId = "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7" | "E8" | "E10" | "C1" | "C2" | "C3" | "C4";
+export type MetricId =
+  | "E1"
+  | "E2"
+  | "E3"
+  | "E4"
+  | "E5.1"
+  | "E5.2"
+  | "E5.3"
+  | "E6"
+  | "E7"
+  | "E8"
+  | "E10"
+  | "C1"
+  | "C2"
+  | "C3"
+  | "C4";
 
 /** The binary-axis metric ids (judge per-run yes/no → rate over N). */
-export const BINARY_METRICS: readonly MetricId[] = ["E2", "E4", "E5", "E6", "E8"];
+export const BINARY_METRICS: readonly MetricId[] = ["E2", "E4", "E5.1", "E5.2", "E5.3", "E6", "E8"];
 /** The comparative-axis metric ids (judge ranks the enabled arms per axis). */
 export const COMPARATIVE_METRICS: readonly MetricId[] = ["E1", "E3", "E7", "E10"];
 /** The exact metric ids (no judge; computed off the trace). */
@@ -73,11 +88,23 @@ export const METRIC_DEFS: Record<MetricId, MetricDef> = {
     polarity: "higherBetter",
     desc: "uses a needed fact unprompted (rate)",
   },
-  E5: {
-    name: "recall-accuracy",
+  "E5.1": {
+    name: "recall-accuracy-explicit",
     channel: "binary",
     polarity: "higherBetter",
-    desc: "direct-probe answer correct vs accept[] (rate)",
+    desc: "planted fact the user asked to remember: direct-probe answer correct vs accept[] (rate)",
+  },
+  "E5.2": {
+    name: "recall-accuracy-from-summary",
+    channel: "binary",
+    polarity: "higherBetter",
+    desc: "cued latent probe (topic named in the summary, detail absent): answer correct vs accept[] (rate)",
+  },
+  "E5.3": {
+    name: "recall-accuracy-absent-in-summary",
+    channel: "binary",
+    polarity: "higherBetter",
+    desc: "uncued latent probe (no trace in summary or tail): answer correct vs accept[] (rate)",
   },
   E6: {
     name: "abstention",

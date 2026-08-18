@@ -64,7 +64,9 @@ export function versionTag(v: { source: string; commit: string; full?: string } 
 export const METRIC_ORDER: readonly MetricId[] = [
   "E2",
   "E4",
-  "E5",
+  "E5.1",
+  "E5.2",
+  "E5.3",
   "E6",
   "E8",
   "E1",

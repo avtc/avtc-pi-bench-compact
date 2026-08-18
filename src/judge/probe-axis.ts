@@ -37,7 +37,7 @@ export function axisForProbe(probe: Probe, manifest: ScenarioManifest): MetricId
     // deriveLanes/validateManifest (entry-id <-> entry-id).
     const supersessionEntryIds = new Set(manifest.supersessions.flatMap((s) => s.entryIds));
     const targetsSupersession = probe.targets.some((target) => supersessionEntryIds.has(target));
-    return targetsSupersession ? "E8" : "E5";
+    return targetsSupersession ? "E8" : "E5.1";
   }
   return null;
 }

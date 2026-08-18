@@ -18,7 +18,7 @@ function fakeJudge(responses: string[]): { call: CallJudge; calls: string[][] } 
 describe("gradeSlice", () => {
   it("parses a clean JSON {pass, evidence} response", async () => {
     const { call } = fakeJudge(['{"pass": true, "evidence": "answer matches accept[0]"}']);
-    const grade = await gradeSlice({ axis: "E5", slice: "PROBE QUESTION\n...", callJudge: call });
+    const grade = await gradeSlice({ axis: "E5.1", slice: "PROBE QUESTION\n...", callJudge: call });
     expect(grade).toEqual({ pass: true, evidence: "answer matches accept[0]" });
   });
 
@@ -37,7 +37,7 @@ describe("gradeSlice", () => {
 
   it("defaults evidence to '' when the model omits it", async () => {
     const { call } = fakeJudge(['{"pass": true}']);
-    const grade = await gradeSlice({ axis: "E5", slice: "x", callJudge: call });
+    const grade = await gradeSlice({ axis: "E5.1", slice: "x", callJudge: call });
     expect(grade).toEqual({ pass: true, evidence: "" });
   });
 
@@ -52,7 +52,7 @@ describe("gradeSlice", () => {
 
   it("throws JudgeMalformedJsonError after maxRetries malformed responses (STOP+surface)", async () => {
     const { call, calls } = fakeJudge(["garbage", "still garbage", "more garbage"]);
-    await expect(gradeSlice({ axis: "E5", slice: "x", callJudge: call, maxRetries: 2 })).rejects.toBeInstanceOf(
+    await expect(gradeSlice({ axis: "E5.1", slice: "x", callJudge: call, maxRetries: 2 })).rejects.toBeInstanceOf(
       JudgeMalformedJsonError,
     );
     // initial + 2 re-prompts = 3 calls total.
@@ -61,7 +61,7 @@ describe("gradeSlice", () => {
 
   it("uses the default maxRetries=2 when maxRetries is omitted", async () => {
     const { call, calls } = fakeJudge(["bad", "bad", "bad"]);
-    await expect(gradeSlice({ axis: "E5", slice: "x", callJudge: call })).rejects.toBeInstanceOf(
+    await expect(gradeSlice({ axis: "E5.1", slice: "x", callJudge: call })).rejects.toBeInstanceOf(
       JudgeMalformedJsonError,
     );
     expect(calls).toHaveLength(3);
@@ -69,7 +69,7 @@ describe("gradeSlice", () => {
 
   it("includes the axis rubric in the system prompt", async () => {
     const { call, calls } = fakeJudge(['{"pass": true, "evidence": ""}']);
-    await gradeSlice({ axis: "E5", slice: "x", callJudge: call });
+    await gradeSlice({ axis: "E5.1", slice: "x", callJudge: call });
     expect(calls[0]?.[0]).toContain("accept");
   });
 });

@@ -149,10 +149,10 @@ describe("acceptance — A1 attribution + net-negative detection", () => {
   });
 
   it("treats a higher binary-recall rate as better (higherBetter)", () => {
-    // E5 is higherBetter: A1 = 0.5, A3 = 0.9 → A3 better → positive delta.
-    const deltas = a1Delta({ E5: 0.9 }, { E5: 0.5 }, POLARITIES);
-    expect(deltas.E5).toBeCloseTo(0.4, 5); // armValue - a1Value
-    expect(isNetNegative(deltas.E5 ?? null)).toBe(false);
+    // "E5.1" is higherBetter: A1 = 0.5, A3 = 0.9 → A3 better → positive delta.
+    const deltas = a1Delta({ "E5.1": 0.9 }, { "E5.1": 0.5 }, POLARITIES);
+    expect(deltas["E5.1"]).toBeCloseTo(0.4, 5); // armValue - a1Value
+    expect(isNetNegative(deltas["E5.1"] ?? null)).toBe(false);
   });
 
   it("treats a lower comparative rank as better (rankLowerBetter)", () => {

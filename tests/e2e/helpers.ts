@@ -239,9 +239,19 @@ const identityShuffle: Shuffle<string> = (items: readonly string[]): string[] =>
 function makeCallJudge(binaryPasses: Readonly<Partial<Record<MetricId, boolean>>>): CallJudge {
   return async (systemPrompt: string): Promise<string> => {
     if (systemPrompt.includes("RANKING")) return JSON.stringify({ order: ["A", "B"] });
-    const axis = (systemPrompt.match(/E\d+/)?.[0] ?? "E5") as MetricId;
+    const axis = detectBinaryAxis(systemPrompt);
     return JSON.stringify({ pass: binaryPasses[axis] ?? true, evidence: `smoke ${axis}` });
   };
+}
+
+/** Detect the binary axis from a judge system prompt by its grading title (the
+ *  rubrics carry no metric ids). */
+function detectBinaryAxis(systemPrompt: string): MetricId {
+  if (systemPrompt.includes("abstention")) return "E6";
+  if (systemPrompt.includes("supersession")) return "E8";
+  if (systemPrompt.includes("redo-execution")) return "E2";
+  if (systemPrompt.includes("proactive recall")) return "E4";
+  return "E5.1"; // recall accuracy
 }
 
 /**
@@ -277,7 +287,7 @@ function makeStageSeams(handlers: Readonly<Record<string, () => unknown>>): Json
 function makeScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
   return {
     manifest: args.manifest,
-    callJudges: [makeCallJudge({ E2: false, E4: true, E5: true, E6: true })],
+    callJudges: [makeCallJudge({ E2: false, E4: true, "E5.1": true, E6: true })],
     stageSeams: [
       makeStageSeams({
         report_boundary: () => ({

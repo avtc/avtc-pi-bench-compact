@@ -965,7 +965,7 @@ describe("startRun — fastEval probes-only", () => {
     expect(probes.mock.calls[0][0].N).toBe(3); // config N applies to probes (variance over attempts)
     expect(probes.mock.calls[0][0].probesOnly).toBe(true);
     // scoring gets one synthesized row per arm, built from the ARM BASE branch,
-    // carrying ALL probe attempts (each attempt = an independent E5/E6 sample)
+    // carrying ALL probe attempts (each attempt = an independent "E5.1"/E6 sample)
     expect(score).toHaveBeenCalledOnce();
     const input = scoreInputs[0] as Array<{ arm: string; attempt: number; branch: string; probes: unknown[] }>;
     expect(input).toHaveLength(1);

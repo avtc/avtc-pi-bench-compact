@@ -131,7 +131,7 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
     expect(json.toolVersions.A1).toBeUndefined();
     expect(json.toolVersions.A3).toMatchObject({ source: "git", commit: "gabcdef", full: "abcdef1234567890" });
 
-    // metricDefs: exactly the 13 metrics, each self-describing
+    // metricDefs: exactly the 15 metrics, each self-describing
     expect(Object.keys(json.metricDefs).sort()).toEqual([
       "C1",
       "C2",
@@ -142,7 +142,9 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
       "E2",
       "E3",
       "E4",
-      "E5",
+      "E5.1",
+      "E5.2",
+      "E5.3",
       "E6",
       "E7",
       "E8",
@@ -193,9 +195,9 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
     // binary axes (one sample each over N=1): redo-exec failed, the rest passed
     expect(a1.metrics.E2).toMatchObject({ rate: 0, n: 1 });
     expect(a1.metrics.E4).toMatchObject({ rate: 1, n: 1 });
-    expect(a1.metrics.E5).toMatchObject({ rate: 1, n: 1 });
+    expect(a1.metrics["E5.1"]).toMatchObject({ rate: 1, n: 1 });
     expect(a1.metrics.E6).toMatchObject({ rate: 1, n: 1 });
-    for (const axis of ["E2", "E4", "E5", "E6"] as const) {
+    for (const axis of ["E2", "E4", "E5.1", "E6"] as const) {
       const m = a1.metrics[axis] as { rate: number; ci: readonly [number, number] } | undefined;
       expect(m?.rate).toBeGreaterThanOrEqual(0);
       expect(m?.rate).toBeLessThanOrEqual(1);

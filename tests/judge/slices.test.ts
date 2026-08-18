@@ -79,7 +79,7 @@ describe("buildStartSlice (E1 resume)", () => {
   });
 });
 
-describe("buildProbeAnswerSlice (E5/E6/E8)", () => {
+describe("buildProbeAnswerSlice (E5.1/E6/E8)", () => {
   it("renders the probe question + accept[] + the agent's answer", () => {
     const probe: Probe = {
       question: "How is revenue calculated?",

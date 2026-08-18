@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { JUDGE_RUBRICS } from "../../src/judge/rubrics.js";
 import { BINARY_METRICS, COMPARATIVE_METRICS, type MetricId } from "../../src/metrics/defs.js";
 
-const EFFECTIVENESS_AXES: readonly MetricId[] = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E10"];
+const EFFECTIVENESS_AXES: readonly MetricId[] = ["E1", "E2", "E3", "E4", "E5.1", "E6", "E7", "E8", "E10"];
 
 describe("JUDGE_RUBRICS (per-axis)", () => {
   it("defines a rubric for every effectiveness axis (the 9 judge-graded metrics)", () => {
@@ -35,8 +35,8 @@ describe("JUDGE_RUBRICS (per-axis)", () => {
     expect(r).toContain("doneop");
   });
 
-  it("E5 recall rubric: checks the probe answer matches accept[]", () => {
-    const r = (JUDGE_RUBRICS.E5 ?? "").toLowerCase();
+  it("E5.1 recall rubric: checks the probe answer matches accept[]", () => {
+    const r = (JUDGE_RUBRICS["E5.1"] ?? "").toLowerCase();
     expect(r).toContain("accept");
   });
 

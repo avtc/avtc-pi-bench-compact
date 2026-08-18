@@ -109,7 +109,7 @@ describe("summarizeTrajectory", () => {
       signal: new AbortController().signal,
     });
     const prompt = inputs[0]?.systemPrompt ?? "";
-    expect(prompt).toContain("E3");
+    expect(prompt).toContain("redo-plan (comparative)");
     expect(prompt).toContain("market-pricing loop");
     expect(prompt).toContain("do1");
   });
@@ -126,7 +126,7 @@ describe("summarizeTrajectory", () => {
       signal: new AbortController().signal,
     });
     const prompt = inputs[0]?.systemPrompt ?? "";
-    expect(prompt).toContain("E10");
+    expect(prompt).toContain("goal adherence (comparative)");
     expect(prompt).toContain("bounded incremental economic strategy game");
     // doneOps is the redo-plan axis's signal — omitted from the goal prompt to keep it focused
     expect(prompt).not.toContain("doneOps");

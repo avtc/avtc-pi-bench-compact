@@ -148,7 +148,7 @@ describe("loadManifestFile", () => {
     expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/doneOps item/);
   });
 
-  it("refuses non-string probe targets (silently mis-routes the E5/E8 axis)", () => {
+  it("refuses non-string probe targets (silently mis-routes the E5.1/E8 axis)", () => {
     const read = (): string => JSON.stringify({ ...VALID, probes: [{ question: "q?", accept: ["a"], targets: [42] }] });
     expect(() => loadManifestFile("/p/manifest.json", read)).toThrow(/targets/);
   });
