@@ -60,7 +60,7 @@ const ANTI_PEEK_SEPARATOR = "\n\n";
 /** fast-eval (probes-only) preamble: steer the agent OFF goal work before the question —
  *  one short Q&A turn, no autonomous continuation burst. */
 const PAUSE_GOAL_PROMPT =
-  "Pause your work on the goal for now and answer the following question as concisely as you can.";
+  "Pause your work on the goal for now and answer the following question as concisely as you can. Do not resume the task, paste pending deliverables, or continue goal work in this turn — answer only the question.";
 /** Delivery mode for the probe inject (queued after the current run settles — the probe is a fresh turn). */
 const DELIVER_AS_FOLLOW_UP: InjectMode = "followUp";
 /** A signal that never aborts — the default when the caller threads no run signal. */

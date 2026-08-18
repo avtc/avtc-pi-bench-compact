@@ -339,6 +339,33 @@ describe("gradeProbeAxesForRun (E5/E6/E8 probe binary)", () => {
     ]);
   });
 
+  it("persists each judge's evidence alongside the pass booleans (d1)", async () => {
+    const trace = traceOf([userEntry("u0", null), assistantEntry("a1", "u0", 10)], []);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [{ arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "yes", kept: true }],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    const m = new Map<string, unknown>();
+    const verdicts = {
+      has: (k: string) => m.has(k),
+      get: (k: string) => m.get(k),
+      put: (k: string, p: unknown) => void m.set(k, p),
+    };
+    await gradeProbeAxesForRun(run, {
+      manifest: probeManifest,
+      callJudges: [callJudgeByAxis({ E5: true }), callJudgeByAxis({ E5: false })],
+      maxRetries: 2,
+      verdicts: verdicts as unknown as VerdictStore,
+    });
+    const stored = m.get("probe:A3:1:1") as { judgePasses: boolean[]; judgeEvidence: string[] };
+    expect(stored.judgePasses).toEqual([true, false]);
+    expect(stored.judgeEvidence).toEqual(["fake E5", "fake E5"]);
+  });
+
   it("E6 stale-value face: correctRefusal probe with face stale → slice says FLAG AS STALE (not REFUSE)", async () => {
     const manifest: ScenarioManifest = {
       ...probeManifest,
@@ -961,7 +988,15 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
         branch: "A1-base",
         answer: "formula",
         kept: true,
-        usage: { tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0, dollars: 0.03, wallMs: 30_000 },
+        usage: {
+          tokensIn: 300,
+          tokensOut: 60,
+          cacheRead: 0,
+          cacheWrite: 0,
+          dollars: 0.03,
+          wallMs: 30_000,
+          recall: { calls: 2, tokensInjected: 900, wallMs: 4_000 },
+        },
       },
       {
         arm: "A1" as const,
@@ -1023,7 +1058,15 @@ describe("scoreRun — fast eval (probes-only): continuation lanes skipped", () 
     expect(resultJson.arms.A1?.metrics.C3).toEqual({ dollars: 0.04, wallMs: 20_000, answers: 2 });
     // per-probe usages serialized + the answer-cost summary line rendered
     expect(resultJson.arms.A1?.probes?.[0]?.usages).toEqual([
-      { tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0, dollars: 0.03, wallMs: 30_000 },
+      {
+        tokensIn: 300,
+        tokensOut: 60,
+        cacheRead: 0,
+        cacheWrite: 0,
+        dollars: 0.03,
+        wallMs: 30_000,
+        recall: { calls: 2, tokensInjected: 900, wallMs: 4_000 },
+      },
     ]);
     expect(markdown).toContain("answer cost per arm: A1 600in 240out $0.080 40s");
     // continuation-judged lanes never ran (recall-cost included: the synthesized

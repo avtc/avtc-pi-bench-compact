@@ -479,14 +479,15 @@ export async function gradeProbeAxesForRun(
       continue;
     }
     deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} grading`);
-    const judgePasses = await Promise.all(
+    const grades = await Promise.all(
       deps.callJudges.map(async (callJudge) => {
         const slice = buildProbeAnswerSlice({ probe, answerText: probeTrace.answer }, DEFAULT_SLICE_OPTIONS);
-        const grade = await gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
-        return grade.pass;
+        return gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
       }),
     );
-    deps.verdicts?.put(verdictKey, { axis, judgePasses });
+    const judgePasses = grades.map((grade) => grade.pass);
+    const judgeEvidence = grades.map((grade) => grade.evidence);
+    deps.verdicts?.put(verdictKey, { axis, judgePasses, judgeEvidence });
     out.push({ axis, pass: majorityVote(judgePasses), probeId: probeTrace.probeId });
   }
   return out;

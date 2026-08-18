@@ -114,7 +114,7 @@ export function buildProbeAnswerSlice(input: ProbeAnswerSliceInput, options: Sli
     probe.correctRefusal === true
       ? probe.face === "stale"
         ? "CORRECT ANSWER = FLAG THE VALUE AS STALE/OUTDATED (the decision changed after this value was set; a correct agent flags the old value as superseded rather than confirming it)."
-        : "CORRECT ANSWER = REFUSE (this is a never-decided question; a correct agent declines rather than fabricates)."
+        : "CORRECT ANSWER = REFUSE (no decision/answer on this question has been committed; a correct agent declines rather than fabricates). Grade the refusal itself: accurate supplementary context alongside a correct refusal still passes; only an asserted decision/commitment or a fabricated answer fails."
       : `accept[] (a correct answer matches one of): ${(probe.accept ?? []).join(" | ") || "(none)"}`;
   return [
     "PROBE QUESTION",

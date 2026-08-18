@@ -101,6 +101,16 @@ export interface ProbeUsageJson {
   readonly cacheWrite: number;
   readonly dollars: number;
   readonly wallMs: number;
+  /** Memory-recall tool usage inside this answer (absent when no recall calls). */
+  readonly recall?: RecallToolUsageJson;
+}
+
+/** Recall-family tool usage (memory-lookup overhead): calls, tokens injected into
+ *  context (estimate: result chars / 4), wall spent inside the tool (call→result). */
+export interface RecallToolUsageJson {
+  readonly calls: number;
+  readonly tokensInjected: number;
+  readonly wallMs: number;
 }
 
 /** A comparative axis's order + Elo (the `ranks` block; full cross-arm detail). */

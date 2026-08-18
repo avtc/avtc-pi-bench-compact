@@ -187,6 +187,23 @@ export function renderHeadline(result: BenchResultJson): string {
       lines.push("");
       lines.push(`answer cost per arm: ${costCells.join(" | ")}`);
     }
+    // Per-arm memory-recall overhead (lookup calls + injected tokens + tool wall),
+    // summed over every probe × attempt with usage. Tokens are an estimate (chars/4).
+    const recallCells = probeArms.map((a) => {
+      const recalls = (result.arms[a]?.probes ?? [])
+        .flatMap((p) => p.usages ?? [])
+        .filter((u) => u !== null && u !== undefined)
+        .flatMap((u) => (u.recall === undefined ? [] : [u.recall]));
+      if (recalls.length === 0) return `${a} 0 calls`;
+      const sum = recalls.reduce(
+        (acc, r) => ({ calls: acc.calls + r.calls, tokens: acc.tokens + r.tokensInjected, wallMs: acc.wallMs + r.wallMs }),
+        { calls: 0, tokens: 0, wallMs: 0 },
+      );
+      return `${a} ${count(sum.calls)} calls ${count(sum.tokens)} tok ${(sum.wallMs / 1000).toFixed(1)}s`;
+    });
+    if (costCells.some((cell) => !cell.endsWith("—"))) {
+      lines.push(`recall cost per arm: ${recallCells.join(" | ")}`);
+    }
     lines.push("");
   }
 

@@ -150,6 +150,32 @@ describe("probeUsageFromSession (pure helper)", () => {
     if (usage !== null) expect(usage.tokensOut).toBe(0);
     expect(probeUsageFromSession(base, [SESSION, USER("changed")].join("\n"))).toBeNull();
   });
+
+  it("counts recall-family calls: span call→result, injected tokens = chars/4; absent when none", () => {
+    const base = [SESSION, USER("q")].join("\n");
+    const mkCall = (ts: string) =>
+      `{"type":"message","id":"c1","timestamp":"${ts}","message":{"role":"assistant","content":[{"type":"toolCall","id":"t-1","name":"mk_recall","arguments":{"query":"deflation"}}],"usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.001}}}}`;
+    const mkResult = (ts: string) =>
+      `{"type":"message","id":"r1","timestamp":"${ts}","message":{"role":"toolResult","toolCallId":"t-1","toolName":"mk_recall","content":"${"x".repeat(40)}"}}`;
+    const withRecall = [
+      SESSION,
+      USER("q"),
+      mkCall("2026-08-17T10:00:00Z"),
+      mkResult("2026-08-17T10:00:02Z"),
+      ASSISTANT_USAGE("a", { input: 100, output: 20, dollars: 0.01 }, "2026-08-17T10:00:30Z"),
+    ].join("\n");
+    const usage = probeUsageFromSession(base, withRecall);
+    expect(usage?.recall).toEqual({ calls: 1, tokensInjected: 10, wallMs: 2_000 }); // 40 chars/4
+
+    // Non-recall tools (e.g. bash) are ignored; no recall → field absent.
+    const bashTail = [
+      SESSION,
+      USER("q"),
+      `{"type":"message","id":"c2","timestamp":"2026-08-17T10:00:00Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"t-9","name":"bash","arguments":{"command":"ls"}}]}}`,
+      `{"type":"message","id":"r2","timestamp":"2026-08-17T10:00:01Z","message":{"role":"toolResult","toolCallId":"t-9","toolName":"bash","content":"ok"}}`,
+    ].join("\n");
+    expect(probeUsageFromSession(base, bashTail)?.recall).toBeUndefined();
+  });
 });
 
 describe("addedSessionLines (pure helper)", () => {

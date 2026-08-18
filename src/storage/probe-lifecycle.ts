@@ -45,7 +45,21 @@ export interface ProbeUsage {
   readonly cacheWrite: number;
   readonly dollars: number;
   readonly wallMs: number;
+  /** Memory-recall tool usage inside the tail (absent when no recall calls). */
+  readonly recall?: RecallToolUsage;
 }
+
+/** Recall-family tool usage (the memory-lookup overhead): how many lookup calls the
+ *  agent made, the tokens those results injected into context (ESTIMATE — result
+ *  chars / 4), and the wall spent inside the tool itself (call→result span). */
+export interface RecallToolUsage {
+  readonly calls: number;
+  readonly tokensInjected: number;
+  readonly wallMs: number;
+}
+
+/** The tool names that constitute a memory recall (observational-memory + memkeeper). */
+const RECALL_TOOL_NAMES = new Set(["recall", "mk_recall"]);
 
 /** Sum the probe-tail (added past the base) assistant-message usage + wall-clock.
  *  Pure transformation of the two file contents (testable in isolation). Returns
@@ -74,6 +88,14 @@ export function probeUsageFromSession(baseJsonl: string, probeJsonl: string): Pr
   };
   let firstTs: number | null = null;
   let lastTs: number | null = null;
+  // Recall-family tool accounting: toolCall id → calling assistant-message timestamp;
+  // the matching toolResult closes the span (wall) and contributes its payload size.
+  const recallCallTs = new Map<string, number>();
+  const recall: { calls: number; tokensInjected: number; wallMs: number } = {
+    calls: 0,
+    tokensInjected: 0,
+    wallMs: 0,
+  };
   for (const json of added) {
     let entry: SessionEntry;
     try {
@@ -95,10 +117,47 @@ export function probeUsageFromSession(baseJsonl: string, probeJsonl: string): Pr
         usage.cacheWrite += u.cacheWrite ?? 0;
         usage.dollars += u.cost?.total ?? 0;
       }
+      const content = entry.message.content;
+      if (Array.isArray(content)) {
+        for (const block of content as { type?: string; id?: string; name?: string }[]) {
+          if (
+            block.type === "toolCall" &&
+            typeof block.name === "string" &&
+            RECALL_TOOL_NAMES.has(block.name) &&
+            typeof block.id === "string"
+          ) {
+            recallCallTs.set(block.id, Number.isNaN(ts) ? -1 : ts);
+          }
+        }
+      }
+    }
+    if (entry.type === "message" && entry.message?.role === "toolResult") {
+      const msg = entry.message as { toolCallId?: string; toolName?: string; content?: unknown };
+      if (typeof msg.toolCallId === "string" && recallCallTs.has(msg.toolCallId)) {
+        const callTs = recallCallTs.get(msg.toolCallId) ?? -1;
+        recall.calls += 1;
+        recall.tokensInjected += Math.ceil(toolResultTextLength(msg.content) / 4);
+        if (callTs >= 0 && !Number.isNaN(ts)) recall.wallMs += Math.max(0, ts - callTs);
+      }
     }
   }
   usage.wallMs = firstTs !== null && lastTs !== null ? Math.max(0, lastTs - firstTs) : 0;
+  if (recall.calls > 0) return { ...usage, recall };
   return usage;
+}
+
+/** Character length of a tool result's text payload (string, or content blocks
+ *  holding `text` fields). 0 for unexpected shapes. */
+function toolResultTextLength(content: unknown): number {
+  if (typeof content === "string") return content.length;
+  if (Array.isArray(content)) {
+    let len = 0;
+    for (const block of content as { text?: unknown }[]) {
+      if (typeof block?.text === "string") len += block.text.length;
+    }
+    return len;
+  }
+  return 0;
 }
 
 /** True if the entry represents tool/file-mutating activity (NOT a clean Q&A message). */
