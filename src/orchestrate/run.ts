@@ -560,11 +560,12 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
     const { category, message } = err;
     updateRunState({ lastStopReason: message });
     widget?.setStatus("stopped", "/bench-compact:resume");
-    deps.notify?.(`bench-compact stopped (scoring): ${message}`);
-    log.warn(`run ${runId} stopped: scoring ${category} — ${message}`);
     // The judge machinery is shared by the latent-authoring stage — report the
     // CURRENT phase ("latent" there) instead of hardcoding "score".
     const phase = getRunState()?.phase === "latent" ? "latent" : "score";
+    const phaseLabel = phase === "latent" ? "latent" : "scoring";
+    deps.notify?.(`bench-compact stopped (${phaseLabel}): ${message}`);
+    log.warn(`run ${runId} stopped: ${phaseLabel} ${category} — ${message}`);
     return { kind: "stopped", arm: null, attempt: null, phase, reason: category, message, runId };
   }
   // Unexpected error (fs fault, git fault, bug): re-throw for the command layer's

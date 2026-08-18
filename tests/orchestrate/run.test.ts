@@ -623,6 +623,27 @@ describe("startRun — Phase 3 scoring", () => {
     expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*A2.*probe 1/i));
   });
 
+  it("a BenchJudgeError from the latent stage → stopped (latent phase) + notify says latent", async () => {
+    const notify = vi.fn();
+    const bases = fakeBases(["A1"]);
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      notify,
+      config: { latentProbes: "per-arm" as const },
+      phase1: phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX })),
+      continuations: continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX })),
+      latentStage: vi.fn(async () => {
+        throw new BenchJudgeError("model-unavailable", "latent authoring model unavailable");
+      }),
+    });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("stopped");
+    if (result.kind !== "stopped") return;
+    expect(result.phase).toBe("latent");
+    expect(notify).toHaveBeenCalledWith("bench-compact stopped (latent): latent authoring model unavailable");
+  });
+
   it("a BenchJudgeError from scoreRun → stopped (score phase) + notify", async () => {
     const notify = vi.fn();
     const bases = fakeBases(["A1"]);

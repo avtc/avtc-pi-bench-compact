@@ -205,6 +205,29 @@ describe("runLatentStagePerArm", () => {
     expect(existsSync(branchSessionFile(sessionsDir, appendProbeAttempt(base, "2", 1)))).toBe(true);
   });
 
+  it("a persisted pool failing validation on reuse stops with the remediation message", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const calls = { n: 0 };
+    writeFileSync(
+      join(dir, "latent-pool-A1.json"),
+      JSON.stringify({
+        mode: "per-arm",
+        arm: "A1",
+        tailStartsAtEntryId: "cut-1",
+        summaryDigests: { A1: summaryDigest("summary one") },
+        probes: [{ ...probe("l1", "cued"), entryIds: ["not-in-span"] }],
+      }),
+    );
+    const r = await runLatentStagePerArm(baseDeps(dir, { author: fakeAuthor({ calls }).deps }));
+    expect(r).toEqual({
+      kind: "stopped",
+      arm: "A1",
+      message:
+        'latent: latent-pool-A1.json failed validation (latent probe l1 cites entryId "not-in-span" not in the pre-sliced (in-span) set) — delete the file to re-author',
+    });
+    expect(calls.n).toBe(0); // no authoring attempted — the operator must intervene
+  });
+
   it("stopped outcome carries the approved message with arm + counts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
     const calls = { n: 0 };

@@ -13,8 +13,8 @@ import type { ArmId } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { log } from "../log.js";
-import { activeLatentProbes, type LatentProbe } from "../manifest/latent.js";
-import { runLatentAuthoringAgent } from "../manifest/latent-author.js";
+import { activeLatentProbes, type LatentProbe, validateLatentProbes } from "../manifest/latent.js";
+import { runLatentAuthoringAgent, spanContentEntryIds } from "../manifest/latent-author.js";
 import { readArmCompaction } from "../session/compaction-record.js";
 import type { LatentPoolFile } from "../storage/latent-pool.js";
 import { readLatentPool, staleVerdictArms, summaryDigest, writeLatentPool } from "../storage/latent-pool.js";
@@ -79,6 +79,18 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       const pool = readLatentPool(poolPath);
       const stale = staleVerdictArms(pool, { [arm]: summaryDigest(compaction.summary) });
       if (stale.length === 0 && pool.tailStartsAtEntryId === compaction.firstKeptEntryId) {
+        const validation = validateLatentProbes(pool.probes, {
+          mode: "per-arm",
+          spanEntryIds: spanContentEntryIds([sessionPath], compaction.firstKeptEntryId),
+          enabledArms: deps.arms.map((a) => a.arm),
+        });
+        if (!validation.ok) {
+          return {
+            kind: "stopped",
+            arm,
+            message: `latent: ${basename(poolPath)} failed validation (${validation.reasons[0] ?? "invalid"}) — delete the file to re-author`,
+          };
+        }
         log.info(`latent: arm ${arm} pool valid (summary unchanged) — reuse`);
         pools[arm] = pool;
         continue;
@@ -147,6 +159,21 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     for (const { arm, c } of compactions) current[arm] = summaryDigest(c?.summary ?? "");
     const stale = staleVerdictArms(pool, current);
     if (stale.length === 0 && pool.tailStartsAtEntryId === anchor) {
+      const validation = validateLatentProbes(pool.probes, {
+        mode: "shared",
+        spanEntryIds: spanContentEntryIds(
+          deps.arms.map((a) => a.sessionPath),
+          anchor,
+        ),
+        enabledArms: deps.arms.map((a) => a.arm),
+      });
+      if (!validation.ok) {
+        return {
+          kind: "stopped",
+          arm: null,
+          message: `latent: ${basename(poolPath)} failed validation (${validation.reasons[0] ?? "invalid"}) — delete the file to re-author`,
+        };
+      }
       log.info("latent: shared pool valid (summaries unchanged) — reuse");
       const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
       for (const { arm } of compactions) pools[arm] = pool;
