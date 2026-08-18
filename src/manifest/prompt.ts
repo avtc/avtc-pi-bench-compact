@@ -20,9 +20,14 @@ THE SESSION FILE
 You are given a JSONL file at <PATH>. It is the full pre-compaction conversation between a
 user and a coding agent. Each line is one entry — a JSON object with fields such as:
 - id        — a unique id for that entry (you will cite these)
-- type      — message / text / thinking / custom / toolCall / toolResult / ...
+- type      — the entry type. Conversation content appears ONLY in these types:
+  "message" (what the user said, the agent's replies including its thinking,
+  tool calls and their results), "custom_message", "branch_summary". All other
+  types — session metadata, compaction records, custom persistence records
+  (memory stores, todo items, user-decisions) — were NOT visible to the agent
+  during the session: never treat their content as something the agent saw.
 - timestamp
-- content   — the actual text (what the user said, what the agent replied, tool inputs/outputs)
+- content   — the actual text, shaped by the type
 Read it with your tools. The conversation is in chronological order.
 
 The compaction splits this file in two:
@@ -123,9 +128,10 @@ When everything is recorded, call finalize_manifest exactly once:
 
 CONSTRAINTS
 
-- Every entryId you list must be a real id from the file, on an entry that actually contains
-  that condition — read it before you cite it. add_tail_conflict cites the finding's SPAN
-  entries (where you found the fact), never tail entries.
+- Every entryId you list must be a real id from the file, on an entry of type "message",
+  "custom_message", or "branch_summary" that actually contains that condition — read it
+  before you cite it; never cite persistence records. add_tail_conflict cites the finding's
+  SPAN entries (where you found the fact), never tail entries.
 - If a kind of condition does not occur in the session (e.g. no reversal happened), leave
   that list empty. Do not invent one.
 - Prefer conditions that matter for continuing the work; skip trivia.`;
