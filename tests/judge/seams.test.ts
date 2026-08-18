@@ -22,7 +22,6 @@ function config(judgesNumber: 1 | 3): BenchConfig {
     evaluatedThinkingLevel: "high",
     N: 1,
     compactionBoundary: 140_000,
-    backupMode: "build",
     fastEval: "off",
     latentProbes: "off",
     scenario: null,

@@ -9,7 +9,7 @@ The canonical operator flow: **configure → prepare a scenario → run every ar
    - **`avtc-pi-memkeeper`** (memkeeper-builder `A3` + memkeeper-selector `A4`).
    - The **C4 usage patches** on both (so compaction-cost is measurable for memory arms).
 2. Load the extension in pi's `.pi/settings.json` `packages` (the harness + the full avtc-pi suite).
-3. Configure the run via `/bench-compact:settings`: evaluated model + thinking level, judge model(s) + thinking level(s), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `backupMode` (`build` or `extract`), and which arms are enabled.
+3. Configure the run via `/bench-compact:settings`: evaluated model + thinking level, judge model(s) + thinking level(s), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `latentProbes` (off / per-arm / shared), and which arms are enabled.
 4. Tune memkeeper via its OWN global settings (`/mk:settings`, persisted to `~/.pi/agent/avtc-pi-memkeeper-settings.json`): models, per-call timeout (`llmCallTimeoutMs`), thinking levels (e.g. `observerThinkingLevel`), max output tokens, and thresholds all reach the bench arms — the bench pins only the arm-defining keys (`enabled`, stage modes, `renderMode`) and merges your global settings underneath.
 
 ## Procedure
@@ -29,7 +29,9 @@ The frozen scenario lands under `~/.pi/bench-compact/scenarios/<id>/` (`repo/` +
 
 `/bench-compact:run-scenario <folder>` forks the scenario per arm, isolates each arm (configure-API `reloadConfig` + `setActiveTools`), runs `N` continuation attempts + the manifest's direct probes, scores effectiveness (judge) + cost (trace), and writes `runs/<runId>/results.json` + `report.md`.
 
-The live-progress widget tracks the phases (`build` → `extract` → `compact` → `eval` → `probe` → `score`). The bench **stops and surfaces** any failure via notification (never auto-retries) — inspect the cause, then `/bench-compact:resume`.
+The live-progress widget tracks the phases (`build` → `extract` → `compact` → `latent` → `eval` → `probe` → `score`).
+
+With `Latent probes` on, an authoring pass after compaction adds probes for knowledge lost from the summary + tail; they score alongside the planted probes. The bench **stops and surfaces** any failure via notification (never auto-retries) — inspect the cause, then `/bench-compact:resume`.
 
 If pi itself dies mid-run (a crash or force-quit), restart pi and continue via `/bench-compact:run-scenario <folder> --resume`. A half-finished arm or attempt re-runs from scratch; scoring always re-runs. Bench-timed compaction wall-clock is not recoverable (reported as `0` in the compaction-cost metric); token usage is re-read from the session transcripts. If a config or arm-tool version changed since the crash (e.g. an extension fix landed), the resume is refused — add `--allow-config-change` to continue anyway: arms whose tool version changed re-compact under the new version, unchanged arms skip. If the fix did not change compaction behavior (prompts/logic), also add `--reuse-bases` to reuse their already-compacted bases instead of re-compacting.
 

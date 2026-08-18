@@ -66,12 +66,6 @@ describe("BENCH_SCHEMA", () => {
     it("compactionBoundary: number, default 140000", () => {
       expect(row("compactionBoundary")).toMatchObject({ type: "number", defaultValue: 140000 });
     });
-    it("backupMode: string, default build", () => {
-      expect(row("backupMode")).toMatchObject({ type: "string", defaultValue: "build" });
-    });
-    it("backupMode presets are exactly [build, extract]", () => {
-      expect(row("backupMode").presets).toEqual(["build", "extract"]);
-    });
     it("latentProbes: string, default per-arm", () => {
       expect(row("latentProbes")).toMatchObject({ type: "string", defaultValue: "per-arm" });
     });

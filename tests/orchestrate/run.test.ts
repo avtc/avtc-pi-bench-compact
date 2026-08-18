@@ -39,7 +39,6 @@ function makeConfig(arms: BenchConfig["armsEnabled"]): BenchConfig {
     judge3ThinkingLevel: "high",
     N: 3,
     compactionBoundary: 140000,
-    backupMode: "build",
     fastEval: "off",
     latentProbes: "off",
     omFullReflectionThresholdTokens: 4000,
@@ -824,7 +823,7 @@ describe("startRun — crash resume (identity reuse + cfg guard + threading)", (
   /** The cfgId the deps' config + resolver produce (the guard's "current" side). */
   function currentCfgId(arms: BenchConfig["armsEnabled"]): string {
     const resolver = { resolveRoot: () => "/fake", gitHead: () => "abcdef1234567890", npmVersion: () => null };
-    return buildCfgId(buildRunConfig(makeConfig(arms), resolver));
+    return buildCfgId(buildRunConfig(makeConfig(arms), resolver, MANIFEST));
   }
 
   it("resumes reuse the runId's date+id (no nextRunId) and thread resume into the phases", async () => {

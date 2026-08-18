@@ -20,7 +20,6 @@ describe("getBenchConfig", () => {
     const cfg = getBenchConfig();
     expect(cfg.N).toBe(DEFAULTS.N);
     expect(cfg.compactionBoundary).toBe(DEFAULTS.compactionBoundary);
-    expect(cfg.backupMode).toBe(DEFAULTS.backupMode);
     expect(cfg.evaluatedModel).toBeNull();
     expect(cfg.evaluatedThinkingLevel).toBe(DEFAULTS.evaluatedThinkingLevel);
     expect(cfg.judgeModel).toBeNull();
@@ -63,7 +62,7 @@ describe("getBenchConfig", () => {
     expect(cfg.judge2ThinkingLevel).toBe("minimal");
     expect(cfg.judge3Model).toBe("anthropic/claude");
     expect(cfg.judge3ThinkingLevel).toBe("high");
-    expect(cfg.backupMode).toBe("extract");
+    expect("backupMode" in cfg).toBe(false); // removed setting — stale stored key is ignored
     expect(cfg.scenario).toBe("my scenario");
     expect(cfg.outputDir).toBe("/tmp/out");
     expect(cfg.armBarePiEnabled).toBe(false);

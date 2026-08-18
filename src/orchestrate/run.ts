@@ -218,7 +218,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
   mkdirSync(runPath, { recursive: true });
 
-  const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER);
+  const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER, deps.manifest);
   const cfgId = buildCfgId(runConfig);
   // Hard cfg guard: the resumed namespace's cfg segment IS the crashed run's run
   // conditions; a mismatch means the config (model / N / arm tool versions / …)

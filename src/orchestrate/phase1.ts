@@ -28,6 +28,7 @@ import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } fr
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { judgeEnsembleFields } from "../config/types.js";
 import { log } from "../log.js";
+import type { ScenarioManifest } from "../manifest/schema.js";
 import { appendUserEntry } from "../production/live-seams.js";
 import { CompactionCancelledError, triggerCompact } from "../session/compact.js";
 import { loadSession } from "../session/switch.js";
@@ -181,11 +182,16 @@ export interface Phase1Deps {
 
 /**
  * Assemble the run-config snapshot (resolving every enabled arm's tool version; the bare-pi arm → null).
- * Pure transformation of {@link BenchConfig} + a {@link VersionResolver}. The run driver
- * calls this once to compute `cfgId` (`buildCfgId(rc)`) + persist the snapshot, then passes
- * `cfgId` + `rc.toolVersions` into {@link runPhase1}.
+ * Pure transformation of {@link BenchConfig} + a {@link VersionResolver} + the frozen
+ * {@link ScenarioManifest}. The run driver calls this once to compute `cfgId`
+ * (`buildCfgId(rc)`) + persist the snapshot, then passes `cfgId` + `rc.toolVersions`
+ * into {@link runPhase1}.
  */
-export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | null): RunConfig {
+export function buildRunConfig(
+  config: BenchConfig,
+  resolver: VersionResolver | null,
+  manifest: ScenarioManifest,
+): RunConfig {
   const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const toolVersions: Partial<Record<ArmId, ToolVersion>> = {};
   for (const arm of config.armsEnabled) {
@@ -200,7 +206,7 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
     compactionBoundary: config.compactionBoundary,
     armsEnabled: [...config.armsEnabled],
     omFullReflectionThresholdTokens: config.omFullReflectionThresholdTokens,
-    backupMode: config.backupMode,
+    backupMode: manifest.backupMode ?? "build", // provenance stamped at freeze time (older scenarios: build)
     fastEval: config.fastEval,
     latentProbes: config.latentProbes,
     toolVersions,

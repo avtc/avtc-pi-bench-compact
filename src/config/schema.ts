@@ -36,7 +36,6 @@ export const DEFAULTS = {
   judge3ThinkingLevel: "high",
   N: 10,
   compactionBoundary: 140000,
-  backupMode: "build" as BackupMode,
   fastEval: "off" as FastEvalMode,
   latentProbes: "per-arm" as LatentProbesMode,
   scenario: null as string | null,
@@ -49,7 +48,6 @@ export const DEFAULTS = {
   omFullReflectionThresholdTokens: 4000,
 } as const;
 
-const BACKUP_MODE_PRESETS: readonly ["build", "extract"] = ["build", "extract"];
 const FAST_EVAL_PRESETS: readonly ["off", "probes-only"] = ["off", "probes-only"];
 const LATENT_PROBES_PRESETS: readonly ["off", "per-arm", "shared"] = ["off", "per-arm", "shared"];
 
@@ -136,14 +134,6 @@ const SETTINGS: readonly SettingSchema[] = [
       "The harness fires the Phase-1 compaction when context reaches this many tokens. The bench's own knob — it does NOT override the model's contextWindow.",
     type: "number",
     defaultValue: DEFAULTS.compactionBoundary,
-  }),
-  setting("backupMode", {
-    label: "Backup mode",
-    description:
-      "build = the user-simulator builds the pre-compaction backup; extract = slice a real (never-compacted) session.",
-    type: "string",
-    defaultValue: DEFAULTS.backupMode,
-    presets: BACKUP_MODE_PRESETS,
   }),
   setting("fastEval", {
     label: "Fast eval",
@@ -235,7 +225,7 @@ const TABS: readonly SettingsTabSchema[] = [
   },
   {
     label: "Run",
-    settingIds: ["N", "compactionBoundary", "backupMode", "fastEval", "latentProbes", "scenario", "outputDir"],
+    settingIds: ["N", "compactionBoundary", "fastEval", "latentProbes", "scenario", "outputDir"],
   },
   {
     label: "Arms",

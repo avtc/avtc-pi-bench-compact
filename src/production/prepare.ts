@@ -14,6 +14,7 @@
 // Either mode → `freezeScenario` (rewrites header cwd + commits + writes manifest).
 
 import { dirname, join } from "node:path";
+import type { BackupMode } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { CONDITION_TOPICS } from "../simulator/condition-topics.js";
@@ -127,6 +128,9 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
 
   let backupPath: string;
   let manifest: ScenarioManifest;
+  // How the backup was made — stamped into the frozen manifest (mechanical: the
+  // command form decides; never hand-set).
+  let freezeMode: BackupMode = "build";
 
   if (deps.fromSessionPath) {
     // extract mode: guard + strip the real session, copy the codebase into the repo,
@@ -154,6 +158,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
     // Structural validation gate (extract: stricter since ground truth is
     // discovered). Failures stop-and-surface.
     validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
+    freezeMode = "extract";
   } else if (deps.skipRecovery !== undefined) {
     // skip-and-proceed recovery: validate the requested drops against the persisted
     // landing state, re-validate the manifest without those topics, freeze it.
@@ -183,6 +188,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
       backupPath: rec.state.buildSessionPath,
       manifest: rec.state.manifest,
       manifestPath: deps.manifestPath,
+      backupMode: "build", // recovery continues a build drive
       force: deps.force,
     });
   } else {
@@ -225,6 +231,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
     backupPath,
     manifest,
     manifestPath: deps.manifestPath,
+    backupMode: freezeMode,
     force: deps.force,
   });
   log.info(`prepare: scenario frozen — manifest ${frozen.manifestPath}`);

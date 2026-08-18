@@ -19,7 +19,6 @@ function validConfig(): BenchConfig {
     judge3ThinkingLevel: "high",
     N: 10,
     compactionBoundary: 140000,
-    backupMode: "build",
     fastEval: "off",
     latentProbes: "off",
     scenario: null,

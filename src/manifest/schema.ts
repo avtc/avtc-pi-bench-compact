@@ -16,6 +16,7 @@
 // the harness resolves to the condition id).
 
 import { type TSchema, Type } from "typebox";
+import type { BackupMode } from "../config/types.js";
 
 // --- lanes + domain --------------------------------------------------------
 
@@ -271,6 +272,10 @@ export interface TailConflict {
 /** The full `scenario-manifest-v1`. */
 export interface ScenarioManifest {
   readonly id: string;
+  /** How the frozen backup was made — stamped by the prepare command at freeze time
+   *  (build = user-simulator build; extract = sliced real session). Absent on
+   *  older scenarios (read as "build"). Never agent-authored. */
+  readonly backupMode?: BackupMode;
   readonly description: string;
   readonly compactionBoundary: CompactionBoundary;
   readonly recallFacts: readonly RecallFact[];

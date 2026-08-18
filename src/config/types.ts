@@ -92,7 +92,6 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   // Run tab
   N: number;
   compactionBoundary: number;
-  backupMode: BackupMode;
   fastEval: FastEvalMode;
   latentProbes: LatentProbesMode;
   scenario: string | null;

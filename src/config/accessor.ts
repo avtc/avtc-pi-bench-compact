@@ -8,7 +8,6 @@ import {
   ARM_ENABLED_KEY,
   ARM_IDS,
   type ArmId,
-  type BackupMode,
   type BenchConfig,
   type FastEvalMode,
   type LatentProbesMode,
@@ -52,10 +51,6 @@ function asThinkingLevel(raw: Record<string, unknown>, key: string, fallback: Th
   return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v) ? (v as ThinkingLevel) : fallback;
 }
 
-function asBackupMode(raw: Record<string, unknown>, key: string, fallback: BackupMode): BackupMode {
-  return raw[key] === "extract" ? "extract" : fallback;
-}
-
 function asFastEvalMode(raw: Record<string, unknown>, key: string, fallback: FastEvalMode): FastEvalMode {
   return raw[key] === "probes-only" ? "probes-only" : fallback;
 }
@@ -89,7 +84,6 @@ export function getBenchConfig(): BenchConfig {
     judge3ThinkingLevel: asThinkingLevel(raw, "judge3ThinkingLevel", DEFAULTS.judge3ThinkingLevel),
     N: asNumber(raw, "N", DEFAULTS.N),
     compactionBoundary: asNumber(raw, "compactionBoundary", DEFAULTS.compactionBoundary),
-    backupMode: asBackupMode(raw, "backupMode", DEFAULTS.backupMode),
     fastEval: asFastEvalMode(raw, "fastEval", DEFAULTS.fastEval),
     latentProbes: asLatentProbesMode(raw, "latentProbes", DEFAULTS.latentProbes),
     scenario: asStringOrNull(raw, "scenario", DEFAULTS.scenario),

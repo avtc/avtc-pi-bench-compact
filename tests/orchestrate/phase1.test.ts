@@ -35,6 +35,7 @@ import { clearMemoryProxies, type MemoryProxies, setMemoryProxies } from "../../
 import { BUILTIN_TOOLS, SUITE_TOOLS } from "../../src/arms/switch.js";
 import type { VersionResolver } from "../../src/arms/version.js";
 import type { BenchConfig } from "../../src/config/types.js";
+import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { clearBenchPi, setBenchPi } from "../../src/orchestrate/bench-ctx.js";
 import {
   type ArmBase,
@@ -565,10 +566,16 @@ describe("buildRunConfig", () => {
       gitHead: (dir: string) => (dir === "/fake/root" ? "abcdef1234567890" : null),
       npmVersion: () => null,
     };
-    const rc = buildRunConfig(makeConfig(["A1", "A2"]), resolver);
+    const rc = buildRunConfig(makeConfig(["A1", "A2"]), resolver, manifestOf(null));
     expect(rc.armsEnabled).toEqual(["A1", "A2"]);
     expect(rc.toolVersions.A1).toBeUndefined();
     expect(rc.toolVersions.A2).toEqual({ source: "git", commit: "gabcdef", full: "abcdef1234567890" });
+  });
+
+  it("backupMode comes from the frozen manifest (extract stamped at freeze; absent = build)", () => {
+    const resolver: VersionResolver = { resolveRoot: () => "/fake", gitHead: () => null, npmVersion: () => null };
+    expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf("extract")).backupMode).toBe("extract");
+    expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf(null)).backupMode).toBe("build");
   });
 });
 
@@ -601,10 +608,25 @@ function makeConfig(armsEnabled: BenchConfig["armsEnabled"]): BenchConfig {
     judge3ThinkingLevel: "high",
     N: 3,
     compactionBoundary: 140000,
-    backupMode: "build",
     omFullReflectionThresholdTokens: 4000,
     armsEnabled,
   } as BenchConfig;
+}
+
+/** A minimal manifest for buildRunConfig (provenance field varies per test). */
+function manifestOf(backupMode: "build" | "extract" | null): ScenarioManifest {
+  return {
+    id: "scen-1",
+    description: "d",
+    compactionBoundary: { phaseATokenBudget: 140000, plan: "p" },
+    recallFacts: [],
+    doneOps: [],
+    supersessions: [],
+    abstentions: [],
+    taskObjective: { description: "t", testSpec: "npm test" },
+    probes: [],
+    ...(backupMode === null ? {} : { backupMode }),
+  };
 }
 
 // --- --reuse-bases (older-version base fallback) -----------------------------

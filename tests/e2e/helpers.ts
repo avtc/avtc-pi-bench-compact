@@ -221,7 +221,6 @@ function makeBenchConfig(arms: readonly ArmId[]): BenchConfig {
     judge3ThinkingLevel: "high",
     N: 1,
     compactionBoundary: 140000,
-    backupMode: "build",
     omFullReflectionThresholdTokens: 4000,
     outputDir: null,
     latentProbes: "off",

@@ -57,7 +57,14 @@ describe("freezeScenario", () => {
     const { root, repo, sessionsDir, manifestPath } = setup();
     try {
       const backup = backupWith(root, "/original-cwd", "s1");
-      freezeScenario({ repoPath: repo, sessionsDir, backupPath: backup, manifest: manifest(), manifestPath });
+      freezeScenario({
+        repoPath: repo,
+        sessionsDir,
+        backupPath: backup,
+        manifest: manifest(),
+        manifestPath,
+        backupMode: "build",
+      });
       expect(git(repo, ["branch", "--show-current"]).trim()).toBe("main");
       const files = git(repo, ["ls-tree", "-r", "--name-only", "HEAD"]).trim().split("\n");
       expect(files).not.toContain("session.jsonl"); // session lives OUTSIDE the repo now
@@ -67,6 +74,8 @@ describe("freezeScenario", () => {
       const mainSession = branchSessionFile(sessionsDir, "main");
       expect(JSON.parse(readFileSync(mainSession, "utf8").trim().split("\n")[0]).type).toBe("session");
       expect(JSON.parse(readFileSync(manifestPath, "utf8")).id).toBe("t-1");
+      // provenance is stamped into the frozen manifest (mechanically, from the command form)
+      expect(JSON.parse(readFileSync(manifestPath, "utf8")).backupMode).toBe("build");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -76,7 +85,14 @@ describe("freezeScenario", () => {
     const { root, repo, sessionsDir, manifestPath } = setup();
     try {
       const backup = backupWith(root, "/original-cwd", "s1");
-      freezeScenario({ repoPath: repo, sessionsDir, backupPath: backup, manifest: manifest(), manifestPath });
+      freezeScenario({
+        repoPath: repo,
+        sessionsDir,
+        backupPath: backup,
+        manifest: manifest(),
+        manifestPath,
+        backupMode: "build",
+      });
       const frozen = readFileSync(branchSessionFile(sessionsDir, "main"), "utf8")
         .trim()
         .split("\n")
@@ -92,9 +108,23 @@ describe("freezeScenario", () => {
     const { root, repo, sessionsDir, manifestPath } = setup();
     try {
       const backup = backupWith(root, "/original-cwd", "s1");
-      freezeScenario({ repoPath: repo, sessionsDir, backupPath: backup, manifest: manifest(), manifestPath });
+      freezeScenario({
+        repoPath: repo,
+        sessionsDir,
+        backupPath: backup,
+        manifest: manifest(),
+        manifestPath,
+        backupMode: "build",
+      });
       expect(() =>
-        freezeScenario({ repoPath: repo, sessionsDir, backupPath: backup, manifest: manifest(), manifestPath }),
+        freezeScenario({
+          repoPath: repo,
+          sessionsDir,
+          backupPath: backup,
+          manifest: manifest(),
+          manifestPath,
+          backupMode: "build",
+        }),
       ).toThrow(/force/i);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -105,7 +135,14 @@ describe("freezeScenario", () => {
     const { root, repo, sessionsDir, manifestPath } = setup();
     try {
       const backup1 = backupWith(root, "/original-cwd", "s1");
-      freezeScenario({ repoPath: repo, sessionsDir, backupPath: backup1, manifest: manifest(), manifestPath });
+      freezeScenario({
+        repoPath: repo,
+        sessionsDir,
+        backupPath: backup1,
+        manifest: manifest(),
+        manifestPath,
+        backupMode: "build",
+      });
       // second freeze with a different backup + --force
       const backup2 = backupWith(root, "/original-cwd", "s2");
       freezeScenario({
@@ -113,6 +150,7 @@ describe("freezeScenario", () => {
         sessionsDir,
         backupPath: backup2,
         manifest: manifest(),
+        backupMode: "build",
         manifestPath,
         force: true,
       });
@@ -134,6 +172,7 @@ describe("freezeScenario", () => {
           sessionsDir,
           backupPath: backup,
           manifest: manifest(),
+          backupMode: "build",
           manifestPath: badManifest,
         }),
       ).toThrow(/manifest|repo|contamination/i);
@@ -154,6 +193,7 @@ describe("freezeScenario", () => {
           sessionsDir,
           backupPath: badBackup,
           manifest: manifest(),
+          backupMode: "build",
           manifestPath,
         }),
       ).toThrow(/contamination|inside|backup/i);

@@ -15,6 +15,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBenchConfig } from "../config/accessor.js";
+import type { ScenarioManifest } from "../manifest/schema.js";
 import {
   beginPrepare,
   endPrepare,
@@ -171,8 +172,11 @@ export function makePrepareScenarioHandler(opts: PrepareScenarioHandlerOptions) 
         const deps = (opts.reAuthorDeps ?? defaultReAuthorDeps)(ctx, parsed);
         const manifest = await (opts.reAuthor ?? reAuthorManifest)(deps);
         const manifestPath = join(parsed.reAuthorFrom, "manifest.json");
+        // Preserve the scenario's provenance across re-authors (the re-authored
+        // content replaces it; how the backup was made does not change).
+        const priorBackupMode = (JSON.parse(readFileSync(manifestPath, "utf8")) as ScenarioManifest).backupMode;
         copyFileSync(manifestPath, join(parsed.reAuthorFrom, PREVIOUS_MANIFEST_NAME));
-        writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+        writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, backupMode: priorBackupMode }, null, 2)}\n`);
         widget.setStatus("prepared", `/bench-compact:run-scenario ${join(deps.scenarioFolder, "repo")}`);
         notify(
           `re-authored manifest for ${scenarioId}: ${manifest.probes.length} probes (previous saved as ${PREVIOUS_MANIFEST_NAME})`,

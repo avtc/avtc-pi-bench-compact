@@ -14,6 +14,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { BackupMode } from "../config/types.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { assertNotInRepo, branchSessionFile } from "../storage/paths.js";
 import { branchExists, initScenarioRepo, resetBranch } from "../storage/repo.js";
@@ -35,6 +36,9 @@ export interface FreezeOptions {
   readonly manifest: ScenarioManifest;
   /** Where to write manifest.json — MUST be outside the repo (contamination rule). */
   readonly manifestPath: string;
+  /** How the backup was made — stamped into the frozen manifest (the prepare
+   *  command knows it mechanically; never hand-set). */
+  readonly backupMode: BackupMode;
   /** Allow re-freezing an existing main (resets main + re-commits). Default false. */
   readonly force?: boolean;
 }
@@ -84,7 +88,7 @@ export function freezeScenario(opts: FreezeOptions): { repoPath: string; manifes
 
   // Write the manifest OUTSIDE the repo.
   mkdirSync(dirname(opts.manifestPath), { recursive: true });
-  writeFileSync(opts.manifestPath, `${JSON.stringify(opts.manifest, null, 2)}\n`);
+  writeFileSync(opts.manifestPath, `${JSON.stringify({ ...opts.manifest, backupMode: opts.backupMode }, null, 2)}\n`);
 
   // --force re-prepare: reset main so initScenarioRepo re-commits the new tree fresh.
   if (mainExists && opts.force) {
