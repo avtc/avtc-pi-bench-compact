@@ -12,7 +12,7 @@ import type { ArmId } from "../config/types.js";
 
 /** The bench pipeline phases (the run-state tracks the SAME stages the widget
  *  bar shows — compaction, evaluated-agent continuations, direct probes, scoring). */
-type BenchPhase = "phase-1" | "phase-2" | "probe" | "score";
+type BenchPhase = "phase-1" | "latent" | "phase-2" | "probe" | "score";
 
 /** The harness run-state. One active run per process (TUI-primary). */
 export interface BenchRunState {

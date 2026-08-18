@@ -48,6 +48,7 @@ function mkResult(
       omFullReflectionThresholdTokens: 4000,
       backupMode: "build",
       fastEval: "off",
+      latentProbes: "off",
     },
     toolVersions: {},
     metricDefs: METRIC_DEFS,

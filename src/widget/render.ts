@@ -18,8 +18,8 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { fitLine, fitSegments, joinSegments, type Segment } from "./fitline.js";
 
-/** The 6 progression phases, in cell order (build → extract → compact → eval → probe → score). */
-export const PHASE_ORDER = ["build", "extract", "compact", "eval", "probe", "score"] as const;
+/** The progression phases, in cell order (build → extract → compact → latent → eval → probe → score). */
+export const PHASE_ORDER = ["build", "extract", "compact", "latent", "eval", "probe", "score"] as const;
 export type WidgetPhase = (typeof PHASE_ORDER)[number];
 
 /** Terminal states. `running` is mid-phase; `done`/`stopped`/`prepared` stay visible.

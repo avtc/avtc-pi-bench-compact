@@ -72,6 +72,9 @@ describe("BENCH_SCHEMA", () => {
     it("backupMode presets are exactly [build, extract]", () => {
       expect(row("backupMode").presets).toEqual(["build", "extract"]);
     });
+    it("latentProbes: string, default per-arm", () => {
+      expect(row("latentProbes")).toMatchObject({ type: "string", defaultValue: "per-arm" });
+    });
     it("fastEval: string, default off", () => {
       expect(row("fastEval")).toMatchObject({ type: "string", defaultValue: "off" });
     });

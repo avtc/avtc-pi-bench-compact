@@ -24,6 +24,7 @@ function config(judgesNumber: 1 | 3): BenchConfig {
     compactionBoundary: 140_000,
     backupMode: "build",
     fastEval: "off",
+    latentProbes: "off",
     scenario: null,
     outputDir: null,
     armBarePiEnabled: true,

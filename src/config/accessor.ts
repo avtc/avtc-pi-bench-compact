@@ -4,7 +4,15 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { SettingsHandle } from "avtc-pi-settings-ui";
 import { DEFAULTS } from "./schema.js";
-import { ARM_ENABLED_KEY, ARM_IDS, type ArmId, type BackupMode, type BenchConfig, type FastEvalMode } from "./types.js";
+import {
+  ARM_ENABLED_KEY,
+  ARM_IDS,
+  type ArmId,
+  type BackupMode,
+  type BenchConfig,
+  type FastEvalMode,
+  type LatentProbesMode,
+} from "./types.js";
 
 let handle: SettingsHandle | undefined;
 
@@ -52,6 +60,11 @@ function asFastEvalMode(raw: Record<string, unknown>, key: string, fallback: Fas
   return raw[key] === "probes-only" ? "probes-only" : fallback;
 }
 
+function asLatentProbesMode(raw: Record<string, unknown>, key: string, fallback: LatentProbesMode): LatentProbesMode {
+  const v = raw[key];
+  return v === "off" || v === "per-arm" || v === "shared" ? v : fallback;
+}
+
 /** Derive the enabled arm ids in canonical order from the per-arm booleans. */
 function deriveArmsEnabled(cfg: BenchConfig): ArmId[] {
   return ARM_IDS.filter((id) => cfg[ARM_ENABLED_KEY[id]] === true);
@@ -78,6 +91,7 @@ export function getBenchConfig(): BenchConfig {
     compactionBoundary: asNumber(raw, "compactionBoundary", DEFAULTS.compactionBoundary),
     backupMode: asBackupMode(raw, "backupMode", DEFAULTS.backupMode),
     fastEval: asFastEvalMode(raw, "fastEval", DEFAULTS.fastEval),
+    latentProbes: asLatentProbesMode(raw, "latentProbes", DEFAULTS.latentProbes),
     scenario: asStringOrNull(raw, "scenario", DEFAULTS.scenario),
     outputDir: asStringOrNull(raw, "outputDir", DEFAULTS.outputDir),
     armBarePiEnabled: asBoolean(raw, "armBarePiEnabled", DEFAULTS.armBarePiEnabled),

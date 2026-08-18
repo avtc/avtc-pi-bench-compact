@@ -54,6 +54,7 @@ function mkResult(opts: {
       omFullReflectionThresholdTokens: 4000,
       backupMode: "build",
       fastEval: "off",
+    latentProbes: "off",
       ...opts.config,
     },
     toolVersions: opts.toolVersions ?? {},

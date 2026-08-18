@@ -59,7 +59,7 @@ describe("WidgetController", () => {
     const c = new WidgetController(cap.deps, { phase: "build" });
     c.show();
     expect(cap.lines).toHaveLength(1);
-    expect(cap.lines[0]).toContain("◧□□□□□ build");
+    expect(cap.lines[0]).toContain("◧□□□□□□ build");
   });
 
   it("is inert until show() (mutations queue no renders)", () => {
@@ -116,10 +116,10 @@ describe("WidgetController", () => {
     c.show();
     c.setStatus("done", "/bench-compact:results");
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toBe("🅑 ■■■■■■ done · /bench-compact:results");
+    expect(cap.lines.at(-1)).toBe("🅑 ■■■■■■■ done · /bench-compact:results");
   });
 
-  it("advancePhase moves build→extract→compact→eval→probe→score", () => {
+  it("advancePhase moves build→extract→compact→latent→eval→probe→score", () => {
     const cap = capturingDeps(TERM_WIDE);
     const c = new WidgetController(cap.deps, { phase: "build" });
     c.show();
@@ -127,7 +127,10 @@ describe("WidgetController", () => {
     c.advancePhase();
     c.advancePhase();
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("■■■◧□□ eval");
+    expect(cap.lines.at(-1)).toContain("■■■◧□□□ latent"); // 4th cell active
+    c.advancePhase();
+    vi.advanceTimersByTime(200);
+    expect(cap.lines.at(-1)).toContain("■■■■◧□□ eval");
   });
 });
 
@@ -206,7 +209,7 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     });
     c.show();
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toBe("🅑 1/5 memkeeper-builder · ■■◧□□□ compact");
+    expect(cap.lines.at(-1)).toBe("🅑 1/5 memkeeper-builder · ■■◧□□□□ compact");
   });
 });
 
@@ -236,14 +239,14 @@ describe("makeTuiWidgetDeps — TUI gate", () => {
     expect(deps).not.toBeNull();
     if (deps === null) return;
 
-    deps.publish(() => "🅑 ◧□□□□□ build");
+    deps.publish(() => "🅑 ◧□□□□□□ build");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.key).toBe(WIDGET_KEY);
     expect(calls[0]?.opts.placement).toBe(WIDGET_PLACEMENT);
     // the content is a renderFn returning a Text whose render() yields the line
     const renderFn = calls[0]?.content as () => { render: (w: number) => string[] };
     expect(typeof renderFn).toBe("function");
-    expect(renderFn().render(200)[0]?.trim()).toBe("🅑 ◧□□□□□ build");
+    expect(renderFn().render(200)[0]?.trim()).toBe("🅑 ◧□□□□□□ build");
   });
 
   it("hide passes HIDE_WIDGET (undefined) at the same slot", () => {

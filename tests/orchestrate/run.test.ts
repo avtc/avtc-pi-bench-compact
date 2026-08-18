@@ -41,6 +41,7 @@ function makeConfig(arms: BenchConfig["armsEnabled"]): BenchConfig {
     compactionBoundary: 140000,
     backupMode: "build",
     fastEval: "off",
+    latentProbes: "off",
     omFullReflectionThresholdTokens: 4000,
     outputDir: null,
     armsEnabled: arms,
@@ -72,12 +73,14 @@ function makeDeps(opts: {
   testSpec?: ReturnType<typeof vi.fn>;
   score?: ReturnType<typeof vi.fn>;
   buildScoreDeps?: ReturnType<typeof vi.fn>;
+  latentStage?: ReturnType<typeof vi.fn>;
+  config?: Partial<BenchConfig>;
 }): StartRunDeps {
   // The fresh pi + proxies are NOT passed to startRun — runPhase1 reads them from
   // globalThis inside each withSession (bench-ctx.ts). Only cmdCtx is threaded.
   return {
     cmdCtx: {},
-    config: makeConfig(opts.arms),
+    config: { ...makeConfig(opts.arms), ...opts.config },
     scenarioRepo: opts.scenarioRepo ?? "/repo/scenario-x",
     manifest: MANIFEST,
     root: opts.root,
@@ -88,6 +91,7 @@ function makeDeps(opts: {
     // Default = a no-op continuations stub so tests never run the real Phase 2.
     continuations: opts.continuations ?? continuationsMock(async () => ({ traces: [], finalCtx: FINAL_CTX })),
     probes: opts.probes ?? probesMock(async () => ({ traces: [], finalCtx: FINAL_CTX })),
+    latentStage: opts.latentStage,
     testSpec: opts.testSpec ?? testSpecMock(() => ({ kind: "skipped" })),
     score:
       opts.score ??
@@ -369,6 +373,70 @@ describe("startRun — Phase-2 stop-and-surface", () => {
   });
   afterEach(() => {
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("latent stage: skipped entirely when latentProbes is off (no stage call)", async () => {
+    const bases = fakeBases(["A1", "A3"]);
+    const latentStage = vi.fn();
+    const deps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      phase1: phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX })),
+      continuations: continuationsMock(async () => ({ traces: fakeTraces(["A1", "A3"]), finalCtx: FINAL_CTX })),
+      latentStage,
+    });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    expect(latentStage).not.toHaveBeenCalled();
+  });
+
+  it("latent stage: runs between Phase-1 and Phase-2 when latentProbes is per-arm; stopped → stopped result with phase latent", async () => {
+    const bases = fakeBases(["A1", "A3"]);
+    const order: string[] = [];
+    const doneStage = vi.fn(async (_deps: unknown, _mode: string) => {
+      order.push("latent");
+      return { kind: "done", pools: {} };
+    });
+    const deps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      config: { latentProbes: "per-arm" as const },
+      phase1: phase1Mock(async () => {
+        order.push("phase-1");
+        return { bases, finalCtx: FINAL_CTX };
+      }),
+      continuations: continuationsMock(async () => {
+        order.push("phase-2");
+        return { traces: fakeTraces(["A1", "A3"]), finalCtx: FINAL_CTX };
+      }),
+      latentStage: doneStage,
+    });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    expect(order).toEqual(["phase-1", "latent", "phase-2"]);
+    const stageArg = doneStage.mock.calls[0]?.[0] as { arms: { arm: string }[] } | undefined;
+    expect(stageArg?.arms.map((a: { arm: string }) => a.arm)).toEqual(["A1", "A3"]);
+    expect(doneStage.mock.calls[0]?.[1]).toBe("per-arm");
+
+    // stopped outcome → stopped RunResult (phase "latent") + notify
+    const notify = vi.fn();
+    const stoppedDeps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      config: { latentProbes: "shared" as const },
+      notify,
+      phase1: phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX })),
+      latentStage: vi.fn(async () => ({
+        kind: "stopped",
+        arm: "A1",
+        message: "latent: arm A1 stopped below minimum (cued 2, uncued 3) — run paused, resume to retry",
+      })),
+    });
+    const stopped = await startRun(stoppedDeps);
+    expect(stopped).toMatchObject({ kind: "stopped", phase: "latent", arm: "A1" });
+    expect(notify).toHaveBeenCalledWith(
+      "latent: arm A1 stopped below minimum (cued 2, uncued 3) — run paused, resume to retry",
+    );
   });
 
   it("a Phase2StoppedError from runContinuations → stopped result (with attempt) + notify + run-state lastStopReason", async () => {

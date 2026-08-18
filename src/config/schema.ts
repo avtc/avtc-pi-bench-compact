@@ -11,7 +11,7 @@ import {
   type SettingsTabSchema,
   settingsFilePaths,
 } from "avtc-pi-settings-ui";
-import type { BackupMode, FastEvalMode } from "./types.js";
+import type { BackupMode, FastEvalMode, LatentProbesMode } from "./types.js";
 
 /** The /bench-compact:settings command name. */
 export const BENCH_SETTINGS_COMMAND = "bench-compact:settings";
@@ -38,6 +38,7 @@ export const DEFAULTS = {
   compactionBoundary: 140000,
   backupMode: "build" as BackupMode,
   fastEval: "off" as FastEvalMode,
+  latentProbes: "per-arm" as LatentProbesMode,
   scenario: null as string | null,
   outputDir: null as string | null,
   armBarePiEnabled: true,
@@ -50,6 +51,7 @@ export const DEFAULTS = {
 
 const BACKUP_MODE_PRESETS: readonly ["build", "extract"] = ["build", "extract"];
 const FAST_EVAL_PRESETS: readonly ["off", "probes-only"] = ["off", "probes-only"];
+const LATENT_PROBES_PRESETS: readonly ["off", "per-arm", "shared"] = ["off", "per-arm", "shared"];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -151,6 +153,14 @@ const SETTINGS: readonly SettingSchema[] = [
     defaultValue: DEFAULTS.fastEval,
     presets: FAST_EVAL_PRESETS,
   }),
+  setting("latentProbes", {
+    label: "Latent probes",
+    description:
+      "off = current behavior (planted-fact probes only). per-arm = after compaction, a second authoring agent reads each arm's session file and writes that arm's probes for knowledge lost from its summary + tail (one authoring run per arm). shared = one authoring run over all arms' files producing a single question set absent from every summary.",
+    type: "string",
+    defaultValue: DEFAULTS.latentProbes,
+    presets: LATENT_PROBES_PRESETS,
+  }),
   setting("scenario", {
     label: "Scenario folder",
     description:
@@ -225,7 +235,7 @@ const TABS: readonly SettingsTabSchema[] = [
   },
   {
     label: "Run",
-    settingIds: ["N", "compactionBoundary", "backupMode", "fastEval", "scenario", "outputDir"],
+    settingIds: ["N", "compactionBoundary", "backupMode", "fastEval", "latentProbes", "scenario", "outputDir"],
   },
   {
     label: "Arms",

@@ -27,7 +27,7 @@ const runConfig: RunConfig = {
   compactionBoundary: 140000,
   armsEnabled: ["A1", "A3"],
   omFullReflectionThresholdTokens: 4000,
-  backupMode: "build",  fastEval: "off",
+  backupMode: "build",  fastEval: "off",  latentProbes: "off",
   toolVersions: { A3: gitVer("aabbccdd"), A2: npmVer("0.4.2") },
 };
 

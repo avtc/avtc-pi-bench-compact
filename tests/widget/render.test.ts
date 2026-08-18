@@ -28,8 +28,8 @@ function running(phase: WidgetState["phase"], over: Partial<WidgetState>): Widge
 }
 
 describe("PHASE_ORDER", () => {
-  it("is the 6-cell progression build → extract → compact → eval → probe → score", () => {
-    expect(PHASE_ORDER).toEqual(["build", "extract", "compact", "eval", "probe", "score"]);
+  it("is the 7-cell progression build → extract → compact → latent → eval → probe → score", () => {
+    expect(PHASE_ORDER).toEqual(["build", "extract", "compact", "latent", "eval", "probe", "score"]);
   });
 });
 
@@ -47,7 +47,7 @@ describe("renderLine — phase-bar + phase name", () => {
       tok: 1100,
       hint: null,
     });
-    expect(md).toBe("🅑 ◧□□□□□ build · ctx 142K/200K · 1.1k tok");
+    expect(md).toBe("🅑 ◧□□□□□□ build · ctx 142K/200K · 1.1k tok");
   });
 
   it("extract: build done, extract active, authoring-agent ctx/tok, NO arm counter", () => {
@@ -63,24 +63,24 @@ describe("renderLine — phase-bar + phase name", () => {
       tok: 500,
       hint: null,
     });
-    expect(md).toBe("🅑 ■◧□□□□ extract · ctx 30K/200K · 0.5k tok");
+    expect(md).toBe("🅑 ■◧□□□□□ extract · ctx 30K/200K · 0.5k tok");
   });
 
   it("compact: build+extract done, compact active, ctx/tok EXCLUDED", () => {
     const md = renderLine(running("compact", { tool: "memkeeper-builder" }));
-    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■◧□□□ compact");
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■◧□□□□ compact");
   });
 
   it("eval: build+extract+compact done, eval active, attempt detail + ctx/tok", () => {
     const md = renderLine(running("eval", { detail: "3/10", ctxUsage: 12_000, tok: 300 }));
-    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■◧□□ eval 3/10 · ctx 12K/200K · 0.3k tok");
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■◧□□ eval 3/10 · ctx 12K/200K · 0.3k tok");
   });
 
   it("probe: 4 done, probe active, probe detail + ctx/tok (judge)", () => {
     const md = renderLine(
       running("probe", { armIndex: 2, tool: "memkeeper-selector", detail: "5/7", ctxUsage: 8000, tok: 200 }),
     );
-    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■◧□ probe 5/7 · ctx 8K/200K · 0.2k tok");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■◧□ probe 5/7 · ctx 8K/200K · 0.2k tok");
   });
 
   it("score: 5 done, score active, score detail + ctx/tok (judge)", () => {
@@ -94,7 +94,7 @@ describe("renderLine — phase-bar + phase name", () => {
         tok: 1200,
       }),
     );
-    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■◧ score 5/7 · ctx 124K/256K · 1.2k tok");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■■◧ score 5/7 · ctx 124K/256K · 1.2k tok");
   });
 
   it("probe with no judge (ctxUsage null): ctx/tok omitted", () => {
@@ -108,14 +108,14 @@ describe("renderLine — phase-bar + phase name", () => {
         tok: null,
       }),
     );
-    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■◧□ probe 5/7");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■◧□ probe 5/7");
   });
 });
 
 describe("renderLine — terminal states (stay visible)", () => {
   it("done: all cells ■, phase 'done', hint = results command", () => {
     const md = renderLine(running("score", { status: "done", hint: "/bench-compact:results" }));
-    expect(md).toBe("🅑 ■■■■■■ done · /bench-compact:results");
+    expect(md).toBe("🅑 ■■■■■■■ done · /bench-compact:results");
   });
 
   it("prepared: build+extract cells ■, rest □, label 'prepared', run-scenario hint", () => {
@@ -131,7 +131,7 @@ describe("renderLine — terminal states (stay visible)", () => {
       tok: null,
       hint: "/bench-compact:run-scenario /tmp/scenario",
     });
-    expect(md).toBe("🅑 ■■□□□□ prepared · /bench-compact:run-scenario /tmp/scenario");
+    expect(md).toBe("🅑 ■■□□□□□ prepared · /bench-compact:run-scenario /tmp/scenario");
   });
 
   it("stopped: bar reflects where it stopped, status word + resume hint", () => {
@@ -144,7 +144,7 @@ describe("renderLine — terminal states (stay visible)", () => {
         hint: "/bench-compact:resume",
       }),
     );
-    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■◧□□ eval 3/10 · stopped · /bench-compact:resume");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■◧□□ eval 3/10 · stopped · /bench-compact:resume");
   });
 });
 
@@ -187,7 +187,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
     // glyph accent; bar: 3 done (success) + active (accent) + 2 pending (dim); label accent w/ detail
     expect(themed).toContain("<accent>🅑</accent>");
     expect(themed).toContain(
-      "<success>■</success><success>■</success><success>■</success><accent>◧</accent><dim>□</dim><dim>□</dim>",
+      "<success>■</success><success>■</success><success>■</success><success>■</success><accent>◧</accent><dim>□</dim><dim>□</dim>",
     );
     expect(themed).toContain("<accent>eval 3/10</accent>");
     expect(themed).toContain("<muted>2/5 memkeeper-builder</muted>");
@@ -236,7 +236,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
     expect(themed).toBe(
       "<accent>🅑</accent> <success>■</success>".repeat(0) +
         "<accent>🅑</accent> " +
-        Array.from({ length: 6 }, () => "<success>■</success>").join("") +
+        Array.from({ length: 7 }, () => "<success>■</success>").join("") +
         " <success>done</success> · <dim>/bench-compact:results</dim>",
     );
     expect(themed).toContain("<success>done</success>");

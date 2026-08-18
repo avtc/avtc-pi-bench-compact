@@ -703,6 +703,7 @@ const INTEG_RUN_CONFIG: RunConfig = {
   omFullReflectionThresholdTokens: 4000,
   backupMode: "build",
   fastEval: "off",
+  latentProbes: "off",
   toolVersions: {},
 };
 

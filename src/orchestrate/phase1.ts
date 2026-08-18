@@ -202,6 +202,7 @@ export function buildRunConfig(config: BenchConfig, resolver: VersionResolver | 
     omFullReflectionThresholdTokens: config.omFullReflectionThresholdTokens,
     backupMode: config.backupMode,
     fastEval: config.fastEval,
+    latentProbes: config.latentProbes,
     toolVersions,
   };
 }

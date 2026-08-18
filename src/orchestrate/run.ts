@@ -29,6 +29,8 @@ import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
+import { runBenchStage } from "../runtime/agent-loop.js";
+import { resolveBenchModel } from "../runtime/model.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
 import {
@@ -44,6 +46,7 @@ import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL } from "../widget/tracker.js";
+import { type LatentStageResult, LatentStageStoppedError, runLatentStage } from "./latent-stage.js";
 import {
   type ArmBase,
   buildRunConfig,
@@ -82,7 +85,13 @@ import { captureTrace, type RunTrace } from "./trace.js";
 type RunSignal = AbortSignal;
 
 /** Why a run halted (stop-and-surface), across phases. */
-type RunStopReason = Phase1StopReason | Phase2StopReason | ProbeStopReason | TestSpecStopReason | JudgeErrorCategory;
+type RunStopReason =
+  | Phase1StopReason
+  | Phase2StopReason
+  | ProbeStopReason
+  | TestSpecStopReason
+  | JudgeErrorCategory
+  | { message: string };
 
 /** Discriminated result of a run. The done branch is Phase-3 (results written);
  *  the stopped branch carries the phase + the arm/attempt (null for a score stop). */
@@ -94,8 +103,8 @@ export type RunResult =
       arm: ArmId | null;
       /** The Phase-2 attempt index, or null (Phase-1/probe/score stops carry none). */
       attempt: number | null;
-      /** The phase that halted: phase-1 / phase-2 / probe / score. */
-      phase: "phase-1" | "phase-2" | "probe" | "score";
+      /** The phase that halted: phase-1 / latent / phase-2 / probe / score. */
+      phase: "phase-1" | "latent" | "phase-2" | "probe" | "score";
       reason: RunStopReason;
       message: string;
       runId: string;
@@ -125,6 +134,9 @@ export interface StartRunDeps {
   continuations?: typeof runContinuations;
   /** Injectable Phase-2b probes (default = real {@link runProbes}). */
   probes?: typeof runProbes;
+  /** Injectable latent stage (default = real {@link runLatentStage} on the session
+   *  default model; tests inject a fake). Runs only when latentProbes is enabled. */
+  latentStage?: typeof runLatentStage;
   /** Injectable Phase-2b testSpec (default = real {@link runTestSpec}). */
   testSpec?: typeof runTestSpec;
   /** Injectable Phase-3 scoring (default = real {@link scoreRun}). */
@@ -170,6 +182,11 @@ export interface BuildScoreDepsArgs {
 
 /** Per-run output-token cap for the judge stages (single-call slices + agentLoop summaries). */
 const JUDGE_MAX_TOKENS = 8192;
+/** Per-call output-token cap for the latent-authoring stage (tool-heavy multi-turn,
+ *  same budget class as the judge/authoring stages). */
+const LATENT_STAGE_MAX_TOKENS = 8192;
+/** The latent stage runs on the session default model (no per-stage model setting). */
+const LATENT_STAGE_MODEL: string | null = null;
 /** The JSON indent written to results.json. */
 const JSON_INDENT = 2;
 
@@ -302,6 +319,37 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       if (base.wallMs > 0) freshWalls[base.arm] = base.wallMs;
     }
     if (Object.keys(freshWalls).length > 0) writePhase1Walls(wallsPath, freshWalls);
+
+    // --- Latent stage: author the per-run latent-probe pools (post-compaction).
+    // The pools persist under runs/<runId>/ (latent-pool[-<arm>].json) — later
+    // phases read them from disk, like the phase-1 walls + verdict journal. ---
+    if (deps.config.latentProbes !== "off") {
+      updateRunState({ phase: "latent", currentArm: null, currentAttempt: null });
+      widget?.startPhase("latent", NO_DETAIL);
+      const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
+      const stage = deps.latentStage ?? runLatentStage;
+      const latentResult = await stage(
+        {
+          arms: bases.map((b) => ({ arm: b.arm, sessionPath: branchSessionFile(sessionsDir, b.branch) })),
+          runPath,
+          cwd: deps.scenarioRepo,
+          ui: deps.cmdCtx.ui,
+          seams: {
+            resolveModel: () => resolveBenchModel(deps.cmdCtx, LATENT_STAGE_MODEL),
+            runStage: runBenchStage,
+          },
+          signal,
+          maxTokens: LATENT_STAGE_MAX_TOKENS,
+          rateLimitOptions: null,
+        },
+        latentMode,
+      );
+      if (latentResult.kind === "stopped") {
+        throw new LatentStageStoppedError(latentResult.arm, { message: latentResult.message });
+      }
+    } else {
+      log.info("latent: off — skipped");
+    }
 
     // --- Phase 2a: fork each base into N continuation attempts ---
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
@@ -448,6 +496,22 @@ function handleRunStop(err: unknown, deps: StartRunDeps, widget: WidgetPort | nu
     deps.notify?.(`bench-compact stopped (arm ${arm} probe ${probeId}): ${message}`);
     log.warn(`run ${runId} stopped: arm ${arm} probe ${probeId} ${reason} — ${message}`);
     return { kind: "stopped", arm, attempt: null, phase: "probe", reason, message, runId };
+  }
+  if (err instanceof LatentStageStoppedError) {
+    const { arm, reason } = err;
+    updateRunState({ lastStopReason: reason.message });
+    widget?.setStatus("stopped", "/bench-compact:resume");
+    log.warn(`run ${runId} stopped: latent stage ${arm ?? "shared"} — ${reason.message}`);
+    deps.notify?.(reason.message);
+    return {
+      kind: "stopped",
+      arm,
+      attempt: null,
+      phase: "latent",
+      reason,
+      message: reason.message,
+      runId,
+    };
   }
   if (err instanceof TestSpecFaultError) {
     const { branch, reason, message } = err;

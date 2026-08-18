@@ -192,6 +192,7 @@ describe("acceptance — run-config id is reproducible + sensitive", () => {
       omFullReflectionThresholdTokens: 4000,
       backupMode: "build",
       fastEval: "off",
+      latentProbes: "off",
       toolVersions: { A3: { source: "git", commit: "gabcdef", full: "abcdef1234567890" } },
     };
   }

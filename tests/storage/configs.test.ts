@@ -26,6 +26,7 @@ function sampleRunConfig(over: Partial<RunConfig>): RunConfig {
     omFullReflectionThresholdTokens: 4000,
     backupMode: "build",
     fastEval: "off",
+    latentProbes: "off",
     toolVersions: {
       A3: { source: "git", commit: "g4a2f8e", full: "4a2f8e9abcdef" },
     },

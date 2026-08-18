@@ -18,6 +18,7 @@ import {
   type FastEvalMode,
   type JudgeEnsembleConfig,
   judgeEnsembleFields,
+  type LatentProbesMode,
 } from "../config/types.js";
 
 /** A resolved memory-tool version for one arm. */
@@ -41,6 +42,9 @@ export interface RunConfig extends JudgeEnsembleConfig {
   backupMode: BackupMode;
   /** Fast-eval mode (probes-only skips continuations; part of the fingerprint). */
   fastEval: FastEvalMode;
+  /** Latent-probe authoring mode (per-run stage; NOT fingerprinted — changing it
+   *  reuses the same branch namespace, like fastEval). */
+  latentProbes: LatentProbesMode;
   /** Per-arm resolved tool versions. The bare-pi arm is typically absent (no memory tool). */
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
 }

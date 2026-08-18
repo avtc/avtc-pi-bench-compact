@@ -21,6 +21,7 @@ function validConfig(): BenchConfig {
     compactionBoundary: 140000,
     backupMode: "build",
     fastEval: "off",
+    latentProbes: "off",
     scenario: null,
     outputDir: null,
     armBarePiEnabled: true,

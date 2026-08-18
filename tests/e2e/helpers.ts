@@ -224,6 +224,7 @@ function makeBenchConfig(arms: readonly ArmId[]): BenchConfig {
     backupMode: "build",
     omFullReflectionThresholdTokens: 4000,
     outputDir: null,
+    latentProbes: "off",
     armsEnabled: [...arms],
   } as BenchConfig;
 }

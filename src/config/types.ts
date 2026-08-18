@@ -40,6 +40,12 @@ export type BackupMode = "build" | "extract";
  *  lanes are n/a. Part of the cfgId fingerprint. */
 export type FastEvalMode = "off" | "probes-only";
 
+/** How the post-compaction latent-probe stage authors its question set: off
+ *  (planted-fact probes only), per-arm (one authoring run per arm's session
+ *  file), or shared (one run over all arms' files — a single set absent from
+ *  every summary). */
+export type LatentProbesMode = "off" | "per-arm" | "shared";
+
 /** The judge-ensemble fields shared by {@link BenchConfig} (live settings) + the
  *  persisted {@link RunConfig} snapshot (so cfgId + reproducibility cover them).
  *  Extracted to avoid duplicating the 7-field block across the two interfaces. */
@@ -88,6 +94,7 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   compactionBoundary: number;
   backupMode: BackupMode;
   fastEval: FastEvalMode;
+  latentProbes: LatentProbesMode;
   scenario: string | null;
   outputDir: string | null;
   // Arms tab
