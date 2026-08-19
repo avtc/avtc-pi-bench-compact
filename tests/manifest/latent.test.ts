@@ -18,7 +18,7 @@ const ARMS: readonly ArmId[] = ["A1", "A3", "A5"];
 function cleanItem(probeClass: "cued" | "uncued"): AuthorLatentProbe {
   return {
     question: "What is the exact LEGACY_DECAY value?",
-    accept: ["3"],
+    accept: ["3 tick periods"],
     entryIds: ["e1"],
     probeClass,
     note: "engine tuning constant the task depends on",
@@ -45,6 +45,13 @@ describe("LATENT_PROBE_ITEM_SCHEMA (tool payload contract)", () => {
     expect(Value.Check(LATENT_PROBE_ITEM_SCHEMA, { ...cleanItem("cued"), entryIds: [] })).toBe(false);
     expect(Value.Check(LATENT_PROBE_ITEM_SCHEMA, { ...cleanItem("cued"), note: "" })).toBe(false);
   });
+  it("stays loose on question length — the floor lives in the add-time tool gate with its specific rejection", () => {
+    // The A3 pool of run-2026-08-18-1: the authoring agent gamed the cued minimum with
+    // "Test"/"Test4"/... placeholders. Length is NOT schema-enforced so the authoring
+    // agent gets the per-field rejection message (latent-author.test.ts covers the gate);
+    // pool loads re-check the floor in validateLatentProbes (test below).
+    expect(Value.Check(LATENT_PROBE_ITEM_SCHEMA, { ...cleanItem("cued"), question: "Test4" })).toBe(true);
+  });
 });
 
 describe("validateLatentProbes", () => {
@@ -62,6 +69,54 @@ describe("validateLatentProbes", () => {
   it("rejects an empty accept list and empty question", () => {
     expect(validateLatentProbes([poolProbe({ ...cleanItem("cued"), accept: [] }, null)], CTX).ok).toBe(false);
     expect(validateLatentProbes([poolProbe({ ...cleanItem("cued"), question: "" }, null)], CTX).ok).toBe(false);
+  });
+
+  it("rejects placeholder-grade questions (reuse path — a pre-floor pool fails validation)", () => {
+    const r = validateLatentProbes([poolProbe({ ...cleanItem("cued"), question: "Test4" }, null)], CTX);
+    expect(r.ok).toBe(false);
+    expect(r.reasons[0]).toContain("question shorter than 12 chars");
+  });
+
+  it('rejects placeholder-grade notes and accept lists (the A3 junk had note "t", accept "a")', () => {
+    const note = validateLatentProbes([poolProbe({ ...cleanItem("cued"), note: "t" }, null)], CTX);
+    expect(note.ok).toBe(false);
+    expect(note.reasons[0]).toContain("note shorter than 8 chars");
+
+    const accept = validateLatentProbes([poolProbe({ ...cleanItem("cued"), accept: ["a"] }, null)], CTX);
+    expect(accept.ok).toBe(false);
+    expect(accept.reasons[0]).toContain("accept shorter than 10 chars");
+  });
+
+  it("rejects near-duplicate questions (one fact recorded twice) and keeps distinct adjacent facts", () => {
+    const dup = validateLatentProbes(
+      [
+        poolProbe(cleanItem("cued"), { id: "l1" }),
+        poolProbe({ ...cleanItem("cued"), question: "What is the exact LEGACY_DECAY value used?" }, { id: "l2" }),
+      ],
+      CTX,
+    );
+    expect(dup.ok).toBe(false);
+    expect(dup.reasons[0]).toContain("l1 and l2: near-duplicate questions");
+
+    // A4's l16≡l17 byte-identical pair is the 1.0 case…
+    const same = validateLatentProbes(
+      [poolProbe(cleanItem("cued"), { id: "l1" }), poolProbe(cleanItem("cued"), { id: "l2" })],
+      CTX,
+    );
+    expect(same.ok).toBe(false);
+
+    // …while real distinct probes about adjacent facts (A1's ≈0.70 pairs) stay valid.
+    const distinct = validateLatentProbes(
+      [
+        poolProbe(cleanItem("cued"), { id: "l1" }),
+        poolProbe(
+          { ...cleanItem("cued"), question: "Which module path hosts the decay override constant?" },
+          { id: "l2" },
+        ),
+      ],
+      CTX,
+    );
+    expect(distinct).toEqual({ ok: true, reasons: [] });
   });
 
   it("rejects an unknown probe class (defense for pool loads past the tool schema)", () => {
@@ -100,7 +155,10 @@ describe("validateLatentProbes", () => {
 
   it("defends the per-class cap (10) per arm in per-arm mode", () => {
     const eleven = Array.from({ length: 11 }, (_, i) =>
-      poolProbe({ ...cleanItem("cued"), question: `q${i}` }, { id: `l${i + 1}` }),
+      poolProbe(
+        { ...cleanItem("cued"), question: `What does fact number ${i} pin down exactly?` },
+        { id: `l${i + 1}` },
+      ),
     );
     const r = validateLatentProbes(eleven, CTX);
     expect(r.ok).toBe(false);

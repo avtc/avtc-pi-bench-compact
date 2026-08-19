@@ -34,6 +34,20 @@ export type LatentAuthoringMode = "per-arm" | "shared";
 export type LatentVerdict = "absent" | "answerable";
 
 const NonEmptyString = Type.String({ minLength: 1 });
+/** Content floors for a real latent probe (the junk-probe regression of
+ *  run-2026-08-18-1: the authoring agent padded the per-class minimum with
+ *  "Test4"-grade probes — question 4–5 chars, note "t", accept "a"). A real
+ *  probe is a specific sentence (question), a work-relevance line (note), and
+ *  the real acceptable answers (accept); every observed real pool sits far
+ *  above these floors (min 91/94/100 chars). Enforced at add time (specific
+ *  per-field tool rejections) and re-checked at pool validation (reuse path). */
+export const LATENT_QUESTION_MIN_LENGTH = 12;
+export const LATENT_NOTE_MIN_LENGTH = 8;
+export const LATENT_ACCEPT_MIN_LENGTH = 10;
+/** Near-duplicate questions above this token-Jaccard are the same fact re-recorded
+ *  (an observed byte-identical duplicate pair, and a 0.90 near-dup pair) — real distinct probes about
+ *  adjacent facts measure ≈0.70. Enforced at add time + pool validation. */
+export const LATENT_DUP_JACCARD = 0.85;
 const NonEmptyStringArray = Type.Array(NonEmptyString, { minItems: 1 });
 
 /** What authoring agent #2 emits per item (the `add_latent_probe` payload). */
@@ -79,6 +93,29 @@ export interface LatentValidationContext {
   readonly enabledArms: readonly ArmId[];
 }
 
+/** Content-word tokens of a question (lowercased, split on non-alphanumerics) —
+ *  the near-duplicate comparison basis (order- and punctuation-insensitive). */
+export function latentQuestionTokens(question: string): ReadonlySet<string> {
+  return new Set(
+    question
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length > 0),
+  );
+}
+
+/** Token-Jaccard similarity of two questions (1.0 = identical content words). */
+export function latentQuestionSimilarity(a: string, b: string): number {
+  const ta = latentQuestionTokens(a);
+  const tb = latentQuestionTokens(b);
+  if (ta.size === 0 || tb.size === 0) return a === b ? 1 : 0;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared += 1;
+  return shared / (ta.size + tb.size - shared);
+}
+
 export interface LatentValidationResult {
   readonly ok: boolean;
   readonly reasons: readonly string[];
@@ -97,6 +134,21 @@ export function validateLatentProbes(
   const perArmClassCount = new Map<string, number>();
   for (const p of probes) {
     if (p.question === "") reasons.push(`latent probe ${p.id}: empty question`);
+    if (p.question.trim().length < LATENT_QUESTION_MIN_LENGTH) {
+      reasons.push(
+        `latent probe ${p.id}: question shorter than ${LATENT_QUESTION_MIN_LENGTH} chars (placeholder-grade — re-author)`,
+      );
+    }
+    if (p.note.trim().length < LATENT_NOTE_MIN_LENGTH) {
+      reasons.push(
+        `latent probe ${p.id}: note shorter than ${LATENT_NOTE_MIN_LENGTH} chars (placeholder-grade — re-author)`,
+      );
+    }
+    if (p.accept.join(" ").trim().length < LATENT_ACCEPT_MIN_LENGTH) {
+      reasons.push(
+        `latent probe ${p.id}: accept shorter than ${LATENT_ACCEPT_MIN_LENGTH} chars (placeholder-grade — re-author)`,
+      );
+    }
     if (p.accept.length === 0) reasons.push(`latent probe ${p.id}: empty accept list`);
     if (p.probeClass !== "cued" && p.probeClass !== "uncued") {
       reasons.push(`latent probe ${p.id}: unknown probe class "${p.probeClass}"`);
@@ -128,6 +180,18 @@ export function validateLatentProbes(
         if (p.verdicts[arm] === undefined) {
           reasons.push(`latent probe ${p.id}: missing verdict for arm "${arm}"`);
         }
+      }
+    }
+  }
+
+  // Near-duplicate questions: the same fact re-recorded (a byte-identical exact pair;
+  // same-class padding runs like Test4..TestE). Reported once per colliding pair.
+  for (let i = 0; i < probes.length; i++) {
+    for (let j = i + 1; j < probes.length; j++) {
+      if (latentQuestionSimilarity(probes[i].question, probes[j].question) >= LATENT_DUP_JACCARD) {
+        reasons.push(
+          `latent probes ${probes[i].id} and ${probes[j].id}: near-duplicate questions (one fact recorded twice — re-author)`,
+        );
       }
     }
   }

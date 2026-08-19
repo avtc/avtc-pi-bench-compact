@@ -14,7 +14,12 @@ import type { ArmId } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { log } from "../log.js";
-import { activeLatentProbes, type LatentProbe, validateLatentProbes } from "../manifest/latent.js";
+import {
+  activeLatentProbes,
+  type LatentProbe,
+  type LatentValidationContext,
+  validateLatentProbes,
+} from "../manifest/latent.js";
 import {
   LATENT_MIN_PER_CLASS,
   type LatentCounts,
@@ -108,6 +113,42 @@ function sharedAuthoringArgs(
   };
 }
 
+/** Validate a pool's probes against the span ctx; the stopped result on failure,
+ *  null when valid — the reuse and fresh-pool sites of both modes share the shape. */
+function invalidPoolStop(
+  probes: readonly LatentProbe[],
+  ctx: LatentValidationContext,
+  fail: { arm: ArmId | null; lead: string; tail: string },
+): LatentStageResult | null {
+  const validation = validateLatentProbes(probes, ctx);
+  return validation.ok
+    ? null
+    : {
+        kind: "stopped",
+        arm: fail.arm,
+        message: `${fail.lead} (${validation.reasons[0] ?? "invalid"}) — ${fail.tail}`,
+      };
+}
+
+function perArmPoolCtx(deps: LatentStageDeps, sessionPath: string, anchor: string): LatentValidationContext {
+  return {
+    mode: "per-arm",
+    spanEntryIds: spanContentEntryIds([sessionPath], anchor),
+    enabledArms: deps.arms.map((a) => a.arm),
+  };
+}
+
+function sharedPoolCtx(deps: LatentStageDeps, anchor: string): LatentValidationContext {
+  return {
+    mode: "shared",
+    spanEntryIds: spanContentEntryIds(
+      deps.arms.map((a) => a.sessionPath),
+      anchor,
+    ),
+    enabledArms: deps.arms.map((a) => a.arm),
+  };
+}
+
 export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<LatentStageResult> {
   const author = deps.author ?? runLatentAuthoringAgent;
   const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
@@ -125,18 +166,12 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       const pool = readLatentPool(poolPath);
       const stale = staleVerdictArms(pool, { [arm]: summaryDigest(compaction.summary) });
       if (stale.length === 0 && pool.tailStartsAtEntryId === compaction.firstKeptEntryId) {
-        const validation = validateLatentProbes(pool.probes, {
-          mode: "per-arm",
-          spanEntryIds: spanContentEntryIds([sessionPath], compaction.firstKeptEntryId),
-          enabledArms: deps.arms.map((a) => a.arm),
+        const stop = invalidPoolStop(pool.probes, perArmPoolCtx(deps, sessionPath, compaction.firstKeptEntryId), {
+          arm,
+          lead: `latent: ${basename(poolPath)} failed validation`,
+          tail: "delete the file to re-author",
         });
-        if (!validation.ok) {
-          return {
-            kind: "stopped",
-            arm,
-            message: `latent: ${basename(poolPath)} failed validation (${validation.reasons[0] ?? "invalid"}) — delete the file to re-author`,
-          };
-        }
+        if (stop !== null) return stop;
         log.info(`latent: arm ${arm} pool valid (summary unchanged) — reuse`);
         pools[arm] = pool;
         continue;
@@ -165,6 +200,16 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       summaryDigests: { [arm]: summaryDigest(compaction.summary) },
       probes: [...result.pool],
     };
+    // A freshly authored pool is validated before it is persisted — the add-time
+    // content gates make junk unlikely, but a regression there must stop the run
+    // before phase-2b probes junk questions for hours (fresh pools used to be
+    // written with no content check at all).
+    const stop = invalidPoolStop(pool.probes, perArmPoolCtx(deps, sessionPath, compaction.firstKeptEntryId), {
+      arm,
+      lead: `latent: arm ${arm} authoring produced invalid probes`,
+      tail: "run paused, resume to retry",
+    });
+    if (stop !== null) return stop;
     writeLatentPool(poolPath, pool);
     const cued = pool.probes.filter((p) => p.probeClass === "cued").length;
     const uncued = pool.probes.length - cued;
@@ -199,21 +244,12 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     for (const { arm, c } of compactions) current[arm] = summaryDigest(c?.summary ?? "");
     const stale = staleVerdictArms(pool, current);
     if (stale.length === 0 && pool.tailStartsAtEntryId === anchor) {
-      const validation = validateLatentProbes(pool.probes, {
-        mode: "shared",
-        spanEntryIds: spanContentEntryIds(
-          deps.arms.map((a) => a.sessionPath),
-          anchor,
-        ),
-        enabledArms: deps.arms.map((a) => a.arm),
+      const stop = invalidPoolStop(pool.probes, sharedPoolCtx(deps, anchor), {
+        arm: null,
+        lead: `latent: ${basename(poolPath)} failed validation`,
+        tail: "delete the file to re-author",
       });
-      if (!validation.ok) {
-        return {
-          kind: "stopped",
-          arm: null,
-          message: `latent: ${basename(poolPath)} failed validation (${validation.reasons[0] ?? "invalid"}) — delete the file to re-author`,
-        };
-      }
+      if (stop !== null) return stop;
       log.info("latent: shared pool valid (summaries unchanged) — reuse");
       const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
       for (const { arm } of compactions) pools[arm] = pool;
@@ -245,6 +281,13 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     summaryDigests,
     probes: [...result.pool],
   };
+  // Same pre-persist validation as the per-arm branch (see comment there).
+  const stop = invalidPoolStop(pool.probes, sharedPoolCtx(deps, anchor), {
+    arm: deps.arms[0].arm,
+    lead: "latent: shared authoring produced invalid probes",
+    tail: "run paused, resume to retry",
+  });
+  if (stop !== null) return stop;
   writeLatentPool(poolPath, pool);
   log.info(`latent: shared set authored — ${pool.probes.length} probes → ${poolPath}`);
   const pools: Partial<Record<ArmId, LatentPoolFile>> = {};

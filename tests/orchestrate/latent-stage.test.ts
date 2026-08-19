@@ -43,14 +43,19 @@ function armSession(dir: string, name: string, summary: string, anchor: string):
 function probe(id: string, probeClass: "cued" | "uncued"): LatentProbe {
   return {
     id,
-    question: `q ${id}`,
-    accept: ["a"],
+    question: `What exact ${probeClass} fact number ${id} did the span record?`,
+    accept: ["an acceptable answer"],
     entryIds: ["e1"],
     probeClass,
-    note: "n",
+    note: "matters for the work",
     arm: "A1",
     verdicts: { A1: "absent" },
   };
+}
+
+/** Shared-mode shape: no arm pin, an absent verdict for every enabled arm. */
+function sharedProbe(id: string, probeClass: "cued" | "uncued"): LatentProbe {
+  return { ...probe(id, probeClass), arm: undefined, verdicts: { A1: "absent", A3: "absent" } };
 }
 
 /** A fake authoring agent returning a canned completed pool. */
@@ -273,6 +278,25 @@ describe("runLatentStagePerArm", () => {
     });
   });
 
+  it("stops instead of persisting an invalid fresh pool (add-time gates bypassed — regression net)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      // a seam-injected (or future-regression) author completing with a
+      // placeholder-grade probe — must never reach phase-2b probing
+      return { kind: "completed", pool: [{ ...probe("l1", "cued"), question: "Test4" }] };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r).toEqual({
+      kind: "stopped",
+      arm: "A1",
+      message:
+        "latent: arm A1 authoring produced invalid probes (latent probe l1: question shorter than 12 chars (placeholder-grade — re-author)) — run paused, resume to retry",
+    });
+    expect(existsSync(join(dir, "latent-pool-A1.json"))).toBe(false); // never persisted
+  });
+
   it("throws when an arm session has no compaction record", async () => {
     const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
     // a distinct filename — baseDeps' default-arm sessions must not overwrite this one
@@ -341,10 +365,34 @@ describe("runLatentStageShared", () => {
     expect(calls.n).toBe(0);
   });
 
+  it("stops instead of persisting an invalid fresh shared pool", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      return {
+        kind: "completed",
+        pool: [sharedProbe("l1", "cued"), { ...sharedProbe("l2", "uncued"), question: "Test4" }],
+      };
+    };
+    const r = await runLatentStageShared(baseDeps(dir, { author }));
+    expect(r).toEqual({
+      kind: "stopped",
+      arm: "A1",
+      message:
+        "latent: shared authoring produced invalid probes (latent probe l2: question shorter than 12 chars (placeholder-grade — re-author)) — run paused, resume to retry",
+    });
+    expect(existsSync(join(dir, "latent-pool.json"))).toBe(false); // never persisted
+  });
+
   it("one authoring run → one pool under every arm key with all digests", async () => {
     const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
     const calls = { n: 0 };
-    const r = await runLatentStageShared(baseDeps(dir, { author: fakeAuthor({ calls }).deps }));
+    const r = await runLatentStageShared(
+      baseDeps(dir, {
+        author: fakeAuthor({ calls, result: { kind: "completed", pool: [sharedProbe("l1", "cued")] } }).deps,
+      }),
+    );
     expect(calls.n).toBe(1);
     if (r.kind !== "done") throw new Error("expected done");
     const pool = readLatentPool(join(dir, "latent-pool.json"));

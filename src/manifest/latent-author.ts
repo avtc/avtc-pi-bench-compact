@@ -18,11 +18,16 @@ import { benchAuthoringTools } from "../runtime/tools.js";
 import { type AskUi, askOperator } from "../ui/ask.js";
 import {
   type AuthorLatentProbe,
+  LATENT_ACCEPT_MIN_LENGTH,
+  LATENT_DUP_JACCARD,
   LATENT_FINALIZE_SCHEMA,
+  LATENT_NOTE_MIN_LENGTH,
   LATENT_PROBE_CLASS_CAP,
   LATENT_PROBE_ITEM_SCHEMA,
+  LATENT_QUESTION_MIN_LENGTH,
   type LatentAuthoringMode,
   type LatentProbe,
+  latentQuestionSimilarity,
   validateLatentProbes,
 } from "./latent.js";
 import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "./latent-prompt.js";
@@ -42,11 +47,25 @@ const capRejection = (probeClass: string, otherClass: string): string =>
 
 /** Approved below-minimum rejection. */
 const belowMinRejection = (cued: number, uncued: number): string =>
-  `rejected: below minimum — cued ${cued}/${LATENT_MIN_PER_CLASS}, uncued ${uncued}/${LATENT_MIN_PER_CLASS}. Search the span for more lost details, record them, then call finalize_latent again; if the facts are exhausted, call finalize_latent again unchanged.`;
+  `rejected: below minimum — cued ${cued}/${LATENT_MIN_PER_CLASS}, uncued ${uncued}/${LATENT_MIN_PER_CLASS}. Search the span for more lost details, record them, then call finalize_latent again; if the facts are exhausted, call finalize_latent again unchanged. Never record placeholder, repetitive, or unverified probes to reach the minimum.`;
 
 /** Approved post-retry rejection (the operator chose another attempt). */
 const retryRejection = (cued: number, uncued: number): string =>
   `rejected: the operator asked for another attempt — still below minimum (cued ${cued}/${LATENT_MIN_PER_CLASS}, uncued ${uncued}/${LATENT_MIN_PER_CLASS}). Search the span for more lost details; if the facts are exhausted, call finalize_latent again unchanged.`;
+
+/** Approved content-floor rejections (the junk-probe regression: a weak authoring
+ *  agent padded the per-class minimum with "Test4"/note "t"/accept "a" probes; the
+ *  system prompt's "do not invent" instruction was ignored under the produce-more
+ *  rejection pressure). A rejected call never enters the pool — and never counts as
+ *  finalize progress, so the operator deadlock dialog stays reachable. */
+const shortQuestionRejection = (): string =>
+  `rejected: question too short (under ${LATENT_QUESTION_MIN_LENGTH} chars) — a probe question is a specific, self-contained question about the lost detail; re-check the entry and re-record the real question`;
+const shortNoteRejection = (): string =>
+  `rejected: note too short (under ${LATENT_NOTE_MIN_LENGTH} chars) — say why the detail matters for the work; re-record with a real note`;
+const shortAcceptRejection = (): string =>
+  `rejected: accept too short (under ${LATENT_ACCEPT_MIN_LENGTH} chars) — list the real acceptable answers for the question; re-record`;
+const dupQuestionRejection = (ordinal: number): string =>
+  `rejected: question is a near-duplicate of probe #${ordinal} already recorded — each probe targets a distinct lost detail; verify and record a different one`;
 
 // --- deadlock dialog (approved wording; dismissed/unavailable → stop) ---------
 
@@ -127,6 +146,38 @@ export function buildLatentTools(
           content: [{ type: "text", text: capRejection(item.probeClass, other) }],
           details: { accepted: 0, rejected: 1 },
         };
+      }
+      // Content floors: placeholder-grade probes never enter the pool (each field
+      // gets its own rejection so the agent knows exactly what to fix). A rejected
+      // call is NOT finalize progress — after rejected padding attempts, the second
+      // unchanged finalize reaches the operator deadlock dialog (accept fewer).
+      if (item.question.trim().length < LATENT_QUESTION_MIN_LENGTH) {
+        return {
+          content: [{ type: "text", text: shortQuestionRejection() }],
+          details: { accepted: 0, rejected: 1 },
+        };
+      }
+      if (item.note.trim().length < LATENT_NOTE_MIN_LENGTH) {
+        return {
+          content: [{ type: "text", text: shortNoteRejection() }],
+          details: { accepted: 0, rejected: 1 },
+        };
+      }
+      if (item.accept.join(" ").trim().length < LATENT_ACCEPT_MIN_LENGTH) {
+        return {
+          content: [{ type: "text", text: shortAcceptRejection() }],
+          details: { accepted: 0, rejected: 1 },
+        };
+      }
+      // Near-duplicate question vs any recorded probe (the same fact re-recorded:
+      // a byte-identical duplicate pair, the Test4..TestE padding run).
+      for (const [i, existing] of acc.entries()) {
+        if (latentQuestionSimilarity(item.question, existing.question) >= LATENT_DUP_JACCARD) {
+          return {
+            content: [{ type: "text", text: dupQuestionRejection(i + 1) }],
+            details: { accepted: 0, rejected: 1 },
+          };
+        }
       }
       // Mechanical citation guard: resolve each entryId (exact id, else the line
       // position's id) and reject the call when any citation is not an in-span

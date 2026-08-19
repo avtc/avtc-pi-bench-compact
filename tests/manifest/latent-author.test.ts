@@ -28,10 +28,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const perArmFixture = readFileSync(joinPath(here, "fixtures/latent-per-arm-prompt.txt"), "utf8").trimEnd();
 const sharedFixture = readFileSync(joinPath(here, "fixtures/latent-shared-prompt.txt"), "utf8").trimEnd();
 
+/** Real-grade question for a stub — the add-time content floors require a
+ *  specific question (>= 12 chars; see the A3 junk-probe regression), so short
+ *  test stubs are padded into a plausible probe question. */
+function q(stub: string): string {
+  return stub.length >= 12 ? stub : `${stub}: which exact value did the span record for it?`;
+}
+
 function item(probeClass: "cued" | "uncued", question: string): AuthorLatentProbe {
   return {
-    question,
-    accept: ["an answer"],
+    question: q(question),
+    accept: ["an acceptable answer"],
     entryIds: ["e1"],
     probeClass,
     note: "matters for the work",
@@ -129,14 +136,61 @@ describe("buildLatentTools", () => {
     );
   });
 
+  it("add_latent_probe rejects placeholder-grade questions with the specific rejection (junk never enters the pool)", async () => {
+    const seen: string[] = [];
+    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"));
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (add === undefined) throw new Error("missing tool");
+    const r = await add.execute("c1", { ...item("cued", "placeholder"), question: "Test4" });
+    expect(r.details).toEqual({ accepted: 0, rejected: 1 });
+    expect((r.content as [{ type: string; text: string }])[0].text).toBe(
+      "rejected: question too short (under 12 chars) — a probe question is a specific, self-contained question about the lost detail; re-check the entry and re-record the real question",
+    );
+    expect(seen).toEqual([]); // nothing recorded, no onAdd
+  });
+
+  it('add_latent_probe rejects placeholder-grade notes and accept lists (the A3 junk: note "t", accept "a")', async () => {
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (add === undefined) throw new Error("missing tool");
+    const note = await add.execute("c1", { ...item("cued", "fine question"), note: "t" });
+    expect(note.details).toEqual({ accepted: 0, rejected: 1 });
+    expect((note.content as [{ type: string; text: string }])[0].text).toContain(
+      "rejected: note too short (under 8 chars)",
+    );
+    const accept = await add.execute("c2", { ...item("cued", "another fine question"), accept: ["a"] });
+    expect(accept.details).toEqual({ accepted: 0, rejected: 1 });
+    expect((accept.content as [{ type: string; text: string }])[0].text).toContain(
+      "rejected: accept too short (under 10 chars)",
+    );
+  });
+
+  it("add_latent_probe rejects near-duplicate questions (padding runs never enter the pool)", async () => {
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (add === undefined) throw new Error("missing tool");
+    const first = await add.execute("c1", item("cued", "What is the exact LEGACY_DECAY value?"));
+    expect(first.details?.accepted).toBe(1);
+    const dup = await add.execute("c2", item("cued", "What is the exact LEGACY_DECAY value used?"));
+    expect(dup.details).toEqual({ accepted: 0, rejected: 1 });
+    expect((dup.content as [{ type: string; text: string }])[0].text).toBe(
+      "rejected: question is a near-duplicate of probe #1 already recorded — each probe targets a distinct lost detail; verify and record a different one",
+    );
+    // distinct adjacent facts (A1's real ≈0.70 pairs) stay accepted
+    const distinct = await add.execute("c3", item("cued", "Which module path hosts the decay override constant?"));
+    expect(distinct.details?.accepted).toBe(1);
+  });
+
   it("add_latent_probe enforces the per-class cap with the approved rejection", async () => {
     const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     for (let i = 0; i < LATENT_CAP_PER_CLASS; i++) {
-      await add.execute(`c${i}`, { ...item("cued", "q"), question: `q${i}` });
+      await add.execute(`c${i}`, item("cued", `capped cued detail number ${i}`));
     }
-    const r = await add.execute("c11", item("cued", "over"));
+    // the cap check fires BEFORE the content floors: a short 11th question still
+    // gets the cap rejection, not the question-floor one
+    const r = await add.execute("c11", { ...item("cued", "over"), question: "x" });
     expect(r.details?.rejected).toBe(1);
     expect((r.content as [{ type: string; text: string }])[0].text).toBe(
       `rejected: cued cap reached (${LATENT_CAP_PER_CLASS} recorded) — record uncued probes, or finalize_latent`,
@@ -152,8 +206,8 @@ describe("buildLatentTools", () => {
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
     for (let i = 0; i < LATENT_MIN_PER_CLASS; i++) {
-      await add.execute(`a${i}`, { ...item("cued", "q"), question: `c${i}` });
-      await add.execute(`b${i}`, { ...item("uncued", "q"), question: `u${i}` });
+      await add.execute(`a${i}`, item("cued", `cued fact number ${i} of three`));
+      await add.execute(`b${i}`, item("uncued", `uncued fact number ${i} of three`));
     }
     const r = await fin.execute("f1", {});
     expect(r.terminate).toBe(true);
@@ -170,6 +224,29 @@ describe("buildLatentTools", () => {
     expect(r.terminate).toBeUndefined();
     expect((r.content as [{ type: string; text: string }])[0].text).toContain("rejected: below minimum — cued 1/3");
     expect((r.content as [{ type: string; text: string }])[0].text).toContain("call finalize_latent again unchanged");
+    expect((r.content as [{ type: string; text: string }])[0].text).toContain(
+      "Never record placeholder, repetitive, or unverified probes",
+    );
+  });
+
+  it("rejected junk adds are not progress — the deadlock dialog stays reachable (A3 regression)", async () => {
+    // The A3 authoring agent padded the cued minimum with "Test4"-grade probes; every
+    // junk add was accepted, so the below-min rejection re-fired forever and the
+    // operator dialog was unreachable. Junk adds are now rejected at the gate — the
+    // next unchanged finalize has NO progress and opens the dialog (accept fewer).
+    const ui = fakeUi(["accept fewer probes and continue"]);
+    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"));
+    const add = t.tools.find((x) => x.name === "add_latent_probe");
+    const fin = t.tools.find((x) => x.name === "finalize_latent");
+    if (add === undefined || fin === undefined) throw new Error("missing tool");
+    await add.execute("a0", item("cued", "the one real cued fact in the span"));
+    await fin.execute("f0", {}); // below min WITH progress → produce-more rejection
+    const junk = await add.execute("a1", { ...item("cued", "placeholder"), question: "Test4" });
+    expect(junk.details).toEqual({ accepted: 0, rejected: 1 });
+    const r = await fin.execute("f1", {}); // no progress → dialog, not another produce-more
+    expect(r.terminate).toBe(true);
+    expect(t.finalizeLatent._captured).toEqual(["accept"]);
+    expect(ui.calls).toBe(1);
   });
 
   it("finalize_latent: no progress → operator dialog (accept / retry / stop), null ui → stop", async () => {
@@ -321,8 +398,8 @@ describe("runLatentAuthoringAgent", () => {
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
       for (let i = 0; i < 3; i++) {
-        await exec(add, { ...item("cued", "q"), question: `c${i}` });
-        await exec(add, { ...item("uncued", "q"), question: `u${i}` });
+        await exec(add, item("cued", `cued fact number ${i} of the trio`));
+        await exec(add, item("uncued", `uncued fact number ${i} of the trio`));
       }
       await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
     });
@@ -361,8 +438,8 @@ describe("runLatentAuthoringAgent", () => {
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
       for (let i = 0; i < 3; i++) {
-        await exec(add, { ...item("cued", "q"), entryIds: ["2"] }); // position of e1
-        await exec(add, { ...item("uncued", "q"), entryIds: [i === 0 ? "e2" : "3"] }); // real id / position of e2
+        await exec(add, { ...item("cued", `cued citation fact number ${i}`), entryIds: ["2"] }); // position of e1
+        await exec(add, { ...item("uncued", `uncued citation fact number ${i}`), entryIds: [i === 0 ? "e2" : "3"] }); // real id / position of e2
       }
       await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
     });
@@ -401,10 +478,13 @@ describe("runLatentAuthoringAgent", () => {
         execute: (id: string, a: unknown) => Promise<{ details?: { rejected?: number }; content?: { text: string }[] }>;
       };
       for (let i = 0; i < 3; i++) {
-        await exec(add, { ...item("cued", `c${i}`), entryIds: ["e1"] });
-        await exec(add, { ...item("uncued", `u${i}`), entryIds: ["e1"] });
+        await exec(add, { ...item("cued", `cued tailguard fact number ${i}`), entryIds: ["e1"] });
+        await exec(add, { ...item("uncued", `uncued tailguard fact number ${i}`), entryIds: ["e1"] });
       }
-      badResult = await add.execute("c7", { ...item("cued", "tail-citer"), entryIds: ["3"] }); // tail position
+      badResult = await add.execute("c7", {
+        ...item("cued", "a cued probe citing the tail position"),
+        entryIds: ["3"],
+      }); // tail position
       await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
     });
     const r = await runLatentAuthoringAgent({
@@ -438,8 +518,8 @@ describe("runLatentAuthoringAgent", () => {
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
       for (let i = 0; i < 3; i++) {
-        await exec(add, { ...item("cued", "q"), question: `c${i}` });
-        await exec(add, { ...item("uncued", "q"), question: `u${i}` });
+        await exec(add, item("cued", `cued fact number ${i} of the trio`));
+        await exec(add, item("uncued", `uncued fact number ${i} of the trio`));
       }
       await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
     });
@@ -499,10 +579,13 @@ describe("runLatentAuthoringAgent", () => {
         execute: (id: string, a: unknown) => Promise<{ content?: { text: string }[]; details?: { rejected?: number } }>;
       };
       for (let i = 0; i < 3; i++) {
-        await exec(add, { ...item("cued", "q"), question: `c${i}`, entryIds: ["e1"] });
-        await exec(add, { ...item("uncued", "q"), question: `u${i}` });
+        await exec(add, item("cued", `cued tailid fact number ${i}`));
+        await exec(add, item("uncued", `uncued tailid fact number ${i}`));
       }
-      const bad = await add.execute("c9", { ...item("uncued", "bad"), entryIds: ["cut-1"], question: "tail-citer" });
+      const bad = await add.execute("c9", {
+        ...item("uncued", "an uncued probe citing the tail id directly"),
+        entryIds: ["cut-1"],
+      });
       badText = (bad.content ?? [])[0]?.text ?? "";
       await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
     });
