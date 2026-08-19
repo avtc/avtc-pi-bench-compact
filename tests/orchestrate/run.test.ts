@@ -78,7 +78,7 @@ function makeDeps(opts: {
   // The fresh pi + proxies are NOT passed to startRun — runPhase1 reads them from
   // globalThis inside each withSession (bench-ctx.ts). Only cmdCtx is threaded.
   return {
-    cmdCtx: {},
+    cmdCtx: { ui: { __staleCmdUi: true } },
     config: { ...makeConfig(opts.arms), ...opts.config },
     scenarioRepo: opts.scenarioRepo ?? "/repo/scenario-x",
     manifest: MANIFEST,
@@ -118,7 +118,7 @@ function fakeBases(arms: BenchConfig["armsEnabled"]): ArmBase[] {
 
 /** A distinct sentinel for the Phase-1 final ctx (so tests can assert it's threaded
  * into continuations, NOT the original cmdCtx which Phase-1 invalidated). */
-const FINAL_CTX = { __finalCtx: true } as unknown as Phase1Result["finalCtx"];
+const FINAL_CTX = { __finalCtx: true, ui: { __finalCtxUi: true } } as unknown as Phase1Result["finalCtx"];
 
 /** A typed Phase-1 mock so `mock.calls[0][0]` is the Phase1Deps arg (not an empty tuple). */
 function phase1Mock(
@@ -413,8 +413,13 @@ describe("startRun — Phase-2 stop-and-surface", () => {
     const result = await startRun(deps);
     expect(result.kind).toBe("done");
     expect(order).toEqual(["phase-1", "latent", "phase-2"]);
-    const stageArg = doneStage.mock.calls[0]?.[0] as { arms: { arm: string }[] } | undefined;
+    const stageArg = doneStage.mock.calls[0]?.[0] as { arms: { arm: string }[]; ui: unknown } | undefined;
     expect(stageArg?.arms.map((a: { arm: string }) => a.arm)).toEqual(["A1", "A3"]);
+    // The stage gets the threaded FRESH ctx's ui (phase-1's switchSessions invalidated
+    // the original command ctx — using it throws pi's stale-ctx guard, exactly like
+    // the continuation phase rule above).
+    expect(stageArg?.ui).toBe(FINAL_CTX.ui);
+    expect(stageArg?.ui).not.toBe((deps.cmdCtx as { ui: unknown }).ui);
     expect(doneStage.mock.calls[0]?.[1]).toBe("per-arm");
 
     // stopped outcome → stopped RunResult (phase "latent") + notify

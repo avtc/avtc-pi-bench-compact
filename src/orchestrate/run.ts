@@ -343,9 +343,12 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
           arms: bases.map((b) => ({ arm: b.arm, sessionPath: branchSessionFile(sessionsDir, b.branch) })),
           runPath,
           cwd: deps.scenarioRepo,
-          ui: deps.cmdCtx.ui,
+          // The phase-1 arm compactions switchSession'd — the original command ctx is
+          // STALE by now. Use the threaded fresh ctx (the last arm's withSession ctx),
+          // exactly like the continuation + probe phases do.
+          ui: ctxAfterPhase1.ui,
           seams: {
-            resolveModel: () => resolveBenchModel(deps.cmdCtx, LATENT_STAGE_MODEL),
+            resolveModel: () => resolveBenchModel(ctxAfterPhase1, LATENT_STAGE_MODEL),
             runStage: runBenchStage,
           },
           signal,
