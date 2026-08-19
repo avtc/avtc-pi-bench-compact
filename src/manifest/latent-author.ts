@@ -69,14 +69,25 @@ export interface LatentCounts {
   readonly uncued: number;
 }
 
+/** What the add-time citation guard needs: the in-span content-entry ids (the
+ *  same set finalize validates against) + the line-position index (the read view's
+ *  numbering — numeric citations resolve to the id at that line). */
+export interface SpanCitations {
+  readonly spanEntryIds: ReadonlySet<string>;
+  readonly positionToSpanId: ReadonlyMap<number, string>;
+}
+
 /** Compose the latent-authoring tool set: pi read-only tools + bash bound to
- *  `cwd`, the capped `add_latent_probe` per-item tool, and the guarded
- *  `finalize_latent` terminal tool (min-3 rejection, no-progress → operator
- *  dialog, exhausted-facts acceptance). */
+ *  `cwd`, the capped `add_latent_probe` per-item tool (each call MECHANICALLY
+ *  validated: every cited entry must exist as an id — or line position — of an
+ *  in-span content entry, else the call is rejected with feedback so the agent
+ *  self-corrects in-run), and the guarded `finalize_latent` terminal tool (min-3
+ *  rejection, no-progress → operator dialog, exhausted-facts acceptance). */
 export function buildLatentTools(
   cwd: string,
   ui: AskUi | null,
   onAdd: (counts: LatentCounts) => void,
+  citations: SpanCitations,
 ): { tools: AgentTool[]; finalizeLatent: LatentFinalizeTool; acc: AuthorLatentProbe[] } {
   const acc: AuthorLatentProbe[] = [];
   let lastRejectCount = 0;
@@ -114,7 +125,32 @@ export function buildLatentTools(
           details: { accepted: 0, rejected: 1 },
         };
       }
-      acc.push(item);
+      // Mechanical citation guard: resolve each entryId (exact id, else the line
+      // position's id) and reject the call when any citation is not an in-span
+      // content entry — the agent gets feedback + retries instead of poisoning the
+      // pool (in-run repair, the latent twin of author #1's sanitizeCitations pass).
+      const bad: string[] = [];
+      const resolvedIds = item.entryIds.map((id) => {
+        if (citations.spanEntryIds.has(id)) return id;
+        if (/^\d+$/.test(id)) {
+          const atLine = citations.positionToSpanId.get(Number(id));
+          if (atLine !== undefined) return atLine;
+        }
+        bad.push(id);
+        return id;
+      });
+      if (bad.length > 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `rejected: entryId "${bad[0] ?? ""}" is not an in-span message/custom_message/branch_summary entry — use the entry's id from before the tail start; re-check the file and call add_latent_probe again`,
+            },
+          ],
+          details: { accepted: 0, rejected: 1 },
+        };
+      }
+      acc.push({ ...item, entryIds: resolvedIds });
       onAdd(counts());
       return {
         content: [{ type: "text", text: "recorded add_latent_probe; keep going" }],
@@ -251,7 +287,13 @@ export type LatentAuthoringResult =
  *  shared set across all arms in shared mode). Throws on model/stage failure and
  *  on pool validation failure (defense: out-of-span or non-content citations). */
 export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Promise<LatentAuthoringResult> {
-  const { tools, finalizeLatent, acc } = buildLatentTools(deps.cwd, deps.ui, deps.onAdd ?? (() => {}));
+  // Computed once, used twice: the add-time citation guard (in-run repair) + the
+  // finalize validation (invariant backstop — the guard makes it unreachable).
+  const citations: SpanCitations = {
+    spanEntryIds: spanContentEntryIds(deps.sessionPaths, deps.tailStartsAtEntryId),
+    positionToSpanId: spanCitationIndex(deps.sessionPaths, deps.tailStartsAtEntryId).positionToSpanId,
+  };
+  const { tools, finalizeLatent, acc } = buildLatentTools(deps.cwd, deps.ui, deps.onAdd ?? (() => {}), citations);
   const action = (await runJsonToolStage({
     seams: deps.seams,
     tools,
@@ -279,22 +321,10 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
         ? { [deps.arm]: "absent" }
         : Object.fromEntries(deps.enabledArms.map((a) => [a, "absent"])),
   }));
-  const spanEntryIds = spanContentEntryIds(deps.sessionPaths, deps.tailStartsAtEntryId);
-  // The author reads the JSONL through a line-numbered view and sometimes cites the
-  // LINE POSITION as the entry id. Resolve numeric citations against the id at that
-  // line (exact real-id matches always win; unresolvable citations pass through and
-  // the validation below rejects them with its message).
-  const citations = spanCitationIndex(deps.sessionPaths, deps.tailStartsAtEntryId);
-  const normalized: LatentProbe[] = pool.map((p) => ({
-    ...p,
-    entryIds: p.entryIds.map((id) => {
-      if (spanEntryIds.has(id)) return id;
-      if (!/^\d+$/.test(id)) return id;
-      const atLine = citations.positionToSpanId.get(Number(id));
-      return atLine ?? id;
-    }),
-  }));
-  const validation = validateLatentProbes(normalized, {
+  const spanEntryIds = citations.spanEntryIds;
+  // The add-time guard already resolved numeric citations (line positions from
+  // the read view) to real ids; this finalize pass is the invariant backstop.
+  const validation = validateLatentProbes(pool, {
     mode: deps.mode,
     spanEntryIds,
     enabledArms: deps.enabledArms,
@@ -302,7 +332,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
   if (!validation.ok) {
     throw new Error(`latent pool validation failed: ${validation.reasons.join("; ")}`);
   }
-  return { kind: "completed", pool: normalized };
+  return { kind: "completed", pool };
 }
 
 /** A parsed session line: its 1-based position (what a line-numbered read view
@@ -316,9 +346,7 @@ function parsedLines(path: string): readonly { position: number; entry: { id?: s
     if (line.trim().length === 0) continue;
     try {
       out.push({ position, entry: JSON.parse(line) as { id?: string; type?: string } });
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return out;
 }
