@@ -51,15 +51,15 @@ export type LatentProbesMode = "off" | "per-arm" | "shared";
  *  Extracted to avoid duplicating the 7-field block across the two interfaces. */
 export interface JudgeEnsembleConfig {
   judgeModel: string | null;
-  judgeThinkingLevel: ThinkingLevel;
+  judgeThinkingLevel: ThinkingLevel | null;
   /** Multi-judge ensemble size: 1 (single judge, default) or 3 (majority/Borda). */
   judgesNumber: number;
-  /** Judge 2 model (used when judgesNumber >= 2). null = fall through to session default. */
+  /** Judge 2 model (used when judgesNumber >= 2). null = background default, then session default. */
   judge2Model: string | null;
-  judge2ThinkingLevel: ThinkingLevel;
-  /** Judge 3 model (used when judgesNumber >= 3). null = fall through to session default. */
+  judge2ThinkingLevel: ThinkingLevel | null;
+  /** Judge 3 model (used when judgesNumber >= 3). null = background default, then session default. */
   judge3Model: string | null;
-  judge3ThinkingLevel: ThinkingLevel;
+  judge3ThinkingLevel: ThinkingLevel | null;
 }
 
 /** Project the 7 judge-ensemble fields off a config (single source for RunConfig
@@ -95,7 +95,7 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   fastEval: FastEvalMode;
   latentProbes: LatentProbesMode;
   /** Per-call output-token caps (judge ensemble / latent authoring). */
-  judgeMaxTokens: number;
+  judgeMaxTokens: number | null;
   /** Per-call output-token cap for latent authoring (null = backgroundMaxTokens). */
   latentStageMaxTokens: number | null;
   /** Wall-clock cap per judge LLM call; null = no cap (the "Infinite" preset). */

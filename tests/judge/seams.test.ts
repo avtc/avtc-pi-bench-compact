@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import type { JudgeAgentSpec } from "../../src/config/background-agents.js";
 import type { BenchConfig } from "../../src/config/types.js";
 import {
   buildCallJudge,
@@ -66,6 +67,15 @@ function config(judgesNumber: 1 | 3): BenchConfig {
   };
 }
 
+/** The resolved judge members for a config (mirrors the resolver's output shape). */
+function membersOf(c: BenchConfig): readonly [JudgeAgentSpec, JudgeAgentSpec, JudgeAgentSpec] {
+  return [
+    { model: c.judgeModel, thinking: c.judgeThinkingLevel },
+    { model: c.judge2Model, thinking: c.judge2ThinkingLevel },
+    { model: c.judge3Model, thinking: c.judge3ThinkingLevel },
+  ];
+}
+
 /** A fake ctx (the resolveModel seam ignores it; only the type must hold). */
 const FAKE_CTX = {} as ExtensionContext;
 
@@ -107,12 +117,14 @@ function transport(
 
 describe("judgeSpecs", () => {
   it("K=1 returns only judge1", () => {
-    const specs = judgeSpecs(config(1));
+    const cfg = config(1);
+    const specs = judgeSpecs(cfg.judgesNumber, membersOf(cfg));
     expect(specs).toEqual([{ model: "p1/m1", reasoning: "high" }]);
   });
 
   it("K=3 returns judge1/2/3 in order", () => {
-    const specs = judgeSpecs(config(3));
+    const cfg = config(3);
+    const specs = judgeSpecs(cfg.judgesNumber, membersOf(cfg));
     expect(specs).toEqual([
       { model: "p1/m1", reasoning: "high" },
       { model: "p2/m2", reasoning: "medium" },
@@ -247,7 +259,7 @@ describe("buildStageSeams", () => {
 describe("buildJudgeEnsemble", () => {
   it("K=1 builds one callJudge + one stageSeams", () => {
     const t = transport(OK_MODEL, stageResult("a"), null, null);
-    const ens = buildJudgeEnsemble(config(1), t);
+    const ens = buildJudgeEnsemble(1, membersOf(config(1)), t);
     expect(ens.callJudges).toHaveLength(1);
     expect(ens.stageSeams).toHaveLength(1);
   });
@@ -255,7 +267,7 @@ describe("buildJudgeEnsemble", () => {
   it("K=3 builds three callJudges + three stageSeams (judge1/2/3)", async () => {
     const captured: StageRunInput[] = [];
     const t = transport(OK_MODEL, stageResult("a"), captured, null);
-    const ens = buildJudgeEnsemble(config(3), t);
+    const ens = buildJudgeEnsemble(3, membersOf(config(3)), t);
     expect(ens.callJudges).toHaveLength(3);
     expect(ens.stageSeams).toHaveLength(3);
     // each judge's resolveModel is per-spec (judge1/2/3 models); verify judge2 resolves its model

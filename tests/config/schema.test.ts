@@ -18,8 +18,17 @@ describe("BENCH_SCHEMA", () => {
     expect(BENCH_SETTINGS_COMMAND).toBe("bench-compact:settings");
   });
 
-  it("has four tabs (Models / Run / Background agents / Arms) covering every setting id", () => {
-    expect(BENCH_SCHEMA.tabs.map((t) => t.label)).toEqual(["Models", "Run", "Background agents", "Arms"]);
+  it("has eight tabs (General / Run / Arms / Judge / Author / Tail / Sim / Latent) covering every setting id", () => {
+    expect(BENCH_SCHEMA.tabs.map((t) => t.label)).toEqual([
+      "General",
+      "Run",
+      "Arms",
+      "Judge",
+      "Author",
+      "Tail",
+      "Sim",
+      "Latent",
+    ]);
     const tabbed = new Set(BENCH_SCHEMA.tabs.flatMap((t) => t.settingIds));
     for (const s of BENCH_SCHEMA.settings) {
       expect(tabbed.has(s.id)).toBe(true);
@@ -36,8 +45,18 @@ describe("BENCH_SCHEMA", () => {
     it("judgeModel: model, default null", () => {
       expect(row("judgeModel")).toMatchObject({ type: "model", defaultValue: null });
     });
-    it("judgeThinkingLevel: thinking-level, default high", () => {
-      expect(row("judgeThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "high" });
+    it("judgeThinkingLevel: thinking-level, default null, agent thinking ladder (default-inherit, no none)", () => {
+      expect(row("judgeThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+      expect(row("judgeThinkingLevel").presets).toEqual([
+        ["default", null],
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+      ]);
     });
     it("judgesNumber: number, default 1", () => {
       expect(row("judgesNumber")).toMatchObject({ type: "number", defaultValue: 1 });
@@ -48,14 +67,16 @@ describe("BENCH_SCHEMA", () => {
     it("judge2Model: model, default null", () => {
       expect(row("judge2Model")).toMatchObject({ type: "model", defaultValue: null });
     });
-    it("judge2ThinkingLevel: thinking-level, default high", () => {
-      expect(row("judge2ThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "high" });
+    it("judge2ThinkingLevel: thinking-level, default null, agent thinking ladder", () => {
+      expect(row("judge2ThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+      expect(row("judge2ThinkingLevel").presets).toBe(row("judgeThinkingLevel").presets);
     });
     it("judge3Model: model, default null", () => {
       expect(row("judge3Model")).toMatchObject({ type: "model", defaultValue: null });
     });
-    it("judge3ThinkingLevel: thinking-level, default high", () => {
-      expect(row("judge3ThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "high" });
+    it("judge3ThinkingLevel: thinking-level, default null, agent thinking ladder", () => {
+      expect(row("judge3ThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+      expect(row("judge3ThinkingLevel").presets).toBe(row("judgeThinkingLevel").presets);
     });
   });
 
@@ -75,23 +96,22 @@ describe("BENCH_SCHEMA", () => {
     it("fastEval presets are exactly [off, probes-only]", () => {
       expect(row("fastEval").presets).toEqual(["off", "probes-only"]);
     });
-    it("judgeMaxTokens: number, default 32768, memkeeper token ladder", () => {
-      expect(row("judgeMaxTokens")).toMatchObject({ type: "number", defaultValue: 32768 });
-      expect(row("judgeMaxTokens").presets).toEqual([16384, 32768, 65536, 131072, 262144]);
+    it("judgeMaxTokens: number, default null (background max tokens), shared token ladder", () => {
+      expect(row("judgeMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
+      expect(row("judgeMaxTokens").presets).toEqual([["default", null], 16384, 32768, 65536, 131072, 262144]);
     });
     it("latentStageMaxTokens: number, default null (background max tokens), shared token ladder", () => {
       expect(row("latentStageMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
       expect(row("latentStageMaxTokens").presets).toEqual([["default", null], 16384, 32768, 65536, 131072, 262144]);
     });
-    it("judgeTurnTimeoutMs: number, default 300000, labelled presets incl. Infinite(null)", () => {
-      expect(row("judgeTurnTimeoutMs")).toMatchObject({ type: "number", defaultValue: 300000 });
-      expect(row("judgeTurnTimeoutMs").presets).toEqual([
-        ["5m", 300000],
-        ["10m", 600000],
-        ["20m", 1200000],
-        ["30m", 1800000],
-        ["Infinite", null],
-      ]);
+    it("judgeTurnTimeoutMs: duration, default null (background timeout), shared duration ladder", () => {
+      expect(row("judgeTurnTimeoutMs")).toMatchObject({
+        type: "duration",
+        defaultValue: null,
+        min: 1000,
+        max: 7200000,
+      });
+      expect(row("judgeTurnTimeoutMs").presets).toEqual([["default", null], "5m", "10m", "20m", "60m", "120m"]);
     });
     it("testspecTimeoutMs: number, default 120000, labelled presets", () => {
       expect(row("testspecTimeoutMs")).toMatchObject({ type: "number", defaultValue: 120000 });
@@ -201,6 +221,20 @@ describe("BENCH_SCHEMA", () => {
         min: 1000,
         max: 7200000,
       });
+    });
+    it("every per-agent thinking row (author/tail/sim/latent + judges) shares the agent ladder (default-inherit, no none)", () => {
+      const agentThinking = [["default", null], "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+      for (const id of [
+        "authorThinkingLevel",
+        "tailCheckThinkingLevel",
+        "simulatorThinkingLevel",
+        "latentThinkingLevel",
+        "judgeThinkingLevel",
+        "judge2ThinkingLevel",
+        "judge3ThinkingLevel",
+      ]) {
+        expect(row(id).presets, id).toEqual(agentThinking);
+      }
     });
   });
 

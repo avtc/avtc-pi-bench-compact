@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearArmConfig, readMemkeeperGlobalSettings } from "../arms/config.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
-import { resolveBackgroundAgents } from "../config/background-agents.js";
+import { type JudgeAgentSpec, resolveBackgroundAgents } from "../config/background-agents.js";
 import { type ArmId, type BenchConfig, judgeEnsembleFields } from "../config/types.js";
 import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
 import { buildJudgeEnsemble, defaultJudgeTransport } from "../judge/seams.js";
@@ -189,10 +189,12 @@ export interface BuildScoreDepsArgs {
   /** Digest of the run's active latent probes (null when none) — feeds the verdict-journal
    *  fingerprint so a pool change restarts the journal (stale verdicts never replay). */
   latentDigest: string | null;
-  /** Per-call output-token cap for every judge call (required — no fallback). */
+  /** Resolved per-judge members (model/thinking fallbacks already applied). */
+  judgeMembers: readonly [JudgeAgentSpec, JudgeAgentSpec, JudgeAgentSpec];
+  /** Per-call output-token cap for every judge call (resolved — judge setting or background). */
   judgeMaxTokens: number;
-  /** Per-turn wall-clock cap for judge LLM calls; null = no cap (required — no fallback). */
-  judgeTurnTimeoutMs: number | null;
+  /** Per-turn wall-clock cap for judge LLM calls (resolved — judge setting or background). */
+  judgeTurnTimeoutMs: number;
 }
 
 /** The JSON indent written to results.json. */
@@ -468,6 +470,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       }
     }
     const latentDigest = latentProbesDigest(latentMap);
+    const judgeAgents = resolveBackgroundAgents(deps.config).judge;
     const scoreDeps = {
       ...buildScoreDeps({
         ctx: probeCtx,
@@ -477,8 +480,9 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         signal,
         modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
         latentDigest,
-        judgeMaxTokens: deps.config.judgeMaxTokens,
-        judgeTurnTimeoutMs: deps.config.judgeTurnTimeoutMs,
+        judgeMembers: judgeAgents.members,
+        judgeMaxTokens: judgeAgents.maxTokens,
+        judgeTurnTimeoutMs: judgeAgents.timeoutMs,
       }),
       latent: latentMap,
     };
@@ -714,7 +718,7 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     signal: args.signal,
     rateLimitOptions: null,
   });
-  const ensemble = buildJudgeEnsemble(args.runConfig, transport);
+  const ensemble = buildJudgeEnsemble(args.runConfig.judgesNumber, args.judgeMembers, transport);
   const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);
   // Incremental score-phase checkpoint: every completed judge unit lands in
   // runs/<runId>/judge/verdicts.jsonl; a resumed/ re-run score replays settled

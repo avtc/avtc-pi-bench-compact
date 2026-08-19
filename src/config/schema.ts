@@ -31,19 +31,19 @@ export const DEFAULTS = {
   evaluatedModel: NO_MODEL,
   evaluatedThinkingLevel: "high",
   judgeModel: NO_MODEL,
-  judgeThinkingLevel: "high",
+  judgeThinkingLevel: null as ThinkingLevel | null,
   judgesNumber: 1,
   judge2Model: NO_MODEL,
-  judge2ThinkingLevel: "high",
+  judge2ThinkingLevel: null as ThinkingLevel | null,
   judge3Model: NO_MODEL,
-  judge3ThinkingLevel: "high",
+  judge3ThinkingLevel: null as ThinkingLevel | null,
   N: 10,
   compactionBoundary: 140000,
   fastEval: "off" as FastEvalMode,
   latentProbes: "per-arm" as LatentProbesMode,
-  judgeMaxTokens: 32768,
+  judgeMaxTokens: null as number | null,
   latentStageMaxTokens: null as number | null,
-  judgeTurnTimeoutMs: 300000 as number | null,
+  judgeTurnTimeoutMs: null as number | null,
   testspecTimeoutMs: 120000,
   backgroundModel: NO_MODEL,
   backgroundThinkingLevel: "xhigh" as ThinkingLevel | null,
@@ -76,16 +76,6 @@ export const DEFAULTS = {
 
 const FAST_EVAL_PRESETS: readonly ["off", "probes-only"] = ["off", "probes-only"];
 const LATENT_PROBES_PRESETS: readonly ["off", "per-arm", "shared"] = ["off", "per-arm", "shared"];
-/** Output-token budget presets (memkeeper's MAX_TOKENS_PRESETS — same ladder everywhere). */
-const MAX_TOKENS_PRESETS: readonly number[] = [16384, 32768, 65536, 131072, 262144];
-/** Judge turn-timeout presets (memkeeper's LLM-call ladder + "5m" so the default is selectable). */
-const JUDGE_TURN_TIMEOUT_PRESETS: readonly (readonly [string, number | null])[] = [
-  ["5m", 300000],
-  ["10m", 600000],
-  ["20m", 1200000],
-  ["30m", 1800000],
-  ["Infinite", null],
-];
 /** TestSpec shell-timeout presets. */
 const TESTSPEC_TIMEOUT_PRESETS: readonly (readonly [string, number])[] = [
   ["30s", 30000],
@@ -117,6 +107,19 @@ const BACKGROUND_TIMEOUT_PRESETS: readonly string[] = ["5m", "10m", "20m", "60m"
 const AGENT_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_MAX_TOKENS_PRESETS];
 /** Per-agent timeout presets: "default" = inherit the background setting, then the shared picks. */
 const AGENT_TIMEOUT_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_TIMEOUT_PRESETS];
+/** Per-agent thinking presets: "default" = inherit the background level, then the ladder.
+ *  (No "none" entry — null is the inherit sentinel; the "none" level is set via the
+ *  background thinking level.) */
+const AGENT_THINKING_PRESETS: readonly PresetElement[] = [
+  ["default", null],
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -143,15 +146,16 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("judgeModel", {
     label: "Judge model",
-    description: "Model for the LLM judge (scoring). Empty = use the current session model.",
+    description: "Model for the LLM judge (scoring). Empty = background default, then the session model.",
     type: "model",
     defaultValue: DEFAULTS.judgeModel,
   }),
   setting("judgeThinkingLevel", {
     label: "Judge thinking level",
-    description: "Thinking level for the judge.",
+    description: "Thinking level for the judge. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.judgeThinkingLevel,
+    presets: AGENT_THINKING_PRESETS,
   }),
   setting("judgesNumber", {
     label: "Multi-judge ensemble size",
@@ -165,27 +169,31 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("judge2Model", {
     label: "Judge 2 model",
-    description: "Second judge model (used when ensemble size >= 2). Empty = session default.",
+    description:
+      "Second judge model (used when ensemble size >= 2). Empty = background default, then the session default.",
     type: "model",
     defaultValue: DEFAULTS.judge2Model,
   }),
   setting("judge2ThinkingLevel", {
     label: "Judge 2 thinking level",
-    description: "Thinking level for judge 2.",
+    description: "Thinking level for judge 2. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.judge2ThinkingLevel,
+    presets: AGENT_THINKING_PRESETS,
   }),
   setting("judge3Model", {
     label: "Judge 3 model",
-    description: "Third judge model (used when ensemble size >= 3). Empty = session default.",
+    description:
+      "Third judge model (used when ensemble size >= 3). Empty = background default, then the session default.",
     type: "model",
     defaultValue: DEFAULTS.judge3Model,
   }),
   setting("judge3ThinkingLevel", {
     label: "Judge 3 thinking level",
-    description: "Thinking level for judge 3.",
+    description: "Thinking level for judge 3. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.judge3ThinkingLevel,
+    presets: AGENT_THINKING_PRESETS,
   }),
   // --- Run tab ---
   setting("N", {
@@ -220,10 +228,12 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("judgeMaxTokens", {
     label: "Judge max output tokens",
-    description: "Per-call output-token cap for every judge call (single-call slices, rankings, trajectory summaries).",
+    description:
+      "Per-call output-token cap for every judge call (single-call slices, rankings, trajectory summaries). default = the background max tokens.",
     type: "number",
     defaultValue: DEFAULTS.judgeMaxTokens,
-    presets: MAX_TOKENS_PRESETS,
+    min: 1,
+    presets: AGENT_MAX_TOKENS_PRESETS,
   }),
   setting("latentStageMaxTokens", {
     label: "Latent authoring max output tokens",
@@ -235,10 +245,12 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("judgeTurnTimeoutMs", {
     label: "Judge turn timeout",
-    description: "Wall-clock cap per judge LLM call. Infinite = no cap.",
-    type: "number",
+    description: "Wall-clock cap per judge LLM call. default = the background timeout.",
+    type: "duration",
     defaultValue: DEFAULTS.judgeTurnTimeoutMs,
-    presets: JUDGE_TURN_TIMEOUT_PRESETS,
+    min: 1000,
+    max: 7200000,
+    presets: AGENT_TIMEOUT_PRESETS,
   }),
   setting("testspecTimeoutMs", {
     label: "TestSpec timeout",
@@ -288,10 +300,10 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("authorThinkingLevel", {
     label: "Manifest author thinking level",
-    description: "Thinking level for the manifest-authoring agent. none = background default.",
+    description: "Thinking level for the manifest-authoring agent. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.authorThinkingLevel,
-    presets: BACKGROUND_THINKING_PRESETS,
+    presets: AGENT_THINKING_PRESETS,
   }),
   setting("authorMaxTokens", {
     label: "Manifest author max output tokens",
@@ -320,10 +332,10 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("tailCheckThinkingLevel", {
     label: "Tail check thinking level",
-    description: "Thinking level for the tail check. none = background default.",
+    description: "Thinking level for the tail check. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.tailCheckThinkingLevel,
-    presets: BACKGROUND_THINKING_PRESETS,
+    presets: AGENT_THINKING_PRESETS,
   }),
   setting("tailCheckMaxTokens", {
     label: "Tail check max output tokens",
@@ -352,10 +364,10 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("simulatorThinkingLevel", {
     label: "Simulator thinking level",
-    description: "Thinking level for the user-simulator. none = background default.",
+    description: "Thinking level for the user-simulator. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.simulatorThinkingLevel,
-    presets: BACKGROUND_THINKING_PRESETS,
+    presets: AGENT_THINKING_PRESETS,
   }),
   setting("simulatorMaxTokens", {
     label: "Simulator max output tokens",
@@ -382,10 +394,10 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("latentThinkingLevel", {
     label: "Latent authoring thinking level",
-    description: "Thinking level for the latent-probe authoring agent. none = background default.",
+    description: "Thinking level for the latent-probe authoring agent. default = the background thinking level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.latentThinkingLevel,
-    presets: BACKGROUND_THINKING_PRESETS,
+    presets: AGENT_THINKING_PRESETS,
   }),
   setting("latentTimeoutMs", {
     label: "Latent authoring timeout",
@@ -455,57 +467,20 @@ const SETTINGS: readonly SettingSchema[] = [
 
 const TABS: readonly SettingsTabSchema[] = [
   {
-    label: "Models",
+    label: "General",
     settingIds: [
       "evaluatedModel",
       "evaluatedThinkingLevel",
-      "judgeModel",
-      "judgeThinkingLevel",
       "judgesNumber",
-      "judge2Model",
-      "judge2ThinkingLevel",
-      "judge3Model",
-      "judge3ThinkingLevel",
-    ],
-  },
-  {
-    label: "Run",
-    settingIds: [
-      "N",
-      "compactionBoundary",
-      "fastEval",
-      "latentProbes",
-      "judgeMaxTokens",
-      "latentStageMaxTokens",
-      "judgeTurnTimeoutMs",
-      "testspecTimeoutMs",
-      "scenario",
-      "outputDir",
-    ],
-  },
-  {
-    label: "Background agents",
-    settingIds: [
       "backgroundModel",
       "backgroundThinkingLevel",
       "backgroundMaxTokens",
       "backgroundTimeoutMs",
-      "authorModel",
-      "authorThinkingLevel",
-      "authorMaxTokens",
-      "authorTimeoutMs",
-      "tailCheckModel",
-      "tailCheckThinkingLevel",
-      "tailCheckMaxTokens",
-      "tailCheckTimeoutMs",
-      "simulatorModel",
-      "simulatorThinkingLevel",
-      "simulatorMaxTokens",
-      "simulatorTurnTimeoutMs",
-      "latentModel",
-      "latentThinkingLevel",
-      "latentTimeoutMs",
     ],
+  },
+  {
+    label: "Run",
+    settingIds: ["N", "compactionBoundary", "fastEval", "latentProbes", "testspecTimeoutMs", "scenario", "outputDir"],
   },
   {
     label: "Arms",
@@ -517,6 +492,35 @@ const TABS: readonly SettingsTabSchema[] = [
       "armOmFullEnabled",
       "omFullReflectionThresholdTokens",
     ],
+  },
+  {
+    label: "Judge",
+    settingIds: [
+      "judgeModel",
+      "judgeThinkingLevel",
+      "judge2Model",
+      "judge2ThinkingLevel",
+      "judge3Model",
+      "judge3ThinkingLevel",
+      "judgeMaxTokens",
+      "judgeTurnTimeoutMs",
+    ],
+  },
+  {
+    label: "Author",
+    settingIds: ["authorModel", "authorThinkingLevel", "authorMaxTokens", "authorTimeoutMs"],
+  },
+  {
+    label: "Tail",
+    settingIds: ["tailCheckModel", "tailCheckThinkingLevel", "tailCheckMaxTokens", "tailCheckTimeoutMs"],
+  },
+  {
+    label: "Sim",
+    settingIds: ["simulatorModel", "simulatorThinkingLevel", "simulatorMaxTokens", "simulatorTurnTimeoutMs"],
+  },
+  {
+    label: "Latent",
+    settingIds: ["latentModel", "latentThinkingLevel", "latentStageMaxTokens", "latentTimeoutMs"],
   },
 ];
 

@@ -17,10 +17,28 @@ export interface BackgroundAgent {
   readonly timeoutMs: number;
 }
 
-/** The four background agents' effective parameters, resolved once per consumer
- *  (prepare seams, Phase 2 simulator, latent stage). Per agent: model and thinking
+/** One judge member's effective model + thinking after settings resolution.
+ *  (The ensemble shares one maxTokens/timeoutMs budget — see {@link JudgeAgents}. */
+export interface JudgeAgentSpec {
+  /** The model id this judge's calls resolve against (null = session default). */
+  readonly model: string | null;
+  /** The judge's thinking level (null = omit the reasoning field — the model default). */
+  readonly thinking: ThinkingLevel | null;
+}
+
+/** The judge ensemble's effective parameters: per-member model/thinking (each falling
+ *  back member → background → base, base = the session default) + the shared per-call
+ *  budget (judge settings falling back to the background settings). */
+export interface JudgeAgents {
+  readonly members: readonly [JudgeAgentSpec, JudgeAgentSpec, JudgeAgentSpec];
+  readonly maxTokens: number;
+  readonly timeoutMs: number;
+}
+
+/** The background agents' effective parameters, resolved once per consumer
+ *  (prepare seams, Phase 2 simulator, latent stage, judge ensemble). Per agent: model and thinking
  *  fall back per-agent → background → base (author/tail-check/simulator base: the
- *  evaluated model; latent authoring: the session default); maxTokens and timeoutMs
+ *  evaluated model; latent authoring + judge members: the session default); maxTokens and timeoutMs
  *  fall back per-agent → background setting only — no code-level fallback, the
  *  background settings always carry a value. */
 export interface BackgroundAgents {
@@ -28,6 +46,7 @@ export interface BackgroundAgents {
   readonly tailCheck: BackgroundAgent;
   readonly simulator: BackgroundAgent;
   readonly latent: BackgroundAgent;
+  readonly judge: JudgeAgents;
 }
 
 /** Resolve the background agents' effective parameters. Pure. */
@@ -63,6 +82,17 @@ export function resolveBackgroundAgents(config: BenchConfig): BackgroundAgents {
       thinking: thinking(config.latentThinkingLevel),
       maxTokens: maxTokens(config.latentStageMaxTokens),
       timeoutMs: timeoutMs(config.latentTimeoutMs),
+    },
+    // Judge members share the evaluated model's absence of a base (session default);
+    // the ensemble's budget is shared (one maxTokens/timeout setting for all K judges).
+    judge: {
+      members: [
+        { model: model(config.judgeModel, NO_MODEL), thinking: thinking(config.judgeThinkingLevel) },
+        { model: model(config.judge2Model, NO_MODEL), thinking: thinking(config.judge2ThinkingLevel) },
+        { model: model(config.judge3Model, NO_MODEL), thinking: thinking(config.judge3ThinkingLevel) },
+      ],
+      maxTokens: maxTokens(config.judgeMaxTokens),
+      timeoutMs: timeoutMs(config.judgeTurnTimeoutMs),
     },
   };
 }

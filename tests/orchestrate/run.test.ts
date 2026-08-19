@@ -812,6 +812,11 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
         signal: new AbortController().signal,
         modelsPath: join(root, "no-such-models.json"),
         latentDigest: null,
+        judgeMembers: [
+          { model: null, thinking: null },
+          { model: null, thinking: null },
+          { model: null, thinking: null },
+        ],
         judgeMaxTokens: 32768,
         judgeTurnTimeoutMs: 300000,
       }),
@@ -835,6 +840,11 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
       signal: new AbortController().signal,
       modelsPath: "x",
       latentDigest: null,
+      judgeMembers: [
+        { model: null, thinking: null },
+        { model: null, thinking: null },
+        { model: null, thinking: null },
+      ],
       judgeMaxTokens: 32768,
       judgeTurnTimeoutMs: 300000,
     } satisfies BuildScoreDepsArgs;

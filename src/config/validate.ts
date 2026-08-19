@@ -47,21 +47,21 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
     };
   }
   if (
-    cfg.judgeMaxTokens < 1 ||
+    (cfg.judgeMaxTokens !== null && cfg.judgeMaxTokens < 1) ||
     (cfg.latentStageMaxTokens !== null && cfg.latentStageMaxTokens < 1) ||
     cfg.testspecTimeoutMs < 1000
   ) {
     return {
       ok: false,
       reason:
-        `stage budgets must be positive (judgeMaxTokens ${cfg.judgeMaxTokens}, latentStageMaxTokens ${cfg.latentStageMaxTokens}) ` +
+        `stage budgets must be positive or unset (judgeMaxTokens ${cfg.judgeMaxTokens}, latentStageMaxTokens ${cfg.latentStageMaxTokens}) ` +
         `and testspecTimeoutMs >= 1000 (got ${cfg.testspecTimeoutMs}).`,
     };
   }
   if (cfg.judgeTurnTimeoutMs !== null && cfg.judgeTurnTimeoutMs < 1000) {
     return {
       ok: false,
-      reason: `judgeTurnTimeoutMs must be >= 1000 or Infinite (got ${cfg.judgeTurnTimeoutMs}).`,
+      reason: `judgeTurnTimeoutMs must be >= 1000 or unset (got ${cfg.judgeTurnTimeoutMs}).`,
     };
   }
   // The shared background defaults are the last fallback for every background agent —

@@ -18,7 +18,7 @@
 import type { AgentEvent, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { JudgeEnsembleConfig } from "../config/types.js";
+import type { JudgeAgentSpec } from "../config/background-agents.js";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
@@ -36,11 +36,11 @@ import { type RateLimitOptions, withRateLimit } from "./rate-limit.js";
 import type { CallJudge } from "./single-call.js";
 import type { JsonToolStageSeams } from "./stage-runner.js";
 
-/** One judge's model + reasoning spec (judge1/2/3 from the bench config). */
+/** One judge's model + reasoning spec (resolved per judge member). */
 export interface JudgeSpec {
   /** `provider/id`, or null to fall through to the session default. */
   readonly model: string | null;
-  readonly reasoning: ThinkingLevel;
+  readonly reasoning: ThinkingLevel | null;
 }
 
 /** The shared judge transport: how to resolve a model + run a stage, plus the
@@ -83,13 +83,16 @@ export function defaultJudgeTransport(ctx: ExtensionContext, opts: JudgeTranspor
   };
 }
 
-/** Resolve the per-judge specs from the judge config: judge1 always; judge2/3 when
- *  `judgesNumber >= 3` (the ensemble size is 1 or 3). Pure. */
-export function judgeSpecs(config: JudgeEnsembleConfig): readonly JudgeSpec[] {
-  const specs: JudgeSpec[] = [{ model: config.judgeModel, reasoning: config.judgeThinkingLevel }];
-  if (config.judgesNumber >= ENSEMBLE_OF_THREE) {
-    specs.push({ model: config.judge2Model, reasoning: config.judge2ThinkingLevel });
-    specs.push({ model: config.judge3Model, reasoning: config.judge3ThinkingLevel });
+/** Resolve the per-judge specs from the resolved judge members: judge1 always;
+ *  judge2 + judge3 when `judgesNumber >= 3` (the ensemble size is 1 or 3). Pure. */
+export function judgeSpecs(
+  judgesNumber: number,
+  members: readonly [JudgeAgentSpec, JudgeAgentSpec, JudgeAgentSpec],
+): readonly JudgeSpec[] {
+  const toSpec = (m: JudgeAgentSpec): JudgeSpec => ({ model: m.model, reasoning: m.thinking });
+  const specs: JudgeSpec[] = [toSpec(members[0])];
+  if (judgesNumber >= ENSEMBLE_OF_THREE) {
+    specs.push(toSpec(members[1]), toSpec(members[2]));
   }
   return specs;
 }
@@ -156,10 +159,15 @@ export interface JudgeEnsemble {
 }
 
 /** Build the K-judge ensemble (callJudges + stageSeams, both length K) from the
- *  judge config. K = `judgesNumber` (1 or 3); each judge pair is built from its
- *  JudgeSpec. Pure aside from the transport (no model resolution yet). */
-export function buildJudgeEnsemble(config: JudgeEnsembleConfig, transport: JudgeTransport): JudgeEnsemble {
-  const specs = judgeSpecs(config);
+ *  resolved judge members + ensemble size. K = `judgesNumber` (1 or 3); each judge
+ *  pair is built from its JudgeSpec. Pure aside from the transport (no model
+ *  resolution yet). */
+export function buildJudgeEnsemble(
+  judgesNumber: number,
+  members: readonly [JudgeAgentSpec, JudgeAgentSpec, JudgeAgentSpec],
+  transport: JudgeTransport,
+): JudgeEnsemble {
+  const specs = judgeSpecs(judgesNumber, members);
   return {
     callJudges: specs.map((spec) => buildCallJudge(spec, transport)),
     stageSeams: specs.map((spec) => buildStageSeams(spec, transport)),

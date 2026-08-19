@@ -10,6 +10,15 @@ import type { BenchConfig } from "../../src/config/types.js";
 function cfg(overrides: Partial<BenchConfig>): BenchConfig {
   return {
     evaluatedModel: "eval/model",
+    judgeModel: null,
+    judgeThinkingLevel: null,
+    judgesNumber: 1,
+    judge2Model: null,
+    judge2ThinkingLevel: null,
+    judge3Model: null,
+    judge3ThinkingLevel: null,
+    judgeMaxTokens: null,
+    judgeTurnTimeoutMs: null,
     backgroundModel: null,
     backgroundThinkingLevel: "xhigh",
     backgroundMaxTokens: 65536,
@@ -57,6 +66,16 @@ describe("resolveBackgroundAgents", () => {
     });
     // The latent authoring agent's model base is the session default (null).
     expect(agents.latent).toEqual({ model: null, thinking: "xhigh", maxTokens: 65536, timeoutMs: 1200000 });
+    // Judge members: model base is the session default (null); budget falls back to background.
+    expect(agents.judge).toEqual({
+      members: [
+        { model: null, thinking: "xhigh" },
+        { model: null, thinking: "xhigh" },
+        { model: null, thinking: "xhigh" },
+      ],
+      maxTokens: 65536,
+      timeoutMs: 1200000,
+    });
   });
 
   it("per-agent model/thinking override the background defaults; background overrides the bases", () => {
@@ -77,6 +96,9 @@ describe("resolveBackgroundAgents", () => {
     expect(agents.simulator.thinking).toBe("low");
     expect(agents.latent.model).toBe("latent/model");
     expect(agents.latent.thinking).toBe("low");
+    // Judge members inherit the background model/thinking when unset.
+    expect(agents.judge.members[0]?.model).toBe("bg/model");
+    expect(agents.judge.members[1]?.thinking).toBe("low");
   });
 
   it("maxTokens/timeoutMs fall back per-agent → background only (no code-level fallback)", () => {
@@ -97,5 +119,24 @@ describe("resolveBackgroundAgents", () => {
     expect(agents.simulator.timeoutMs).toBe(30000);
     expect(agents.latent.maxTokens).toBe(65536);
     expect(agents.latent.timeoutMs).toBe(60000);
+  });
+
+  it("judge members: per-member model/thinking override the background defaults; budget falls back per-judge → background", () => {
+    const agents = resolveBackgroundAgents(
+      cfg({
+        backgroundModel: "bg/model",
+        judgeModel: "j1/model",
+        judge2Model: "j2/model",
+        judgeThinkingLevel: "minimal",
+        judge3ThinkingLevel: "medium",
+        judgeMaxTokens: 8192,
+        judgeTurnTimeoutMs: 45000,
+      }),
+    );
+    expect(agents.judge.members[0]).toEqual({ model: "j1/model", thinking: "minimal" });
+    expect(agents.judge.members[1]).toEqual({ model: "j2/model", thinking: "xhigh" }); // inherits background
+    expect(agents.judge.members[2]).toEqual({ model: "bg/model", thinking: "medium" });
+    expect(agents.judge.maxTokens).toBe(8192);
+    expect(agents.judge.timeoutMs).toBe(45000);
   });
 });
