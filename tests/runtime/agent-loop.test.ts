@@ -3,7 +3,8 @@
 
 import type { AgentEvent, AgentLoopConfig, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { _setBaseLoggerForTest } from "../../src/log.js";
 import {
   makeTurnCap,
   NO_EVENT_SINK,
@@ -99,6 +100,84 @@ describe("toStageReasoning", () => {
     for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
       expect(toStageReasoning(level)).toBe(level);
     }
+  });
+});
+
+describe("runBenchStage — tool-call logging (every background agent's tool calls land in the log)", () => {
+  let lines: { level: string; msg: string }[];
+  let prev: ReturnType<typeof _setBaseLoggerForTest>;
+  const capture = (): void => {
+    lines = [];
+    prev = _setBaseLoggerForTest({
+      info: (m) => lines.push({ level: "info", msg: m }),
+      warn: (m) => lines.push({ level: "warn", msg: m }),
+      error: (m) => lines.push({ level: "error", msg: m }),
+      debug: () => {},
+    });
+  };
+  afterEach(() => {
+    if (prev !== null) _setBaseLoggerForTest(prev);
+  });
+
+  it("logs every tool call (info, label + name + truncated args) and failed tools (warn)", async () => {
+    const events: AgentEvent[] = [
+      {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "add_latent_probe",
+        args: { question: "q", probeClass: "cued", entryIds: ["e1"] },
+      } as unknown as AgentEvent,
+      {
+        type: "tool_execution_end",
+        toolCallId: "t1",
+        toolName: "add_latent_probe",
+        result: { content: [{ type: "text", text: "recorded add_latent_probe; keep going" }] },
+        isError: false,
+      } as unknown as AgentEvent,
+      {
+        type: "tool_execution_start",
+        toolCallId: "t2",
+        toolName: "bash",
+        args: { command: "x".repeat(500) },
+      } as unknown as AgentEvent,
+      {
+        type: "tool_execution_end",
+        toolCallId: "t2",
+        toolName: "bash",
+        result: { content: [{ type: "text", text: "boom: exit 1 " + "y".repeat(400) }] },
+        isError: true,
+      } as unknown as AgentEvent,
+      TURN_END,
+    ];
+    capture();
+    await runBenchStage(baseInput({ loopFn: fakeLoop(events, []), label: "latent authoring" }));
+    const infos = lines.filter((l) => l.level === "info").map((l) => l.msg);
+    expect(infos).toContainEqual(expect.stringContaining("tool call [latent authoring]: add_latent_probe"));
+    expect(infos.join("\n")).toContain('"question":"q"');
+    // the 500-char bash command is truncated (400 cap + ellipsis)
+    const bashLine = infos.find((m) => m.includes("bash"));
+    expect(bashLine).toBeDefined();
+    expect(bashLine).toContain("…");
+    expect(bashLine?.length).toBeLessThan(550);
+    const warns = lines.filter((l) => l.level === "warn").map((l) => l.msg);
+    expect(warns).toContainEqual(expect.stringContaining("tool failed [latent authoring]: bash"));
+    expect(warns.join("\n")).toContain("boom: exit 1");
+  });
+
+  it("omits the label bracket when no label is set", async () => {
+    const events: AgentEvent[] = [
+      {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "read",
+        args: { path: "/tmp/x" },
+      } as unknown as AgentEvent,
+      TURN_END,
+    ];
+    capture();
+    await runBenchStage(baseInput({ loopFn: fakeLoop(events, []) }));
+    const infos = lines.filter((l) => l.level === "info").map((l) => l.msg);
+    expect(infos).toContain('tool call: read {"path":"/tmp/x"}');
   });
 });
 

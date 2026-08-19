@@ -47,10 +47,11 @@ import { type Phase1Walls, readPhase1Walls, writePhase1Walls } from "../storage/
 import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
-import { NO_DETAIL } from "../widget/tracker.js";
+import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
 import {
   activeLatentForArm,
   LatentStageStoppedError,
+  latentDetailFromCounts,
   latentProbesDigest,
   purgeLatentProbeArtifacts,
   runLatentStage,
@@ -339,6 +340,11 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
       const stage = deps.latentStage ?? runLatentStage;
       const latentAgent = resolveBackgroundAgents(deps.config).latent;
+      // The latent authoring is a BACKGROUND agent — wire the widget hooks like the
+      // extract/author phase: onEvent streams ctx/tok, onModelResolved sets the ctx
+      // window, onAdd renders the live per-class probe counts, onArm advances the
+      // arm counter (per-arm mode).
+      const latentHooks = widgetStageHooks(widget);
       const latentResult = await stage(
         {
           arms: bases.map((b) => ({ arm: b.arm, sessionPath: branchSessionFile(sessionsDir, b.branch) })),
@@ -351,12 +357,21 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
           seams: {
             resolveModel: () => resolveBenchModel(ctxAfterPhase1, latentAgent.model),
             runStage: runBenchStage,
+            onEvent: latentHooks?.onEvent,
+            onModelResolved: latentHooks?.onModelResolved,
           },
           signal,
           thinking: latentAgent.thinking,
           maxTokens: latentAgent.maxTokens,
           timeoutMs: latentAgent.timeoutMs,
           rateLimitOptions: null,
+          onArm: (_arm, index, total): void => {
+            widget?.setArm(index, total, "latent");
+            widget?.setDetail(NO_DETAIL);
+          },
+          onAdd: (counts): void => {
+            widget?.setDetail(latentDetailFromCounts(counts));
+          },
         },
         latentMode,
       );

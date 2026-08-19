@@ -134,6 +134,7 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
       onEvent: deps.seams.onEvent ?? NO_EVENT_SINK,
       onStageEnd: NO_STAGE_END_HOOK,
       loopFn: NO_LOOP_OVERRIDE,
+      label: deps.label,
     });
   const result = await withRateLimit(runStage, deps.rateLimitOptions ?? null);
   if (result.timedOut) {

@@ -105,6 +105,9 @@ export interface StageRunInput {
   timeoutMs: number | null;
   /** Widget/ledger event sink, or `NO_EVENT_SINK`. */
   onEvent: ((event: AgentEvent) => void) | null;
+  /** Short label for the tool-call log lines (e.g. "latent authoring"); omitted/`NO_LABEL`
+   *  = no label (the stage is identified by its surrounding context lines). */
+  label?: string | null;
   /** Fired once at stage end with the accumulated (possibly partial) usage, or `NO_STAGE_END_HOOK`. */
   onStageEnd: ((usage: StageUsage) => void) | null;
   /** Test seam — fake loop override, or `NO_LOOP_OVERRIDE` for the real `agentLoop`. */
@@ -120,6 +123,39 @@ export class StageRunError extends Error {
     super(`bench stage run failed: ${msg}`, { cause });
     this.name = "StageRunError";
   }
+}
+
+/** The named no-label for `StageRunInput.label` (the tool-call log lines omit the bracket). */
+export const NO_LABEL: string | null = null;
+
+/** Cap (chars) for the tool-call ARGS in the log line — args are the debug payload
+ *  (which file read, what was recorded); long args (large bash commands) are truncated. */
+const TOOL_LOG_ARGS_CAP = 400;
+/** Cap (chars) for a FAILED tool's result text in the warn line. */
+const TOOL_LOG_ERROR_CAP = 300;
+
+/** The log-line label suffix: ` [label]`, or "" when no label is set. */
+function labelSuffix(input: StageRunInput): string {
+  return input.label === undefined || input.label === null ? "" : ` [${input.label}]`;
+}
+
+/** Serialize tool args for the log (JSON, truncated) — a non-serializable arg degrades to String(). */
+function truncatedToolArgs(args: unknown): string {
+  let text: string;
+  try {
+    text = JSON.stringify(args);
+  } catch {
+    text = String(args);
+  }
+  if (text === undefined) text = String(args);
+  return text.length > TOOL_LOG_ARGS_CAP ? `${text.slice(0, TOOL_LOG_ARGS_CAP)}…` : text;
+}
+
+/** The first text content of a tool result (the tool's reply to the agent), truncated. */
+function truncatedToolResult(result: unknown): string {
+  const r = result as { content?: readonly { type?: string; text?: string }[] } | null;
+  const text = (r?.content ?? []).map((c) => (c.type === "text" ? (c.text ?? "") : "")).join(" ");
+  return text.length > TOOL_LOG_ERROR_CAP ? `${text.slice(0, TOOL_LOG_ERROR_CAP)}…` : text;
 }
 
 /** A fresh zeroed usage accumulator. */
@@ -240,6 +276,16 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
           }
         } else if (event.type === "turn_end") {
           usage.turns += 1;
+        } else if (event.type === "tool_execution_start") {
+          // Every tool call of every background agent lands in the log (info) so a
+          // misbehaving agent is debuggable from the log file (name + args, truncated).
+          log.info(`tool call${labelSuffix(input)}: ${event.toolName} ${truncatedToolArgs(event.args)}`);
+        } else if (event.type === "tool_execution_end") {
+          if (event.isError) {
+            log.warn(`tool failed${labelSuffix(input)}: ${event.toolName} — ${truncatedToolResult(event.result)}`);
+          } else {
+            log.debug(`tool ok${labelSuffix(input)}: ${event.toolName}`);
+          }
         } else if (event.type === "message_update") {
           // Fallback tier: accumulate chars/4 over streamed deltas so a live
           // counter (fed via onEvent) always has a value even when the provider

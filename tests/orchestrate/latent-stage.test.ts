@@ -11,6 +11,7 @@ import type { LatentAuthoringResult } from "../../src/manifest/latent-author.js"
 import {
   activeLatentForArm,
   type LatentStageDeps,
+  latentDetailFromCounts,
   latentProbesDigest,
   purgeLatentProbeArtifacts,
   runLatentStagePerArm,
@@ -84,6 +85,33 @@ function baseDeps(dir: string, over: Partial<LatentStageDeps> | null): LatentSta
 }
 
 describe("runLatentStagePerArm", () => {
+  it("fires onArm per arm (1-based index + total) and forwards onAdd to the authoring agent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const arms: { arm: string; index: number; total: number }[] = [];
+    let onAddSeen: ((counts: { cued: number; uncued: number }) => void) | null = null;
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async (a) => {
+      calls.n += 1;
+      onAddSeen = a.onAdd ?? null;
+      a.onAdd?.({ cued: 1, uncued: 2 }); // simulate an accepted probe
+      return { kind: "completed", pool: [probe("l1", "cued")] };
+    };
+    const r = await runLatentStagePerArm(
+      baseDeps(dir, {
+        author,
+        onArm: (arm, index, total) => arms.push({ arm, index, total }),
+        onAdd: (counts) => arms.push({ arm: `add:${counts.cued}:${counts.uncued}`, index: 0, total: 0 }),
+      }),
+    );
+    expect(r.kind).toBe("done");
+    expect(calls.n).toBe(2);
+    // onArm fired once per arm with the 1-based index + total (reuse OR author)
+    expect(arms.filter((a) => a.index > 0).map((a) => `${a.arm}:${a.index}/${a.total}`)).toEqual(["A1:1/2", "A3:2/2"]);
+    // onAdd was forwarded to the authoring agent AND reached the stage's onAdd
+    expect(onAddSeen).not.toBeNull();
+    expect(arms).toContainEqual({ arm: "add:1:2", index: 0, total: 0 });
+  });
+
   it("authors missing pools and persists them with digests", async () => {
     const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
     const calls = { n: 0 };
@@ -255,6 +283,13 @@ describe("runLatentStagePerArm", () => {
         baseDeps(dir, { arms: [{ arm: "A1", sessionPath: bare }], author: fakeAuthor({ calls: { n: 0 } }).deps }),
       ),
     ).rejects.toThrow("latent: arm A1 has no compaction record");
+  });
+});
+
+describe("latentDetailFromCounts", () => {
+  it("renders the cued/uncued tallies against the per-class minimum (3)", () => {
+    expect(latentDetailFromCounts({ cued: 0, uncued: 0 })).toBe("cued 0/3 · uncued 0/3");
+    expect(latentDetailFromCounts({ cued: 2, uncued: 5 })).toBe("cued 2/3 · uncued 5/3");
   });
 });
 

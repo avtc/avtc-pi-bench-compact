@@ -737,6 +737,44 @@ describe("startRun — live-progress widget wiring", () => {
     expect(widget.calls).not.toContain("setStatus:done:/bench-compact:results");
   });
 
+  it("latent stage gets the widget hooks (arm counter + per-class detail + ctx/tok stream)", async () => {
+    const widget = capturingWidget();
+    const bases = fakeBases(["A1", "A3"]);
+    const stage = vi.fn(
+      async (stageDeps: {
+        onArm?: (a: string, i: number, t: number) => void;
+        onAdd?: (c: { cued: number; uncued: number }) => void;
+        seams: { onEvent?: (e: { type: string }) => void; onModelResolved?: (m: { contextWindow?: number }) => void };
+      }) => {
+        // simulate the stage driving the widget: arm advance + a recorded probe + model resolve + an event
+        stageDeps.onArm?.("A1", 1, 2);
+        stageDeps.onAdd?.({ cued: 1, uncued: 2 });
+        stageDeps.seams.onModelResolved?.({ contextWindow: 999 });
+        stageDeps.seams.onEvent?.({ type: "turn_start" });
+        return { kind: "done" as const, pools: {}, reAuthored: [] };
+      },
+    );
+    const deps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      config: { latentProbes: "per-arm" as const },
+      phase1: phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX })),
+      continuations: continuationsMock(async () => ({ traces: fakeTraces(["A1", "A3"]), finalCtx: FINAL_CTX })),
+      latentStage: stage,
+      widget,
+    });
+    await startRun(deps);
+    expect(stage).toHaveBeenCalledOnce();
+    // the widget saw the arm counter + the per-class probe detail + the ctx window + the event stream
+    expect(widget.calls).toContain("setArm:1/2:latent");
+    expect(widget.calls).toContain("setDetail:cued 1/3 · uncued 2/3");
+    expect(widget.calls).toContain("setCtxWindow:999");
+    expect(widget.calls).toContain("onEvent:turn_start");
+    // onArm also clears the stale detail before the first probe of the arm
+    const armIdx = widget.calls.indexOf("setArm:1/2:latent");
+    expect(widget.calls[armIdx + 1]).toBe("setDetail:-");
+  });
+
   it("null widget (non-TUI) → run proceeds with no widget calls (no throw)", async () => {
     const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX }));
     const deps = makeDeps({ arms: ["A1"], root, phase1, widget: null });

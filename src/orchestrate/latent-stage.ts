@@ -15,7 +15,12 @@ import type { RateLimitOptions } from "../judge/rate-limit.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
 import { log } from "../log.js";
 import { activeLatentProbes, type LatentProbe, validateLatentProbes } from "../manifest/latent.js";
-import { runLatentAuthoringAgent, spanContentEntryIds } from "../manifest/latent-author.js";
+import {
+  LATENT_MIN_PER_CLASS,
+  type LatentCounts,
+  runLatentAuthoringAgent,
+  spanContentEntryIds,
+} from "../manifest/latent-author.js";
 import { readArmCompaction } from "../session/compaction-record.js";
 import type { LatentPoolFile } from "../storage/latent-pool.js";
 import { readLatentPool, staleVerdictArms, summaryDigest, writeLatentPool } from "../storage/latent-pool.js";
@@ -46,6 +51,13 @@ export interface LatentStageDeps {
   /** Wall-clock cap per latent-authoring LLM call. */
   readonly timeoutMs: number;
   readonly rateLimitOptions: RateLimitOptions | null;
+  /** Per-arm mode: fired at the start of each arm's processing (reuse OR author) with
+   *  the 1-based arm index + total — the harness moves the widget's arm counter.
+   *  Shared mode: never fired (one authoring run over all arms). */
+  readonly onArm?: (arm: ArmId, index: number, total: number) => void;
+  /** Live per-class probe counts after each accepted probe (the harness renders the
+   *  widget detail, parity with author #1's onAdd). */
+  readonly onAdd?: (counts: LatentCounts) => void;
 }
 
 /** Stage outcome: done carries the per-arm pools (shared mode: the single pool
@@ -70,6 +82,13 @@ export class LatentStageStoppedError extends Error {
 }
 
 /** Run the latent stage in per-arm mode. */
+/** The latent phase's widget detail from live per-class counts: the cued/uncued
+ *  probe tallies against the per-class minimum (parity with author #1's
+ *  `extractDetailFromCounts`). */
+export function latentDetailFromCounts(counts: LatentCounts): string {
+  return `cued ${counts.cued}/${LATENT_MIN_PER_CLASS} · uncued ${counts.uncued}/${LATENT_MIN_PER_CLASS}`;
+}
+
 /** The authoring-arg fields shared by both latent modes (mode/arm/sessionPaths/
  *  tailStartsAtEntryId vary per mode — callers spread this + set those). */
 function sharedAuthoringArgs(
@@ -85,6 +104,7 @@ function sharedAuthoringArgs(
     maxTokens: deps.maxTokens,
     timeoutMs: deps.timeoutMs,
     rateLimitOptions: deps.rateLimitOptions,
+    onAdd: deps.onAdd,
   };
 }
 
@@ -92,7 +112,10 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
   const author = deps.author ?? runLatentAuthoringAgent;
   const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
   const reAuthored: ArmId[] = [];
-  for (const { arm, sessionPath } of deps.arms) {
+  for (const [i, { arm, sessionPath }] of deps.arms.entries()) {
+    // Arm counter + fresh detail for the widget (fires for reuse AND author — the
+    // operator sees every arm advance, and stale counts never linger across arms).
+    deps.onArm?.(arm, i + 1, deps.arms.length);
     const compaction = readArmCompaction(sessionPath);
     if (compaction === null) {
       throw new Error(`latent: arm ${arm} has no compaction record in its session file`);
