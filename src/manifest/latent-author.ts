@@ -75,6 +75,9 @@ export interface LatentCounts {
 export interface SpanCitations {
   readonly spanEntryIds: ReadonlySet<string>;
   readonly positionToSpanId: ReadonlyMap<number, string>;
+  /** The 1-based line the tail-start entry sits at (the first file that has it —
+   *  the spans are identical across arm files), or null when not found. */
+  readonly tailStartLine: number | null;
 }
 
 /** Compose the latent-authoring tool set: pi read-only tools + bash bound to
@@ -140,11 +143,15 @@ export function buildLatentTools(
         return id;
       });
       if (bad.length > 0) {
+        const where =
+          citations.tailStartLine === null
+            ? "use the entry's id from before the tail start"
+            : `cite ids of entries before line ${citations.tailStartLine} (the tail start)`;
         return {
           content: [
             {
               type: "text",
-              text: `rejected: entryId "${bad[0] ?? ""}" is not an in-span message/custom_message/branch_summary entry — use the entry's id from before the tail start; re-check the file and call add_latent_probe again`,
+              text: `rejected: entryId "${bad[0] ?? ""}" is not an in-span message/custom_message/branch_summary entry — ${where}; re-check the file and call add_latent_probe again`,
             },
           ],
           details: { accepted: 0, rejected: 1 },
@@ -237,11 +244,15 @@ export function buildLatentTaskMessage(deps: {
   mode: LatentAuthoringMode;
   sessionPaths: readonly string[];
   tailStartsAtEntryId: string;
+  /** The tail-start entry's 1-based line (the agent's read view numbers lines —
+   *  an explicit anchor beats hunting the id inside a 60KB JSON line). */
+  tailStartLine: number | null;
 }): string {
+  const atLine = deps.tailStartLine === null ? "" : ` — line ${deps.tailStartLine}`;
   const anchor =
     deps.mode === "per-arm"
-      ? `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}.`
-      : `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId} — identical in every file.`;
+      ? `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}${atLine}.`
+      : `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}${atLine} — identical in every file.`;
   const head =
     deps.mode === "per-arm"
       ? `Read the session file at ${deps.sessionPaths[0]} and write the latent probes per the instructions:`
@@ -289,9 +300,11 @@ export type LatentAuthoringResult =
 export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Promise<LatentAuthoringResult> {
   // Computed once, used twice: the add-time citation guard (in-run repair) + the
   // finalize validation (invariant backstop — the guard makes it unreachable).
+  const { positionToSpanId, tailStartLine } = spanCitationIndex(deps.sessionPaths, deps.tailStartsAtEntryId);
   const citations: SpanCitations = {
     spanEntryIds: spanContentEntryIds(deps.sessionPaths, deps.tailStartsAtEntryId),
-    positionToSpanId: spanCitationIndex(deps.sessionPaths, deps.tailStartsAtEntryId).positionToSpanId,
+    positionToSpanId,
+    tailStartLine,
   };
   const { tools, finalizeLatent, acc } = buildLatentTools(deps.cwd, deps.ui, deps.onAdd ?? (() => {}), citations);
   const action = (await runJsonToolStage({
@@ -300,7 +313,12 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     systemPrompt: buildLatentSystemPrompt(deps),
     terminalTool: finalizeLatent,
     label: "latent authoring",
-    userMessageContent: buildLatentTaskMessage(deps),
+    userMessageContent: buildLatentTaskMessage({
+      mode: deps.mode,
+      sessionPaths: deps.sessionPaths,
+      tailStartsAtEntryId: deps.tailStartsAtEntryId,
+      tailStartLine: citations.tailStartLine,
+    }),
     maxTokens: deps.maxTokens,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,
@@ -359,17 +377,22 @@ function parsedLines(path: string): readonly { position: number; entry: { id?: s
 export function spanCitationIndex(
   sessionPaths: readonly string[],
   tailStartsAtEntryId: string,
-): { positionToSpanId: ReadonlyMap<number, string> } {
+): { positionToSpanId: ReadonlyMap<number, string>; tailStartLine: number | null } {
   const positionToSpanId = new Map<number, string>();
+  let tailStartLine: number | null = null;
   for (const path of sessionPaths) {
     for (const { position, entry } of parsedLines(path)) {
-      if (entry.id === tailStartsAtEntryId) break; // tail begins — positions past it must not resolve
+      if (entry.id === tailStartsAtEntryId) {
+        // tail begins — positions past it must not resolve
+        if (tailStartLine === null) tailStartLine = position;
+        break;
+      }
       if (entry.id !== undefined && entry.type !== undefined && CONTENT_ENTRY_TYPES.has(entry.type)) {
         positionToSpanId.set(position, entry.id);
       }
     }
   }
-  return { positionToSpanId };
+  return { positionToSpanId, tailStartLine };
 }
 
 /** The span's CONTENT entry ids (message / custom_message / branch_summary — the

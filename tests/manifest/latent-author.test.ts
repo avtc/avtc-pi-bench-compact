@@ -18,6 +18,7 @@ import {
   LATENT_MIN_PER_CLASS,
   runLatentAuthoringAgent,
   type SpanCitations,
+  spanCitationIndex,
   spanContentEntryIds,
 } from "../../src/manifest/latent-author.js";
 import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "../../src/manifest/latent-prompt.js";
@@ -77,26 +78,33 @@ describe("buildLatentSystemPrompt / buildLatentTaskMessage", () => {
     expect(p).not.toContain("<TAIL_START>");
   });
 
-  it("shared: joins <PATHS> and both messages name the anchor", () => {
-    const deps = { mode: "shared" as const, sessionPaths: ["/a.jsonl", "/b.jsonl"], tailStartsAtEntryId: "cut-9" };
+  it("shared: joins <PATHS> and both messages name the anchor + tail-start line", () => {
+    const deps = {
+      mode: "shared" as const,
+      sessionPaths: ["/a.jsonl", "/b.jsonl"],
+      tailStartsAtEntryId: "cut-9",
+      tailStartLine: 133,
+    };
     expect(buildLatentSystemPrompt(deps)).toContain("/a.jsonl\n/b.jsonl");
     const msg = buildLatentTaskMessage(deps);
     expect(msg).toContain("/a.jsonl");
     expect(msg).toContain("identical in every file");
     expect(msg).toContain("cut-9");
+    expect(msg).toContain("— line 133");
     const perArm = buildLatentTaskMessage({
       mode: "per-arm",
       sessionPaths: ["/a.jsonl"],
       tailStartsAtEntryId: "cut-9",
+      tailStartLine: 42,
     });
-    expect(perArm).toContain("The KEPT TAIL starts at the entry with id cut-9.");
+    expect(perArm).toContain("The KEPT TAIL starts at the entry with id cut-9 — line 42.");
     expect(perArm).toContain("then call finalize_latent when done.");
   });
 });
 
 /** A citations fixture: the given ids resolvable in-span, no position index. */
 function citationsOf(...ids: string[]): SpanCitations {
-  return { spanEntryIds: new Set(ids), positionToSpanId: new Map() };
+  return { spanEntryIds: new Set(ids), positionToSpanId: new Map(), tailStartLine: null };
 }
 
 describe("buildLatentTools", () => {
@@ -251,6 +259,26 @@ describe("spanContentEntryIds", () => {
   });
 });
 
+describe("spanCitationIndex", () => {
+  it("reports the tail-start line (1-based, first file that has it)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-cite-"));
+    const path = join(dir, "arm.jsonl");
+    writeFileSync(
+      path,
+      [
+        { id: "e1", type: "message" },
+        { id: "cut-1", type: "message" },
+        { id: "t1", type: "message" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n"),
+    );
+    const idx = spanCitationIndex([path], "cut-1");
+    expect(idx.tailStartLine).toBe(2);
+    expect([...idx.positionToSpanId.entries()]).toEqual([[1, "e1"]]); // tail position 3 never resolves
+  });
+});
+
 describe("runLatentAuthoringAgent", () => {
   const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
 
@@ -391,6 +419,7 @@ describe("runLatentAuthoringAgent", () => {
     expect((badResult?.content ?? [])[0]?.text).toContain(
       'rejected: entryId "3" is not an in-span message/custom_message/branch_summary entry',
     );
+    expect((badResult?.content ?? [])[0]?.text).toContain("before line 2 (the tail start)");
     expect(r.kind).toBe("completed");
     if (r.kind !== "completed") return;
     expect(r.pool).toHaveLength(6); // the tail-citer never entered the pool
