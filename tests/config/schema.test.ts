@@ -75,6 +75,34 @@ describe("BENCH_SCHEMA", () => {
     it("fastEval presets are exactly [off, probes-only]", () => {
       expect(row("fastEval").presets).toEqual(["off", "probes-only"]);
     });
+    it("judgeMaxTokens: number, default 32768, memkeeper token ladder", () => {
+      expect(row("judgeMaxTokens")).toMatchObject({ type: "number", defaultValue: 32768 });
+      expect(row("judgeMaxTokens").presets).toEqual([16384, 32768, 65536, 131072, 262144]);
+    });
+    it("latentStageMaxTokens: number, default 32768, same token ladder", () => {
+      expect(row("latentStageMaxTokens")).toMatchObject({ type: "number", defaultValue: 32768 });
+      expect(row("latentStageMaxTokens").presets).toEqual([16384, 32768, 65536, 131072, 262144]);
+    });
+    it("judgeTurnTimeoutMs: number, default 300000, labelled presets incl. Infinite(null)", () => {
+      expect(row("judgeTurnTimeoutMs")).toMatchObject({ type: "number", defaultValue: 300000 });
+      expect(row("judgeTurnTimeoutMs").presets).toEqual([
+        ["5m", 300000],
+        ["10m", 600000],
+        ["20m", 1200000],
+        ["30m", 1800000],
+        ["Infinite", null],
+      ]);
+    });
+    it("testspecTimeoutMs: number, default 120000, labelled presets", () => {
+      expect(row("testspecTimeoutMs")).toMatchObject({ type: "number", defaultValue: 120000 });
+      expect(row("testspecTimeoutMs").presets).toEqual([
+        ["30s", 30000],
+        ["1m", 60000],
+        ["2m", 120000],
+        ["5m", 300000],
+        ["10m", 600000],
+      ]);
+    });
     it("scenario: open string (free-form editor), default null", () => {
       expect(row("scenario")).toMatchObject({ type: "string", defaultValue: null, supportsCustomValues: true });
     });

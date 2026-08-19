@@ -210,6 +210,10 @@ function makeConfig(n: number): BenchConfig {
     compactionBoundary: 140000,
     backupMode: "build",
     omFullReflectionThresholdTokens: 4000,
+    judgeMaxTokens: 32768,
+    latentStageMaxTokens: 32768,
+    judgeTurnTimeoutMs: 300000,
+    testspecTimeoutMs: 120000,
     armsEnabled: ["A1"],
   } as unknown as BenchConfig;
 }

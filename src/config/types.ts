@@ -94,6 +94,13 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   compactionBoundary: number;
   fastEval: FastEvalMode;
   latentProbes: LatentProbesMode;
+  /** Per-call output-token caps (judge ensemble / latent authoring). */
+  judgeMaxTokens: number;
+  latentStageMaxTokens: number;
+  /** Wall-clock cap per judge LLM call; null = no cap (the "Infinite" preset). */
+  judgeTurnTimeoutMs: number | null;
+  /** Wall-clock cap for the embedded testSpec shell run. */
+  testspecTimeoutMs: number;
   scenario: string | null;
   outputDir: string | null;
   // Arms tab

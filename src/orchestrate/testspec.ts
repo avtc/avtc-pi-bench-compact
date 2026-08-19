@@ -29,8 +29,6 @@ import { checkout } from "../storage/repo.js";
 
 /** Process exit code indicating success. */
 const EXIT_SUCCESS = 0;
-/** Default wall-clock cap for one testSpec run (ms). A run that exceeds this is a harness timeout (runError). */
-export const TESTSPEC_TIMEOUT_MS = 120_000;
 /** Max captured stdout+stderr bytes (10 MiB) — guards against a runaway test flooding memory. */
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 /** Empty-output fallback (no captured bytes). */
@@ -67,6 +65,8 @@ export interface TestSpecDeps {
   readonly branch: string;
   /** The scenario manifest (its `taskObjective.testSpec` is the command to run). */
   readonly manifest: ScenarioManifest;
+  /** Wall-clock cap for the shell run (required — no fallback). */
+  readonly timeoutMs: number;
   /** Injectable seams (defaults = real implementations). */
   readonly ops?: Partial<TestSpecOps>;
 }
@@ -212,7 +212,7 @@ export function runTestSpec(deps: TestSpecDeps): TestSpecResult {
       runError: true,
     };
   }
-  const result = ops.exec(testSpec, deps.repo, TESTSPEC_TIMEOUT_MS);
+  const result = ops.exec(testSpec, deps.repo, deps.timeoutMs);
   const pass = result.exitCode === EXIT_SUCCESS;
   const runError = result.exitCode === null; // null = spawn error / timeout (did not run)
   return { kind: "ran", pass, output: result.output, runError };

@@ -21,6 +21,10 @@ function validConfig(): BenchConfig {
     compactionBoundary: 140000,
     fastEval: "off",
     latentProbes: "off",
+    judgeMaxTokens: 32768,
+    latentStageMaxTokens: 32768,
+    judgeTurnTimeoutMs: 300000,
+    testspecTimeoutMs: 120000,
     scenario: null,
     outputDir: null,
     armBarePiEnabled: true,
@@ -172,5 +176,31 @@ describe("validateBenchConfig — multi-judge ensemble", () => {
       cfg.judgesNumber = n;
       expect(validateBenchConfig(cfg).ok).toBe(false);
     }
+  });
+
+  it("rejects non-positive stage budgets (judgeMaxTokens / latentStageMaxTokens) and testspecTimeoutMs < 1000", () => {
+    for (const judgeMaxTokens of [0, -4096]) {
+      const cfg = validConfig();
+      cfg.judgeMaxTokens = judgeMaxTokens;
+      expect(validateBenchConfig(cfg).ok).toBe(false);
+    }
+    const latent = validConfig();
+    latent.latentStageMaxTokens = 0;
+    expect(validateBenchConfig(latent).ok).toBe(false);
+    const spec = validConfig();
+    spec.testspecTimeoutMs = 500;
+    expect(validateBenchConfig(spec).ok).toBe(false);
+  });
+
+  it("rejects judgeTurnTimeoutMs below 1000 but accepts null (Infinite) and 300000", () => {
+    const low = validConfig();
+    low.judgeTurnTimeoutMs = 500;
+    expect(validateBenchConfig(low).ok).toBe(false);
+    const infinite = validConfig();
+    infinite.judgeTurnTimeoutMs = null;
+    expect(validateBenchConfig(infinite).ok).toBe(true);
+    const normal = validConfig();
+    normal.judgeTurnTimeoutMs = 300000;
+    expect(validateBenchConfig(normal).ok).toBe(true);
   });
 });

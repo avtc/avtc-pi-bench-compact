@@ -37,6 +37,13 @@ function asNumber(raw: Record<string, unknown>, key: string, fallback: number): 
   return typeof v === "number" ? v : fallback;
 }
 
+/** Number-or-null reader (null survives — the "Infinite" preset stores null). */
+function asNumberOrNull(raw: Record<string, unknown>, key: string, fallback: number | null): number | null {
+  const v = raw[key];
+  if (v === null) return null;
+  return typeof v === "number" ? v : fallback;
+}
+
 function asBoolean(raw: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const v = raw[key];
   return typeof v === "boolean" ? v : fallback;
@@ -86,6 +93,10 @@ export function getBenchConfig(): BenchConfig {
     compactionBoundary: asNumber(raw, "compactionBoundary", DEFAULTS.compactionBoundary),
     fastEval: asFastEvalMode(raw, "fastEval", DEFAULTS.fastEval),
     latentProbes: asLatentProbesMode(raw, "latentProbes", DEFAULTS.latentProbes),
+    judgeMaxTokens: asNumber(raw, "judgeMaxTokens", DEFAULTS.judgeMaxTokens),
+    latentStageMaxTokens: asNumber(raw, "latentStageMaxTokens", DEFAULTS.latentStageMaxTokens),
+    judgeTurnTimeoutMs: asNumberOrNull(raw, "judgeTurnTimeoutMs", DEFAULTS.judgeTurnTimeoutMs),
+    testspecTimeoutMs: asNumber(raw, "testspecTimeoutMs", DEFAULTS.testspecTimeoutMs),
     scenario: asStringOrNull(raw, "scenario", DEFAULTS.scenario),
     outputDir: asStringOrNull(raw, "outputDir", DEFAULTS.outputDir),
     armBarePiEnabled: asBoolean(raw, "armBarePiEnabled", DEFAULTS.armBarePiEnabled),

@@ -45,29 +45,26 @@ export interface JudgeSpec {
 /** The shared judge transport: how to resolve a model + run a stage, plus the
  *  scoring-session ctx (model registry) + the per-call budget/signal/rate-limit.
  *  `resolveModel`/`runStage` default to the real implementations; tests inject fakes. */
-export interface JudgeTransport {
+/** Options for {@link defaultJudgeTransport} — the shared budget/timeout/event fields
+ *  of a {@link JudgeTransport} without its seams (resolveModel/runStage/ctx). */
+export interface JudgeTransportOptions {
+  readonly maxTokens: number;
+  /** Per-turn wall-clock cap for a single judge LLM call; null = no cap. */
+  readonly timeoutMs: number | null;
+  readonly signal: AbortSignal;
+  readonly rateLimitOptions?: RateLimitOptions | null;
+  readonly onEvent?: (event: AgentEvent) => void;
+  readonly onModelResolved?: (model: Model<Api>) => void;
+}
+
+/** The judge transport: options + the injectable seams + the scoring-session ctx. */
+export interface JudgeTransport extends JudgeTransportOptions {
   /** Resolve a model setting to a runnable model + api key (default = resolveBenchModel). */
   readonly resolveModel: (ctx: ExtensionContext, modelSetting: string | null) => Promise<ResolvedBenchModel>;
   /** Run a bench stage (default = runBenchStage). */
   readonly runStage: (input: StageRunInput) => Promise<StageRunResult>;
   /** The scoring-session context (model registry — passed to resolveModel). */
   readonly ctx: ExtensionContext;
-  readonly maxTokens: number;
-  readonly signal: AbortSignal;
-  readonly rateLimitOptions?: RateLimitOptions | null;
-  /** Optional event sink forwarded to the judge's runStage (the widget subscribes for ctx/tok during score). */
-  readonly onEvent?: (event: AgentEvent) => void;
-  /** Optional hook fired after a successful model resolution (the widget sets its ctx window). */
-  readonly onModelResolved?: (model: Model<Api>) => void;
-}
-
-/** Options for {@link defaultJudgeTransport}. */
-export interface JudgeTransportOptions {
-  readonly maxTokens: number;
-  readonly signal: AbortSignal;
-  readonly rateLimitOptions?: RateLimitOptions | null;
-  readonly onEvent?: (event: AgentEvent) => void;
-  readonly onModelResolved?: (model: Model<Api>) => void;
 }
 
 /** Build a {@link JudgeTransport} wired to the real resolveBenchModel + runBenchStage. */
@@ -77,6 +74,7 @@ export function defaultJudgeTransport(ctx: ExtensionContext, opts: JudgeTranspor
     runStage: runBenchStage,
     ctx,
     maxTokens: opts.maxTokens,
+    timeoutMs: opts.timeoutMs,
     signal: opts.signal,
     rateLimitOptions: opts.rateLimitOptions,
     onEvent: opts.onEvent,
@@ -121,7 +119,7 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
         maxTokens: transport.maxTokens,
         // A per-turn wall-clock cap: a hung cloud-judge call surfaces as a
         // BenchJudgeError("timeout") instead of hanging until the run idle-alert.
-        timeoutMs: JUDGE_TURN_TIMEOUT_MS,
+        timeoutMs: transport.timeoutMs,
         onEvent: transport.onEvent ?? NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
@@ -169,8 +167,5 @@ export function buildJudgeEnsemble(config: JudgeEnsembleConfig, transport: Judge
 
 /** A single-turn judge call (maxTurns = 1 — the judge answers in one shot). */
 const SINGLE_TURN = 1;
-/** Per-turn wall-clock cap for a single judge LLM call (no tools — one request).
- *  A cloud judge that never responds surfaces as a timeout instead of hanging. */
-const JUDGE_TURN_TIMEOUT_MS = 300_000;
 /** The ensemble size at which judge2 + judge3 join (3 = full ensemble). */
 const ENSEMBLE_OF_THREE = 3;

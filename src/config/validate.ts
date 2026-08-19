@@ -46,6 +46,20 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
       reason: `judgesNumber must be 1 or 3 (got ${cfg.judgesNumber}) — only single-judge (1) or the 3-judge ensemble (3) are supported.`,
     };
   }
+  if (cfg.judgeMaxTokens < 1 || cfg.latentStageMaxTokens < 1 || cfg.testspecTimeoutMs < 1000) {
+    return {
+      ok: false,
+      reason:
+        `stage budgets must be positive (judgeMaxTokens ${cfg.judgeMaxTokens}, latentStageMaxTokens ${cfg.latentStageMaxTokens}) ` +
+        `and testspecTimeoutMs >= 1000 (got ${cfg.testspecTimeoutMs}).`,
+    };
+  }
+  if (cfg.judgeTurnTimeoutMs !== null && cfg.judgeTurnTimeoutMs < 1000) {
+    return {
+      ok: false,
+      reason: `judgeTurnTimeoutMs must be >= 1000 or Infinite (got ${cfg.judgeTurnTimeoutMs}).`,
+    };
+  }
   if (cfg.armOmFullEnabled) {
     if (cfg.omFullReflectionThresholdTokens < 1) {
       return {

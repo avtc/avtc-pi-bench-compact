@@ -6,7 +6,6 @@ import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import {
   runTestSpec,
   scrubEnv,
-  TESTSPEC_TIMEOUT_MS,
   type TestSpecExecResult,
   type TestSpecOps,
   type TestSpecResult,
@@ -15,6 +14,7 @@ import {
 // --- fixtures ----------------------------------------------------------------
 
 const REPO = "/repo";
+const TIMEOUT_MS = 120_000;
 const BRANCH = "bench-compact/run-2026-08-11-1/cfg-x/arm-bare-pi-1";
 
 function makeManifest(testSpec: string | undefined): ScenarioManifest {
@@ -80,25 +80,49 @@ describe("scrubEnv — strip secret-looking vars from the subprocess env", () =>
 describe("runTestSpec — exit-code → pass/runError mapping (the E7 objective signal)", () => {
   it("exit 0 → {ran, pass:true, runError:false}", () => {
     const ops = makeOps({ exitCode: 0, output: "all tests passed" });
-    const result: TestSpecResult = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    const result: TestSpecResult = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest("npm test"),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({ kind: "ran", pass: true, output: "all tests passed", runError: false });
   });
 
   it("exit non-zero (the command ran) → {ran, pass:false, runError:false} — a SUBJECT's failing test IS the E7 signal, NOT a harness fault", () => {
     const ops = makeOps({ exitCode: 1, output: "2 failing" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    const result = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest("npm test"),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({ kind: "ran", pass: false, output: "2 failing", runError: false });
   });
 
   it("exit non-zero other than 1 (e.g. 2) is still pass:false, runError:false (the command ran)", () => {
     const ops = makeOps({ exitCode: 2, output: "syntax error in tests" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    const result = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest("npm test"),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({ kind: "ran", pass: false, output: "syntax error in tests", runError: false });
   });
 
   it("exitCode null (spawn error / timeout) → {ran, pass:false, runError:true} — a HARNESS fault (distinct from a subject failure)", () => {
     const ops = makeOps({ exitCode: null, output: "npm: command not found" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    const result = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest("npm test"),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({ kind: "ran", pass: false, output: "npm: command not found", runError: true });
   });
 });
@@ -106,7 +130,7 @@ describe("runTestSpec — exit-code → pass/runError mapping (the E7 objective 
 describe("runTestSpec — skip when there is no testSpec", () => {
   it("empty testSpec → {skipped} + does NOT checkout or exec (E7 falls back to judge ranking only)", () => {
     const ops = makeOps({ exitCode: 0, output: "" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest(""), ops });
+    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest(""), timeoutMs: TIMEOUT_MS, ops });
     expect(result).toEqual({ kind: "skipped" });
     expect(ops.exec).not.toHaveBeenCalled();
     expect(ops.checkout).not.toHaveBeenCalled();
@@ -114,14 +138,26 @@ describe("runTestSpec — skip when there is no testSpec", () => {
 
   it("whitespace-only testSpec → {skipped}", () => {
     const ops = makeOps({ exitCode: 0, output: "" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("   \n "), ops });
+    const result = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest("   \n "),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({ kind: "skipped" });
     expect(ops.exec).not.toHaveBeenCalled();
   });
 
   it("absent taskObjective → {skipped} (defensive — the schema requires taskObjective, but guard anyway)", () => {
     const ops = makeOps({ exitCode: 0, output: "" });
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest(undefined), ops });
+    const result = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest(undefined),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({ kind: "skipped" });
     expect(ops.exec).not.toHaveBeenCalled();
   });
@@ -130,16 +166,16 @@ describe("runTestSpec — skip when there is no testSpec", () => {
 describe("runTestSpec — checkout + exec wiring", () => {
   it("checks out the attempt branch before running the testSpec (runs ON the committed project files)", () => {
     const ops = makeOps({ exitCode: 0, output: "" });
-    runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), timeoutMs: TIMEOUT_MS, ops });
     expect(ops.checkout).toHaveBeenCalledTimes(1);
     expect(ops.checkout).toHaveBeenCalledWith(REPO, BRANCH);
   });
 
   it("passes the testSpec command + the repo cwd + the timeout to exec", () => {
     const ops = makeOps({ exitCode: 0, output: "" });
-    runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), timeoutMs: TIMEOUT_MS, ops });
     expect(ops.exec).toHaveBeenCalledTimes(1);
-    expect(ops.exec).toHaveBeenCalledWith("npm test", REPO, TESTSPEC_TIMEOUT_MS);
+    expect(ops.exec).toHaveBeenCalledWith("npm test", REPO, TIMEOUT_MS);
   });
 });
 
@@ -151,7 +187,13 @@ describe("runTestSpec — checkout-fault handling (: a harness fault, not a thro
         throw new Error("fatal: not a valid object name");
       }),
     };
-    const result = runTestSpec({ repo: REPO, branch: BRANCH, manifest: makeManifest("npm test"), ops });
+    const result = runTestSpec({
+      repo: REPO,
+      branch: BRANCH,
+      manifest: makeManifest("npm test"),
+      timeoutMs: TIMEOUT_MS,
+      ops,
+    });
     expect(result).toEqual({
       kind: "ran",
       pass: false,

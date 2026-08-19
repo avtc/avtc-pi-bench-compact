@@ -24,6 +24,10 @@ function config(judgesNumber: 1 | 3): BenchConfig {
     compactionBoundary: 140_000,
     fastEval: "off",
     latentProbes: "off",
+    judgeMaxTokens: 32768,
+    latentStageMaxTokens: 32768,
+    judgeTurnTimeoutMs: 300000,
+    testspecTimeoutMs: 120000,
     scenario: null,
     outputDir: null,
     armBarePiEnabled: true,
@@ -62,8 +66,14 @@ function makeUsage(): StageRunResult["usage"] {
 }
 
 /** Build a transport with injectable resolve/run seams (capture the run input). */
-function transport(resolve: ResolvedBenchModel, run: StageRunResult, captured: StageRunInput[] | null): JudgeTransport {
+function transport(
+  resolve: ResolvedBenchModel,
+  run: StageRunResult,
+  captured: StageRunInput[] | null,
+  timeoutMs: number | null,
+): JudgeTransport {
   return {
+    timeoutMs,
     resolveModel: async () => resolve,
     runStage: async (input: StageRunInput) => {
       if (captured !== null) captured.push(input);
@@ -97,7 +107,7 @@ describe("buildCallJudge", () => {
     const captured: StageRunInput[] = [];
     const callJudge: CallJudge = buildCallJudge(
       { model: "p1/m1", reasoning: "high" },
-      transport(OK_MODEL, stageResult("the answer"), captured),
+      transport(OK_MODEL, stageResult("the answer"), captured, null),
     );
     const text = await callJudge("sys", "user content");
     expect(text).toBe("the answer");
@@ -111,6 +121,18 @@ describe("buildCallJudge", () => {
     expect(run0.systemPrompt).toBe("sys");
     expect(run0.messages[0]).toMatchObject({ role: "user", content: "user content" });
     expect(run0.reasoning).toBe("high");
+    // the transport's per-turn cap threads into the stage input (null = no cap)
+    expect(run0.timeoutMs).toBeNull();
+  });
+
+  it("a finite transport timeoutMs threads into every judge stage input", async () => {
+    const captured: StageRunInput[] = [];
+    const callJudge: CallJudge = buildCallJudge(
+      { model: "p1/m1", reasoning: "high" },
+      transport(OK_MODEL, stageResult("a"), captured, 600000),
+    );
+    await callJudge("sys", "u");
+    expect(captured[0]?.timeoutMs).toBe(600000);
   });
 
   it("forwards transport.onEvent to runStage + fires onModelResolved after resolve", async () => {
@@ -133,6 +155,7 @@ describe("buildCallJudge", () => {
         },
         ctx: FAKE_CTX,
         maxTokens: 4096,
+        timeoutMs: null,
         signal: new AbortController().signal,
         rateLimitOptions: null,
         onEvent: (e) => {
@@ -152,7 +175,7 @@ describe("buildCallJudge", () => {
   it("throws BenchJudgeError(model-unavailable) when the model does not resolve", async () => {
     const callJudge = buildCallJudge(
       { model: "bad/m", reasoning: "high" },
-      transport({ ok: false, error: "not found" }, stageResult("x"), null),
+      transport({ ok: false, error: "not found" }, stageResult("x"), null, null),
     );
     await expect(callJudge("sys", "u")).rejects.toMatchObject({
       name: "BenchJudgeError",
@@ -162,7 +185,7 @@ describe("buildCallJudge", () => {
 
   it("throws BenchJudgeError(timeout) when the stage times out", async () => {
     const run = { ...stageResult("x"), timedOut: true };
-    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null));
+    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null, null));
     await expect(callJudge("sys", "u")).rejects.toMatchObject({
       name: "BenchJudgeError",
       category: "timeout",
@@ -171,7 +194,7 @@ describe("buildCallJudge", () => {
 
   it("throws BenchJudgeError(aborted) when the stage is aborted (not timed out)", async () => {
     const run = { ...stageResult("x"), aborted: true };
-    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null));
+    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null, null));
     await expect(callJudge("sys", "u")).rejects.toMatchObject({
       name: "BenchJudgeError",
       category: "aborted",
@@ -190,6 +213,7 @@ describe("buildStageSeams", () => {
       runStage: async () => stageResult("s"),
       ctx: FAKE_CTX,
       maxTokens: 4096,
+      timeoutMs: null,
       signal: new AbortController().signal,
     };
     const seams: JsonToolStageSeams = buildStageSeams({ model: "p/xyz", reasoning: "high" }, t);
@@ -203,7 +227,7 @@ describe("buildStageSeams", () => {
 
 describe("buildJudgeEnsemble", () => {
   it("K=1 builds one callJudge + one stageSeams", () => {
-    const t = transport(OK_MODEL, stageResult("a"), null);
+    const t = transport(OK_MODEL, stageResult("a"), null, null);
     const ens = buildJudgeEnsemble(config(1), t);
     expect(ens.callJudges).toHaveLength(1);
     expect(ens.stageSeams).toHaveLength(1);
@@ -211,7 +235,7 @@ describe("buildJudgeEnsemble", () => {
 
   it("K=3 builds three callJudges + three stageSeams (judge1/2/3)", async () => {
     const captured: StageRunInput[] = [];
-    const t = transport(OK_MODEL, stageResult("a"), captured);
+    const t = transport(OK_MODEL, stageResult("a"), captured, null);
     const ens = buildJudgeEnsemble(config(3), t);
     expect(ens.callJudges).toHaveLength(3);
     expect(ens.stageSeams).toHaveLength(3);
@@ -232,6 +256,7 @@ describe("defaultJudgeTransport", () => {
   it("uses the real resolveBenchModel + runBenchStage + threads ctx/maxTokens/signal", () => {
     const t = defaultJudgeTransport(FAKE_CTX, {
       maxTokens: 8192,
+      timeoutMs: null,
       signal: new AbortController().signal,
       rateLimitOptions: null,
     });

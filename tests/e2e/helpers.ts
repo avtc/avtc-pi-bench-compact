@@ -224,6 +224,10 @@ function makeBenchConfig(arms: readonly ArmId[]): BenchConfig {
     omFullReflectionThresholdTokens: 4000,
     outputDir: null,
     latentProbes: "off",
+    judgeMaxTokens: 32768,
+    latentStageMaxTokens: 32768,
+    judgeTurnTimeoutMs: 300000,
+    testspecTimeoutMs: 120000,
     armsEnabled: [...arms],
   } as BenchConfig;
 }

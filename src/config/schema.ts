@@ -11,7 +11,7 @@ import {
   type SettingsTabSchema,
   settingsFilePaths,
 } from "avtc-pi-settings-ui";
-import type { BackupMode, FastEvalMode, LatentProbesMode } from "./types.js";
+import type { FastEvalMode, LatentProbesMode } from "./types.js";
 
 /** The /bench-compact:settings command name. */
 export const BENCH_SETTINGS_COMMAND = "bench-compact:settings";
@@ -38,6 +38,10 @@ export const DEFAULTS = {
   compactionBoundary: 140000,
   fastEval: "off" as FastEvalMode,
   latentProbes: "per-arm" as LatentProbesMode,
+  judgeMaxTokens: 32768,
+  latentStageMaxTokens: 32768,
+  judgeTurnTimeoutMs: 300000 as number | null,
+  testspecTimeoutMs: 120000,
   scenario: null as string | null,
   outputDir: null as string | null,
   armBarePiEnabled: true,
@@ -50,6 +54,24 @@ export const DEFAULTS = {
 
 const FAST_EVAL_PRESETS: readonly ["off", "probes-only"] = ["off", "probes-only"];
 const LATENT_PROBES_PRESETS: readonly ["off", "per-arm", "shared"] = ["off", "per-arm", "shared"];
+/** Output-token budget presets (memkeeper's MAX_TOKENS_PRESETS — same ladder everywhere). */
+const MAX_TOKENS_PRESETS: readonly number[] = [16384, 32768, 65536, 131072, 262144];
+/** Judge turn-timeout presets (memkeeper's LLM-call ladder + "5m" so the default is selectable). */
+const JUDGE_TURN_TIMEOUT_PRESETS: readonly (readonly [string, number | null])[] = [
+  ["5m", 300000],
+  ["10m", 600000],
+  ["20m", 1200000],
+  ["30m", 1800000],
+  ["Infinite", null],
+];
+/** TestSpec shell-timeout presets. */
+const TESTSPEC_TIMEOUT_PRESETS: readonly (readonly [string, number])[] = [
+  ["30s", 30000],
+  ["1m", 60000],
+  ["2m", 120000],
+  ["5m", 300000],
+  ["10m", 600000],
+];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -151,6 +173,34 @@ const SETTINGS: readonly SettingSchema[] = [
     defaultValue: DEFAULTS.latentProbes,
     presets: LATENT_PROBES_PRESETS,
   }),
+  setting("judgeMaxTokens", {
+    label: "Judge max output tokens",
+    description: "Per-call output-token cap for every judge call (single-call slices, rankings, trajectory summaries).",
+    type: "number",
+    defaultValue: DEFAULTS.judgeMaxTokens,
+    presets: MAX_TOKENS_PRESETS,
+  }),
+  setting("latentStageMaxTokens", {
+    label: "Latent authoring max output tokens",
+    description: "Per-call output-token cap for the latent-probe authoring agent.",
+    type: "number",
+    defaultValue: DEFAULTS.latentStageMaxTokens,
+    presets: MAX_TOKENS_PRESETS,
+  }),
+  setting("judgeTurnTimeoutMs", {
+    label: "Judge turn timeout",
+    description: "Wall-clock cap per judge LLM call. Infinite = no cap.",
+    type: "number",
+    defaultValue: DEFAULTS.judgeTurnTimeoutMs,
+    presets: JUDGE_TURN_TIMEOUT_PRESETS,
+  }),
+  setting("testspecTimeoutMs", {
+    label: "TestSpec timeout",
+    description: "Wall-clock cap for the embedded testSpec shell run per attempt branch.",
+    type: "number",
+    defaultValue: DEFAULTS.testspecTimeoutMs,
+    presets: TESTSPEC_TIMEOUT_PRESETS,
+  }),
   setting("scenario", {
     label: "Scenario folder",
     description:
@@ -225,7 +275,18 @@ const TABS: readonly SettingsTabSchema[] = [
   },
   {
     label: "Run",
-    settingIds: ["N", "compactionBoundary", "fastEval", "latentProbes", "scenario", "outputDir"],
+    settingIds: [
+      "N",
+      "compactionBoundary",
+      "fastEval",
+      "latentProbes",
+      "judgeMaxTokens",
+      "latentStageMaxTokens",
+      "judgeTurnTimeoutMs",
+      "testspecTimeoutMs",
+      "scenario",
+      "outputDir",
+    ],
   },
   {
     label: "Arms",

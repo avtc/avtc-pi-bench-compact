@@ -24,7 +24,7 @@ import { beginPrepare, endPrepare, isPrepareInFlight, isRunInFlight } from "../o
 import { SurfaceConditionsError } from "../production/build.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
-import { benchRoot, runDir, scenarioDir, scenarioRepo } from "../storage/paths.js";
+import { benchRoot, runDir, scenarioDir } from "../storage/paths.js";
 import { listBranches } from "../storage/repo.js";
 import { detectLatestIncompleteRun, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget } from "../widget/active-widget.js";

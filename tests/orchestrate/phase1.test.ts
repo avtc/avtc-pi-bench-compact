@@ -609,6 +609,10 @@ function makeConfig(armsEnabled: BenchConfig["armsEnabled"]): BenchConfig {
     N: 3,
     compactionBoundary: 140000,
     omFullReflectionThresholdTokens: 4000,
+    judgeMaxTokens: 32768,
+    latentStageMaxTokens: 32768,
+    judgeTurnTimeoutMs: 300000,
+    testspecTimeoutMs: 120000,
     armsEnabled,
   } as BenchConfig;
 }

@@ -188,13 +188,12 @@ export interface BuildScoreDepsArgs {
   /** Digest of the run's active latent probes (null when none) — feeds the verdict-journal
    *  fingerprint so a pool change restarts the journal (stale verdicts never replay). */
   latentDigest: string | null;
+  /** Per-call output-token cap for every judge call (required — no fallback). */
+  judgeMaxTokens: number;
+  /** Per-turn wall-clock cap for judge LLM calls; null = no cap (required — no fallback). */
+  judgeTurnTimeoutMs: number | null;
 }
 
-/** Per-run output-token cap for the judge stages (single-call slices + agentLoop summaries). */
-const JUDGE_MAX_TOKENS = 8192;
-/** Per-call output-token cap for the latent-authoring stage (tool-heavy multi-turn,
- *  same budget class as the judge/authoring stages). */
-const LATENT_STAGE_MAX_TOKENS = 8192;
 /** The latent stage runs on the session default model (no per-stage model setting). */
 const LATENT_STAGE_MODEL: string | null = null;
 /** The JSON indent written to results.json. */
@@ -352,7 +351,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
             runStage: runBenchStage,
           },
           signal,
-          maxTokens: LATENT_STAGE_MAX_TOKENS,
+          maxTokens: deps.config.latentStageMaxTokens,
           rateLimitOptions: null,
         },
         latentMode,
@@ -436,6 +435,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         repo: deps.scenarioRepo,
         branch: trace.branch,
         manifest: deps.manifest,
+        timeoutMs: deps.config.testspecTimeoutMs,
         ops: deps.testSpecOps,
       });
       // A harness fault (runError: spawn error / timeout / checkout fault) is NOT a
@@ -475,6 +475,8 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         signal,
         modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
         latentDigest,
+        judgeMaxTokens: deps.config.judgeMaxTokens,
+        judgeTurnTimeoutMs: deps.config.judgeTurnTimeoutMs,
       }),
       latent: latentMap,
     };
@@ -705,7 +707,8 @@ function buildScoreMeta(
  *  phase; the judge's per-call tokens are not surfaced. Metrics are read from the trace. */
 export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
   const transport = defaultJudgeTransport(args.ctx, {
-    maxTokens: JUDGE_MAX_TOKENS,
+    maxTokens: args.judgeMaxTokens,
+    timeoutMs: args.judgeTurnTimeoutMs,
     signal: args.signal,
     rateLimitOptions: null,
   });
@@ -722,7 +725,7 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     fingerprint: scoringFingerprint({
       manifestJson: JSON.stringify(args.manifest),
       judgeEnsembleFields: judgeEnsembleFields(args.runConfig),
-      maxTokens: JUDGE_MAX_TOKENS,
+      maxTokens: args.judgeMaxTokens,
       probesOnly: args.runConfig.fastEval === "probes-only",
       e2LongThreshold: E2_LONG_RUN_THRESHOLD_ENTRIES,
       latent: args.latentDigest,
@@ -737,7 +740,7 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     // Per-run seed (hashed from runId): within-run reproducibility (same run = same
     // anonymization order) + cross-run position-bias mitigation (different runs vary).
     shuffle: seededShuffle(hashSeed(args.meta.runId)),
-    maxTokens: JUDGE_MAX_TOKENS,
+    maxTokens: args.judgeMaxTokens,
     signal: args.signal,
     rateLimitOptions: null,
     bootstrapOptions: null,

@@ -29,6 +29,26 @@ describe("getBenchConfig", () => {
     expect(cfg.judge3Model).toBeNull();
     expect(cfg.judge3ThinkingLevel).toBe(DEFAULTS.judge3ThinkingLevel);
     expect(cfg.omFullReflectionThresholdTokens).toBe(DEFAULTS.omFullReflectionThresholdTokens);
+    expect(cfg.judgeMaxTokens).toBe(DEFAULTS.judgeMaxTokens);
+    expect(cfg.latentStageMaxTokens).toBe(DEFAULTS.latentStageMaxTokens);
+    expect(cfg.judgeTurnTimeoutMs).toBe(DEFAULTS.judgeTurnTimeoutMs);
+    expect(cfg.testspecTimeoutMs).toBe(DEFAULTS.testspecTimeoutMs);
+  });
+
+  it("maps the stage-budget settings (overrides + Infinite→null)", () => {
+    _setHandleForTest(
+      fakeHandle({
+        judgeMaxTokens: 65536,
+        latentStageMaxTokens: 131072,
+        judgeTurnTimeoutMs: null,
+        testspecTimeoutMs: 30000,
+      }),
+    );
+    const cfg = getBenchConfig();
+    expect(cfg.judgeMaxTokens).toBe(65536);
+    expect(cfg.latentStageMaxTokens).toBe(131072);
+    expect(cfg.judgeTurnTimeoutMs).toBeNull();
+    expect(cfg.testspecTimeoutMs).toBe(30000);
   });
 
   it("maps provided values (numbers, models, booleans, strings)", () => {

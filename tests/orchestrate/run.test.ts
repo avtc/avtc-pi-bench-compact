@@ -41,6 +41,10 @@ function makeConfig(arms: BenchConfig["armsEnabled"]): BenchConfig {
     compactionBoundary: 140000,
     fastEval: "off",
     latentProbes: "off",
+    judgeMaxTokens: 32768,
+    latentStageMaxTokens: 32768,
+    judgeTurnTimeoutMs: 300000,
+    testspecTimeoutMs: 120000,
     omFullReflectionThresholdTokens: 4000,
     outputDir: null,
     armsEnabled: arms,
@@ -399,7 +403,7 @@ describe("startRun — Phase-2 stop-and-surface", () => {
     const deps = makeDeps({
       arms: ["A1", "A3"],
       root,
-      config: { latentProbes: "per-arm" as const },
+      config: { latentProbes: "per-arm" as const, latentStageMaxTokens: 65536 },
       phase1: phase1Mock(async () => {
         order.push("phase-1");
         return { bases, finalCtx: FINAL_CTX };
@@ -413,8 +417,12 @@ describe("startRun — Phase-2 stop-and-surface", () => {
     const result = await startRun(deps);
     expect(result.kind).toBe("done");
     expect(order).toEqual(["phase-1", "latent", "phase-2"]);
-    const stageArg = doneStage.mock.calls[0]?.[0] as { arms: { arm: string }[]; ui: unknown } | undefined;
+    const stageArg = doneStage.mock.calls[0]?.[0] as
+      | { arms: { arm: string }[]; ui: unknown; maxTokens?: number }
+      | undefined;
     expect(stageArg?.arms.map((a: { arm: string }) => a.arm)).toEqual(["A1", "A3"]);
+    // The stage's per-call token cap comes from the setting (no hidden constant).
+    expect(stageArg?.maxTokens).toBe(65536);
     // The stage gets the threaded FRESH ctx's ui (phase-1's switchSessions invalidated
     // the original command ctx — using it throws pi's stale-ctx guard, exactly like
     // the continuation phase rule above).
@@ -785,6 +793,8 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
         signal: new AbortController().signal,
         modelsPath: join(root, "no-such-models.json"),
         latentDigest: null,
+        judgeMaxTokens: 32768,
+        judgeTurnTimeoutMs: 300000,
       }),
     ).toThrow(/model-unavailable|pricing for evaluated model/);
   });
@@ -806,6 +816,8 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
       signal: new AbortController().signal,
       modelsPath: "x",
       latentDigest: null,
+      judgeMaxTokens: 32768,
+      judgeTurnTimeoutMs: 300000,
     } satisfies BuildScoreDepsArgs;
     // score deps carry no widget-coupled seam at all.
     expect(Object.keys(args)).not.toContain("widget");
@@ -834,6 +846,25 @@ describe("startRun — testSpec harness fault", () => {
     expect(result.phase).toBe("probe");
     expect(result.reason).toBe("testspec-fault");
     expect(notify).toHaveBeenCalledWith(expect.stringMatching(/stopped.*testSpec/i));
+  });
+
+  it("the testSpec seam receives the configured testspecTimeoutMs (no hidden fallback)", async () => {
+    const bases = fakeBases(["A1"]);
+    const phase1 = phase1Mock(async () => ({ bases, finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX }));
+    const testSpec = testSpecMock(() => ({ kind: "ran", pass: true, output: "ok", runError: false }));
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1,
+      continuations,
+      testSpec,
+      config: { testspecTimeoutMs: 30000 },
+    });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    const deps_ = testSpec.mock.calls[0]?.[0] as { timeoutMs?: number } | undefined;
+    expect(deps_?.timeoutMs).toBe(30000);
   });
 });
 
