@@ -24,6 +24,7 @@ import { beginPrepare, endPrepare, isPrepareInFlight, isRunInFlight } from "../o
 import { SurfaceConditionsError } from "../production/build.js";
 import type { PrepareDeps } from "../production/prepare.js";
 import { prepareScenario as prepareScenarioImpl } from "../production/prepare.js";
+import { requestAttention } from "../snippets/vendored/subscribe-to-notifications.js";
 import { benchRoot, runDir, scenarioDir } from "../storage/paths.js";
 import { listBranches } from "../storage/repo.js";
 import { detectLatestIncompleteRun, type ResumeTarget } from "../storage/resume.js";
@@ -382,6 +383,12 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     widget,
     notify: (message: string): void => {
       ui.notify(message, "warning");
+      // An away operator never sees the ephemeral TUI notify — and an extension
+      // command's return settles NO agent run (pi-notification's built-in
+      // completion bell/telegram keys off agent_settled, which never fires here),
+      // so the stop must request attention explicitly: bell + telegram after the
+      // configured delays if the operator stays away. No-op without pi-notification.
+      requestAttention("bench-compact", message);
     },
   };
   const run = opts.startRun ?? startRunImpl;
@@ -394,6 +401,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     // rejection). The notify is the stop-and-surface channel (failure handling).
     const msg = err instanceof Error ? err.message : String(err);
     ui.notify(`run failed: ${msg}`, "error");
+    requestAttention("bench-compact", `run failed: ${msg}`);
     throw err;
   }
   if (result.kind === "done") {

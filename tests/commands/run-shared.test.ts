@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrepareArgs } from "../../src/commands/parse.js";
 import { computeScenarioId } from "../../src/commands/prepare-scenario.js";
 import type { RunHandlerContext } from "../../src/commands/run-shared.js";
@@ -19,6 +19,7 @@ import type { BenchConfig } from "../../src/config/types.js";
 import type { ScenarioManifest } from "../../src/manifest/schema.js";
 import { SurfaceConditionsError } from "../../src/production/build.js";
 import type { PrepareDeps } from "../../src/production/prepare.js";
+import { _resetNotificationState } from "../../src/snippets/vendored/subscribe-to-notifications.js";
 import { getActiveWidget, setActiveWidget } from "../../src/widget/active-widget.js";
 import { fakeCommandCtx, fakeGuardedCtx } from "./helpers.js";
 
@@ -365,6 +366,85 @@ describe("executeRun — stale-ctx safety (guarded getters)", () => {
       }),
     ).rejects.toThrow(/git fault/);
     expect(notifies.some((n) => n.msg.includes("run failed") && n.msg.includes("git fault"))).toBe(true);
+  });
+});
+
+describe("executeRun — attention ping for an away operator (vendored pi-notification)", () => {
+  // The command's return settles no agent run, so the stop/error paths must request
+  // attention explicitly (bell + telegram if the operator stays away). The vendored
+  // state lives on globalThis; a test installs a spy provider directly.
+  let spy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    spy = vi.fn();
+    (
+      globalThis as { __piNotificationForwarding?: { requestAttention: unknown; lastMessage: string } }
+    ).__piNotificationForwarding = {
+      requestAttention: spy,
+      lastMessage: "",
+    };
+  });
+  afterEach(() => {
+    _resetNotificationState();
+  });
+
+  it("stopped → requestAttention(bench-compact, the stop message) (once, same as the notify)", async () => {
+    const { ctx } = fakeCommandCtx();
+    const stopMessage = "bench-compact stopped (arm A3): compaction cancelled";
+    await executeRun({
+      ctx,
+      config: { armsEnabled: ["A1"] } as unknown as BenchConfig,
+      scenarioRepo: "/repo",
+      manifest: MANIFEST,
+      startRun: async (deps) => {
+        deps.notify?.(stopMessage);
+        return {
+          kind: "stopped",
+          arm: "A3",
+          attempt: null,
+          phase: "phase-1",
+          reason: "cancelled",
+          message: "compaction cancelled",
+          runId: "2026-01-01-1",
+        };
+      },
+    });
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("bench-compact", stopMessage);
+  });
+
+  it("unexpected error → requestAttention(bench-compact, run failed: …) + rethrow", async () => {
+    const { ctx } = fakeCommandCtx();
+    await expect(
+      executeRun({
+        ctx,
+        config: { armsEnabled: ["A1"] } as unknown as BenchConfig,
+        scenarioRepo: "/repo",
+        manifest: MANIFEST,
+        startRun: async () => {
+          throw new Error("boom");
+        },
+      }),
+    ).rejects.toThrow(/boom/);
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("bench-compact", "run failed: boom");
+  });
+
+  it("done → no attention request (the run finished; the operator's call, not a stop)", async () => {
+    const { ctx } = fakeCommandCtx();
+    await executeRun({
+      ctx,
+      config: { armsEnabled: ["A1"] } as unknown as BenchConfig,
+      scenarioRepo: "/repo",
+      manifest: MANIFEST,
+      startRun: async () => ({
+        kind: "done",
+        runId: "2026-01-01-1",
+        cfgId: "cfg-x",
+        resultsPath: "/runs/r1/results.json",
+        reportPath: "/runs/r1/report.md",
+      }),
+    });
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

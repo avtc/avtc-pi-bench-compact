@@ -126,11 +126,15 @@ function formatTokTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-/** The phase label: terminal name when done/prepared, else `<phase>[ <detail>]`. */
+/** The phase label: terminal name when done/prepared, else the phase + its detail.
+ *  The detail joins the phase with a single space (short counters, e.g. `eval 3/10`);
+ *  the latent detail (the cued/uncued tally — already a ` · `-joined string) joins
+ *  with ` · ` so every tally reads as a separate line part. */
 function phaseLabel(state: WidgetState): string {
   if (state.status === "done") return "done";
   if (state.status === "prepared") return "prepared";
-  return state.detail === null ? state.phase : `${state.phase} ${state.detail}`;
+  if (state.detail === null) return state.phase;
+  return state.phase === "latent" ? `${state.phase} · ${state.detail}` : `${state.phase} ${state.detail}`;
 }
 
 /**

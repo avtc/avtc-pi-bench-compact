@@ -107,18 +107,20 @@ const BACKGROUND_TIMEOUT_PRESETS: readonly string[] = ["5m", "10m", "20m", "60m"
 const AGENT_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_MAX_TOKENS_PRESETS];
 /** Per-agent timeout presets: "default" = inherit the background setting, then the shared picks. */
 const AGENT_TIMEOUT_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_TIMEOUT_PRESETS];
-/** Per-agent thinking presets: "default" = inherit the background level, then the ladder.
- *  (No "none" entry — null is the inherit sentinel; the "none" level is set via the
- *  background thinking level.) */
+/** Per-agent thinking presets: "default" (null = inherit the background level), then the
+ *  standard ladder starting at "off" (the no-thinking level). FULL PAIRS, not bare
+ *  strings: the thinking-level type parse is a closed-enum membership check that the
+ *  settings-ui preset normalizer runs against an EMPTY preset ctx — a bare string always
+ *  fails it and throws at extension load (pairs pass through un-parsed). */
 const AGENT_THINKING_PRESETS: readonly PresetElement[] = [
   ["default", null],
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
+  ["off", "off"],
+  ["minimal", "minimal"],
+  ["low", "low"],
+  ["medium", "medium"],
+  ["high", "high"],
+  ["xhigh", "xhigh"],
+  ["max", "max"],
 ];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */

@@ -49,13 +49,13 @@ describe("BENCH_SCHEMA", () => {
       expect(row("judgeThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
       expect(row("judgeThinkingLevel").presets).toEqual([
         ["default", null],
-        "off",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
+        ["off", "off"],
+        ["minimal", "minimal"],
+        ["low", "low"],
+        ["medium", "medium"],
+        ["high", "high"],
+        ["xhigh", "xhigh"],
+        ["max", "max"],
       ]);
     });
     it("judgesNumber: number, default 1", () => {
@@ -223,7 +223,16 @@ describe("BENCH_SCHEMA", () => {
       });
     });
     it("every per-agent thinking row (author/tail/sim/latent + judges) shares the agent ladder (default-inherit, no none)", () => {
-      const agentThinking = [["default", null], "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+      const agentThinking = [
+        ["default", null],
+        ["off", "off"],
+        ["minimal", "minimal"],
+        ["low", "low"],
+        ["medium", "medium"],
+        ["high", "high"],
+        ["xhigh", "xhigh"],
+        ["max", "max"],
+      ];
       for (const id of [
         "authorThinkingLevel",
         "tailCheckThinkingLevel",
@@ -234,6 +243,20 @@ describe("BENCH_SCHEMA", () => {
         "judge3ThinkingLevel",
       ]) {
         expect(row(id).presets, id).toEqual(agentThinking);
+      }
+    });
+
+    it("every thinking-level preset is a full pair (a bare string throws at extension load)", () => {
+      // Regression: the settings-ui preset normalizer parses bare strings with the type's
+      // parse against an EMPTY preset ctx. thinking-level's parse is a closed-enum
+      // membership check with no identity fallback (unlike the string type), so a bare
+      // level string — even a valid one — fails and createSettingsExtension throws at
+      // load. Full pairs pass through un-parsed.
+      for (const s of BENCH_SCHEMA.settings) {
+        if (s.type !== "thinking-level") continue;
+        for (const el of (s.presets ?? []) as readonly unknown[]) {
+          expect(Array.isArray(el), `${s.id}: preset ${JSON.stringify(el)} must be a [label, value] pair`).toBe(true);
+        }
       }
     });
   });

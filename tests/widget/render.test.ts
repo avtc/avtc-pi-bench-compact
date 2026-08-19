@@ -76,6 +76,13 @@ describe("renderLine — phase-bar + phase name", () => {
     expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■◧□□ eval 3/10 · ctx 12K/200K · 0.3k tok");
   });
 
+  it("latent: detail dot-joins the phase (cued/uncued tally), same ctx/tok format as the other phases", () => {
+    const md = renderLine(
+      running("latent", { armIndex: 2, tool: "om-full", detail: "cued 1/3 · uncued 2/3", ctxUsage: 45_000, tok: 3200 }),
+    );
+    expect(md).toBe("🅑 2/5 om-full · ■■■◧□□□ latent · cued 1/3 · uncued 2/3 · ctx 45K/200K · 3.2k tok");
+  });
+
   it("probe: 4 done, probe active, probe detail + ctx/tok (judge)", () => {
     const md = renderLine(
       running("probe", { armIndex: 2, tool: "memkeeper-selector", detail: "5/7", ctxUsage: 8000, tok: 200 }),
