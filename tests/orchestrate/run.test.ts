@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -222,8 +222,14 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     setDetail: (detail) => {
       calls.push(`setDetail:${detail ?? "-"}`);
     },
+    clearArm: () => {
+      calls.push("clearArm");
+    },
     setCtxWindow: (w) => {
       calls.push(`setCtxWindow:${w ?? "-"}`);
+    },
+    setJudgeUsages: (list) => {
+      calls.push(`setJudgeUsages:${list === null ? "-" : list.length}`);
     },
     onEvent: (event) => {
       calls.push(`onEvent:${event.type}`);
@@ -861,12 +867,11 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
     ).toThrow(/model-unavailable|pricing for evaluated model/);
   });
 
-  it("score deps take NO widget (concurrent axes would interleave judge events)", () => {
-    // The score phase is inherently concurrent — gradeComparativeRouting runs slice
-    // (E1/E7) + summary (E3/E10) axes in parallel, plus per-arm trace-binary — so the
-    // judge transport must NOT wire widget onEvent/onModelResolved or concurrent calls
-    // interleave into the shared two-tier accumulator (meaningless tok/ctx). The score
-    // phase cell (startPhase("score") in startRun) still signals progress.
+  it("score deps couple to the widget lazily via the active-widget port (no constructor field)", () => {
+    // The score phase couples to the live widget through getActiveWidget() at CALL
+    // time (onScoreProgress/onScoreArmFocus + the per-judge tagged event hooks), not
+    // through a BuildScoreDepsArgs field — the deps survive widget re-creation and
+    // degrade to inert when no run widget is active (non-TUI).
     //
     // Compile-time guard: BuildScoreDepsArgs is constructible WITHOUT a widget. If a
     // future change re-adds `widget` as a REQUIRED field, this `satisfies` fails tsc.
@@ -886,8 +891,73 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
       judgeMaxTokens: 32768,
       judgeTurnTimeoutMs: 300000,
     } satisfies BuildScoreDepsArgs;
-    // score deps carry no widget-coupled seam at all.
     expect(Object.keys(args)).not.toContain("widget");
+  });
+
+  it("onScoreArmFocus drives the ACTIVE widget counter (setArm with the arm tool, clearArm on null)", async () => {
+    const { buildProductionScoreDeps } = await import("../../src/orchestrate/run.js");
+    const { getActiveWidget, setActiveWidget } = await import("../../src/widget/active-widget.js");
+    const widget = capturingWidget();
+    const prev = getActiveWidget();
+    setActiveWidget(widget);
+    try {
+      const runConfig = {
+        evaluatedModel: null,
+        judgeModel: null,
+        judgeThinkingLevel: "high",
+        judgesNumber: 1,
+        judge2Model: null,
+        judge2ThinkingLevel: "high",
+        judge3Model: null,
+        judge3ThinkingLevel: "high",
+        evaluatedThinkingLevel: "high",
+        N: 1,
+        compactionBoundary: 140000,
+        armsEnabled: ["A1"] as ArmId[],
+        omFullReflectionThresholdTokens: 4000,
+        backupMode: "build" as const,
+        toolVersions: {},
+      } as unknown as Parameters<typeof buildProductionScoreDeps>[0]["runConfig"];
+      const modelsPath = join(root, "models.json");
+      writeFileSync(
+        modelsPath,
+        JSON.stringify({
+          providers: {
+            p: { models: [{ id: "p/m", cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25 } }] },
+          },
+        }),
+      );
+      const deps = buildProductionScoreDeps({
+        ctx: { model: { id: "p/m" } } as unknown as ExtensionContext,
+        runConfig,
+        manifest: MANIFEST,
+        meta: {
+          runId: "x",
+          cfgId: "cfg-x",
+          artifacts: { judgeDir: join(root, "judge") },
+        } as unknown as Parameters<typeof buildProductionScoreDeps>[0]["meta"],
+        latentDigest: null,
+        signal: new AbortController().signal,
+        modelsPath,
+        judgeMembers: [
+          { model: null, thinking: null },
+          { model: null, thinking: null },
+          { model: null, thinking: null },
+        ],
+        judgeMaxTokens: 32768,
+        judgeTurnTimeoutMs: 300000,
+      });
+      const focus = deps.onScoreArmFocus;
+      if (focus === undefined) throw new Error("onScoreArmFocus missing from production score deps");
+      focus("A2", 2, 5);
+      focus(null, null, null);
+      focus("A5", 5, 5);
+      expect(widget.calls).toContain("setArm:2/5:om-default");
+      expect(widget.calls).toContain("clearArm");
+      expect(widget.calls).toContain("setArm:5/5:om-full");
+    } finally {
+      setActiveWidget(prev);
+    }
   });
 });
 

@@ -18,7 +18,9 @@ function capturingWidget(): WidgetPort & { arms: string[] } {
     setArm: (index, total, tool) => {
       arms.push(`${index}/${total}:${tool}`);
     },
+    clearArm: () => {},
     setDetail: () => {},
+    setJudgeUsages: () => {},
     setCtxWindow: () => {},
     onEvent: () => {},
     hide: () => {},

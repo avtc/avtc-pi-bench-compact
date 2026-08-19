@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearArmConfig, readMemkeeperGlobalSettings } from "../arms/config.js";
+import { ARM_DEFS } from "../arms/definitions.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import { type JudgeAgentSpec, resolveBackgroundAgents } from "../config/background-agents.js";
 import { type ArmId, type BenchConfig, judgeEnsembleFields } from "../config/types.js";
@@ -47,7 +48,7 @@ import { type Phase1Walls, readPhase1Walls, writePhase1Walls } from "../storage/
 import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
-import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
+import { NO_DETAIL, scoreJudgeHooks, widgetStageHooks } from "../widget/tracker.js";
 import {
   activeLatentForArm,
   LatentStageStoppedError,
@@ -717,21 +718,21 @@ function buildScoreMeta(
  *  from the run config's judge fields), the evaluated-model pricing, a seeded rank
  *  shuffle, + the repo checkout seam. Pure aside from the readPricing file read.
  *
- *  No live TOKEN forwarding: the score phase is inherently concurrent —
- *  gradeComparativeRouting runs slice (resume/task-quality) + summary (redo-plan/goal)
- *  axes in parallel (plus per-arm trace-binary), so concurrent judge calls would
- *  interleave into the widget's shared two-tier token accumulator (meaningless
- *  tok/ctx). Coarse TEXTUAL progress IS forwarded (onScoreProgress → the active
- *  widget's detail line: one line per arm + per graded probe slice — concurrency-safe
- *  by construction, so a long local-judge score phase is never a black box). The
- *  score phase cell (advanced via startPhase("score") in startRun) still signals the
- *  phase; the judge's per-call tokens are not surfaced. Metrics are read from the trace. */
+ *  Live per-judge usage: the judge events are tagged with the ensemble index and
+ *  land in per-slot accumulators (scoreJudgeHooks), so the widget shows one ctx/tok
+ *  pair per parallel judge — concurrent streams never interleave. Coarse TEXTUAL
+ *  progress is forwarded alongside (onScoreProgress → the detail line; one line per
+ *  run + per graded probe slice) and the arm counter tracks the scored arm
+ *  (onScoreArmFocus → setArm/clearArm). Metrics are read from the trace. */
 export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
+  const judgeHooks = scoreJudgeHooks(() => getActiveWidget());
   const transport = defaultJudgeTransport(args.ctx, {
     maxTokens: args.judgeMaxTokens,
     timeoutMs: args.judgeTurnTimeoutMs,
     signal: args.signal,
     rateLimitOptions: null,
+    onEvent: judgeHooks.onEvent,
+    onModelResolved: judgeHooks.onModelResolved,
   });
   const ensemble = buildJudgeEnsemble(args.runConfig.judgesNumber, args.judgeMembers, transport);
   const pricing = resolvePricing(args.runConfig, args.ctx, args.modelsPath);
@@ -772,6 +773,15 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
     meta: args.meta,
     onScoreProgress: (line) => {
       getActiveWidget()?.setDetail(line);
+    },
+    onScoreArmFocus: (arm, index, total) => {
+      const widget = getActiveWidget();
+      if (widget === null) return;
+      if (arm === null || index === null || total === null) {
+        widget.clearArm();
+        return;
+      }
+      widget.setArm(index, total, ARM_DEFS[arm].tool);
     },
     verdicts,
   };

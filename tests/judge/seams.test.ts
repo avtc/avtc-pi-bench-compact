@@ -139,6 +139,7 @@ describe("buildCallJudge", () => {
     const callJudge: CallJudge = buildCallJudge(
       { model: "p1/m1", reasoning: "high" },
       transport(OK_MODEL, stageResult("the answer"), captured, null),
+      0,
     );
     const text = await callJudge("sys", "user content");
     expect(text).toBe("the answer");
@@ -161,6 +162,7 @@ describe("buildCallJudge", () => {
     const callJudge: CallJudge = buildCallJudge(
       { model: "p1/m1", reasoning: "high" },
       transport(OK_MODEL, stageResult("a"), captured, 600000),
+      0,
     );
     await callJudge("sys", "u");
     expect(captured[0]?.timeoutMs).toBe(600000);
@@ -189,17 +191,18 @@ describe("buildCallJudge", () => {
         timeoutMs: null,
         signal: new AbortController().signal,
         rateLimitOptions: null,
-        onEvent: (e) => {
-          events.push((e as { type: string }).type);
+        onEvent: (e, judge) => {
+          events.push(`${(e as { type: string }).type}#${judge}`);
         },
-        onModelResolved: (m) => {
-          resolvedWindows.push((m as { contextWindow?: number }).contextWindow);
+        onModelResolved: (m, judge) => {
+          resolvedWindows.push(`${(m as { contextWindow?: number }).contextWindow}#${judge}`);
         },
       },
+      2,
     );
     await callJudge("sys", "u");
-    expect(events).toEqual(["message_update"]); // transport.onEvent reached runStage's onEvent
-    expect(resolvedWindows).toEqual([200000]); // onModelResolved fired with the resolved model's window
+    expect(events).toEqual(["message_update#2"]); // transport.onEvent reached runStage's onEvent, tagged with the judge index
+    expect(resolvedWindows).toEqual(["200000#2"]); // onModelResolved fired with the window + the judge index
     expect(captured[0]?.onEvent).toBeDefined();
   });
 
@@ -207,6 +210,7 @@ describe("buildCallJudge", () => {
     const callJudge = buildCallJudge(
       { model: "bad/m", reasoning: "high" },
       transport({ ok: false, error: "not found" }, stageResult("x"), null, null),
+      0,
     );
     await expect(callJudge("sys", "u")).rejects.toMatchObject({
       name: "BenchJudgeError",
@@ -216,7 +220,7 @@ describe("buildCallJudge", () => {
 
   it("throws BenchJudgeError(timeout) when the stage times out", async () => {
     const run = { ...stageResult("x"), timedOut: true };
-    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null, null));
+    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null, null), 0);
     await expect(callJudge("sys", "u")).rejects.toMatchObject({
       name: "BenchJudgeError",
       category: "timeout",
@@ -225,7 +229,7 @@ describe("buildCallJudge", () => {
 
   it("throws BenchJudgeError(aborted) when the stage is aborted (not timed out)", async () => {
     const run = { ...stageResult("x"), aborted: true };
-    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null, null));
+    const callJudge = buildCallJudge({ model: "p/m", reasoning: "high" }, transport(OK_MODEL, run, null, null), 0);
     await expect(callJudge("sys", "u")).rejects.toMatchObject({
       name: "BenchJudgeError",
       category: "aborted",
@@ -247,7 +251,7 @@ describe("buildStageSeams", () => {
       timeoutMs: null,
       signal: new AbortController().signal,
     };
-    const seams: JsonToolStageSeams = buildStageSeams({ model: "p/xyz", reasoning: "high" }, t);
+    const seams: JsonToolStageSeams = buildStageSeams({ model: "p/xyz", reasoning: "high" }, t, 0);
     const resolved = await seams.resolveModel();
     expect(resolved).toBe(OK_MODEL);
     expect(resolvedSetting).toBe("p/xyz");

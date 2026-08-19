@@ -188,9 +188,13 @@ export interface ScoreRunDeps {
    *  lanes render n/a. The compaction/summary cost metrics (from the arm-base
    *  compaction) + the probe lanes still grade. */
   readonly probesOnly?: boolean;
-  /** Coarse textual progress for the score phase (widget detail): one line per arm +
+  /** Coarse textual progress for the score phase (widget detail): one line per run +
    *  one per graded probe slice / lane. Concurrency-safe by design (no token counters). */
   readonly onScoreProgress?: (line: string) => void;
+  /** Live arm focus (widget arm counter): fired per scored run with the arm's
+   *  canonical 1-based position among the input's distinct arms, and once with
+   *  null before the cross-arm comparative stage (no single arm — counter cleared). */
+  readonly onScoreArmFocus?: (arm: ArmId | null, index: number | null, total: number | null) => void;
   /** Incremental verdict store (crash-resume for the score phase): completed judge
    *  units (probe slices, boundaries, trajectory grades, rankings) replay from here;
    *  absent/null = no persistence (judge every unit). */
@@ -266,9 +270,11 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
   };
 
   // --- per-run routing: exact + recall-cost + probe-binary + trace-binary ---
-  for (const run of input) {
+  const armOrder = uniqueArmIds(input);
+  for (const [runIdx, run] of input.entries()) {
     const acc = accOf(run.arm);
-    deps.onScoreProgress?.(`arm ${input.indexOf(run) + 1}/${input.length} (${run.arm}) — exact metrics`);
+    deps.onScoreArmFocus?.(run.arm, armOrder.indexOf(run.arm) + 1, armOrder.length);
+    deps.onScoreProgress?.(`run ${runIdx + 1}/${input.length} — exact metrics`);
     const exact = computeRunExact(run.continuation, deps.pricing);
     if (exact.C1 !== undefined) acc.C1.push(exact.C1);
     // Probes-only runs have no continuation: the run-cost metric = the effort spent
@@ -311,7 +317,7 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     }
 
     if (deps.probesOnly !== true) {
-      deps.onScoreProgress?.(`arm (${run.arm}) — trajectory`);
+      deps.onScoreProgress?.(`run ${runIdx + 1}/${input.length} — trajectory`);
       for (const [axis, pass] of Object.entries(await gradeTraceBinaryForRun(run, deps)) as [MetricId, boolean][]) {
         binaryArray(acc, axis).push(pass);
       }
@@ -319,7 +325,10 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
   }
 
   // --- comparative routing: resume/task-quality slices + redo-plan/goal summaries ---
-  if (deps.probesOnly !== true) deps.onScoreProgress?.("all arms — comparative");
+  if (deps.probesOnly !== true) {
+    deps.onScoreArmFocus?.(null, null, null);
+    deps.onScoreProgress?.("comparative");
+  }
   const comparative = deps.probesOnly === true ? {} : await gradeComparativeRouting(input, deps);
 
   // --- assemble AllArmsGrades ---
@@ -494,7 +503,7 @@ export async function gradeProbeAxesForRun(
       Array.isArray(cached?.judgePasses) &&
       cached.judgePasses.every((p) => typeof p === "boolean")
     ) {
-      deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} cached`);
+      deps.onScoreProgress?.(`probe ${out.length + 1}/${run.probes.length} cached`);
       out.push({
         axis: cached.axis as MetricId,
         pass: majorityVote(cached.judgePasses as readonly boolean[]),
@@ -502,7 +511,7 @@ export async function gradeProbeAxesForRun(
       });
       continue;
     }
-    deps.onScoreProgress?.(`arm ${run.arm} — probe ${out.length + 1}/${run.probes.length} grading`);
+    deps.onScoreProgress?.(`probe ${out.length + 1}/${run.probes.length} grading`);
     const grades = await Promise.all(
       deps.callJudges.map(async (callJudge) => {
         const slice = buildProbeAnswerSlice({ probe, answerText: probeTrace.answer }, DEFAULT_SLICE_OPTIONS);

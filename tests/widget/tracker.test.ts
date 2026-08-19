@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _setBaseLoggerForTest } from "../../src/log.js";
 import {
   makeTuiWidgetDeps,
+  scoreJudgeHooks,
   WIDGET_KEY,
   WIDGET_PLACEMENT,
   WidgetController,
@@ -314,5 +316,78 @@ describe("makeTuiWidgetDeps publish — paint safe-degrade", () => {
     } finally {
       _setBaseLoggerForTest(prev);
     }
+  });
+});
+
+describe("scoreJudgeHooks — per-judge slot accumulators", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const mk = <T>(over: T): AgentEvent => over as unknown as AgentEvent;
+  const mkModel = <T>(over: T): Model<Api> => over as unknown as Model<Api>;
+
+  it("keeps two judges' streams separate; renders one ctx/tok pair per judge", () => {
+    const cap = capturingDeps(TERM_WIDE);
+    const c = new WidgetController(cap.deps, { phase: "score", armIndex: 1, armTotal: 5, tool: "bare-pi" });
+    c.show();
+    const hooks = scoreJudgeHooks(() => c);
+    // judge 0: 8 chars → 2 tok fallback; window 200k, ctx 20k
+    hooks.onModelResolved(mkModel({ id: "j0", contextWindow: 200_000 }), 0);
+    hooks.onEvent(mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "abcdefgh" } }), 0);
+    hooks.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 20_000 } } }), 0);
+    // judge 1: 12 chars → 3 tok; window 1M, ctx 900k
+    hooks.onModelResolved(mkModel({ id: "j1", contextWindow: 1_000_000 }), 1);
+    hooks.onEvent(
+      mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "aaaaaaaaaaaa" } }),
+      1,
+    );
+    hooks.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 900_000 } } }), 1);
+    vi.advanceTimersByTime(200);
+    expect(cap.lines.at(-1)).toContain("ctx 20K/200K 900K/1M · 0.0k 0.0k tok");
+  });
+
+  it("message_start resets only ITS judge's tiers (parallel requests stay independent)", () => {
+    const cap = capturingDeps(TERM_WIDE);
+    const c = new WidgetController(cap.deps, { phase: "score" });
+    c.show();
+    const hooks = scoreJudgeHooks(() => c);
+    hooks.onModelResolved(mkModel({ contextWindow: 100_000 }), 0);
+    hooks.onEvent(mk({ type: "message_start" }), 0);
+    hooks.onEvent(mk({ type: "message_start" }), 1);
+    hooks.onEvent(
+      mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "a".repeat(4000) } }),
+      0,
+    );
+    hooks.onEvent(
+      mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "b".repeat(4000) } }),
+      1,
+    );
+    // judge 1 restarts its request — judge 0's 1000 tok must survive
+    hooks.onEvent(mk({ type: "message_start" }), 1);
+    hooks.onEvent(
+      mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "c".repeat(400) } }),
+      1,
+    );
+    vi.advanceTimersByTime(200);
+    expect(cap.lines.at(-1)).toContain("1.0k 0.1k tok");
+  });
+
+  it("null widget (non-TUI) is inert — no throw", () => {
+    const hooks = scoreJudgeHooks(() => null);
+    expect(() => {
+      hooks.onModelResolved(mkModel({ contextWindow: 1 }), 0);
+      hooks.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 1 } } }), 0);
+    }).not.toThrow();
+  });
+
+  it("setJudgeUsages(null) clears the segments; clearArm drops the counter", () => {
+    const cap = capturingDeps(TERM_WIDE);
+    const c = new WidgetController(cap.deps, { phase: "score", armIndex: 3, armTotal: 5, tool: "om-full" });
+    c.show();
+    c.setJudgeUsages([{ ctxUsage: 10_000, ctxWindow: 100_000, tok: 500 }]);
+    c.clearArm();
+    c.setJudgeUsages(null);
+    vi.advanceTimersByTime(200);
+    expect(cap.lines.at(-1)).toBe("🅑 ■■■■■■◧ score");
   });
 });

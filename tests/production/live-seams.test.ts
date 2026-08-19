@@ -26,8 +26,10 @@ function capturingWidget(): WidgetPort & { phases: string[] } {
     },
     setStatus: () => {},
     setArm: () => {},
+    clearArm: () => {},
     setDetail: () => {},
     setCtxWindow: () => {},
+    setJudgeUsages: () => {},
     onEvent: () => {},
     hide: () => {},
   };

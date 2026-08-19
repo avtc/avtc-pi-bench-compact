@@ -36,7 +36,6 @@ import { getBenchPi } from "../orchestrate/bench-ctx.js";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
-  NO_REASONING,
   NO_STAGE_END_HOOK,
   runBenchStage,
   toStageReasoning,

@@ -27,6 +27,17 @@ export type WidgetPhase = (typeof PHASE_ORDER)[number];
  *  cells 0-1 ■, rest □, label "prepared" (distinct from the all-■ run-`done`). */
 export type WidgetStatus = "running" | "done" | "stopped" | "prepared";
 
+/** One parallel judge's live usage (the score phase's per-judge ctx/tok
+ *  segments — judges may run different models with different windows). */
+export interface JudgeUsage {
+  /** The judge's context usage (its last message_end totalTokens). */
+  readonly ctxUsage: number;
+  /** The judge's context window; null while its model is unresolved. */
+  readonly ctxWindow: number | null;
+  /** The judge's current-request output-token progress (two-tier). */
+  readonly tok: number;
+}
+
 /** Pure render-time snapshot of the bench-run tracker. `null` fields are
  *  omitted from the line (arm counter absent during build/done; ctx/tok absent
  *  when no background agent is generating). */
@@ -50,6 +61,10 @@ export interface WidgetState {
   readonly ctxWindow: number | null;
   /** Current-request output-token progress (two-tier); null = omit. */
   readonly tok: number | null;
+  /** Per-judge live usage (score phase, K parallel judges); null = omit.
+   *  When present this REPLACES the single-agent ctx/tok segments (the score
+   *  phase drives no single background agent). */
+  readonly judgeUsages: readonly JudgeUsage[] | null;
   /** Trailing hint (e.g. "/bench-compact:results" on done). */
   readonly hint: string | null;
 }
@@ -69,7 +84,17 @@ const PREPARED_LAST_DONE_CELL = 1;
  *  terminal status + phase isn't compact). compact always excludes ctx/tok because
  *  the memory tool renders its own widget; terminals (done/stopped/prepared) omit it. */
 function showCtxTok(state: WidgetState): boolean {
-  return state.status === "running" && state.phase !== "compact" && state.ctxUsage !== null && state.tok !== null;
+  if (state.status !== "running" || state.phase === "compact") return false;
+  if (showJudgeCtxTok(state)) return false; // the judge list replaces the single-agent segment
+  return state.ctxUsage !== null && state.tok !== null;
+}
+
+/** True when the per-judge ctx/tok list should display (score phase, K parallel
+ *  judges generating). */
+function showJudgeCtxTok(state: WidgetState): boolean {
+  return (
+    state.status === "running" && state.phase === "score" && state.judgeUsages !== null && state.judgeUsages.length > 0
+  );
 }
 
 /** One phase-bar cell with its theme color (success = done, accent = active,
@@ -116,8 +141,10 @@ function phaseBarThemed(state: WidgetState, theme: Theme): string {
     .join("");
 }
 
-/** Format a context-token count: `K` (>=1000, rounded), else raw. */
+/** Format a context-token count: `M` (>= 1M, rounded), `K` (>= 1000, rounded),
+ *  else raw. */
 function formatCtxTokens(n: number): string {
+  if (n >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
   return n >= 1000 ? `${Math.round(n / 1000)}K` : `${n}`;
 }
 
@@ -193,8 +220,27 @@ function renderParts(state: WidgetState): Part[] {
     themed: (theme) => `${phaseBarThemed(state, theme)} ${theme.fg(labelColor, label)}`,
   });
 
+  /** Format one judge's ctx pair: `45K/262K`, or `45K/?` while its window is
+   *  unresolved (the model resolution is still in flight). */
+  function formatJudgeCtx(u: JudgeUsage): string {
+    const window = u.ctxWindow === null ? "?" : formatCtxTokens(u.ctxWindow);
+    return `${formatCtxTokens(u.ctxUsage)}/${window}`;
+  }
+
   // ctx/tok (background agent generating, not compact).
-  if (showCtxTok(state)) {
+  if (showJudgeCtxTok(state)) {
+    const usages = state.judgeUsages as readonly JudgeUsage[];
+    parts.push({
+      kind: "fixed",
+      text: `ctx ${usages.map(formatJudgeCtx).join(" ")}`,
+      color: COLOR_COUNTER,
+    });
+    parts.push({
+      kind: "fixed",
+      text: `${usages.map((u) => formatTokTokens(u.tok)).join(" ")} tok`,
+      color: COLOR_COUNTER,
+    });
+  } else if (showCtxTok(state)) {
     const window = state.ctxWindow ?? 0;
     parts.push({
       kind: "fixed",

@@ -144,7 +144,7 @@ describe("runBenchStage — tool-call logging (every background agent's tool cal
         type: "tool_execution_end",
         toolCallId: "t2",
         toolName: "bash",
-        result: { content: [{ type: "text", text: "boom: exit 1 " + "y".repeat(400) }] },
+        result: { content: [{ type: "text", text: `boom: exit 1 ${"y".repeat(400)}` }] },
         isError: true,
       } as unknown as AgentEvent,
       TURN_END,

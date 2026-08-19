@@ -1181,8 +1181,8 @@ describe("scoreRun — score-phase progress lines (onScoreProgress)", () => {
     };
 
     await scoreRun(runs, deps);
-    expect(lines.some((l) => /^arm 1\/1 \(A1\) — exact metrics$/.test(l))).toBe(true);
-    expect(lines.filter((l) => /^arm A1 — probe [12]\/2 grading$/.test(l))).toHaveLength(2);
+    expect(lines.some((l) => /^run 1\/1 — exact metrics$/.test(l))).toBe(true);
+    expect(lines.filter((l) => /^probe [12]\/2 grading$/.test(l))).toHaveLength(2);
     // probes-only: no comparative line
     expect(lines.some((l) => l.includes("comparative"))).toBe(false);
   });
@@ -1249,5 +1249,75 @@ describe("scoreRun — verdict journal replay (crash-resume for scoring)", () =>
     const judge = vi.fn(async (): Promise<string> => JSON.stringify({ pass: true, evidence: "e" }));
     await scoreRun(buildRuns(), buildDeps(verdicts, judge));
     expect(judge).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("scoreRun — live progress seams (detail lines + arm focus)", () => {
+  it("fires onScoreArmFocus per run (canonical arm numbering) + null before comparative; emits the arm-less detail lines", async () => {
+    const c1 = compaction("c1", "u0", "summary text", makeUsage(100, 20), null);
+    const trace = traceOf([userEntry("u0", null), c1.entry, assistantEntry("a1", "c1", 50)], [c1]);
+    const probes = [
+      { arm: "A3" as const, attempt: 1, probeId: "1", branch: "A3-1", answer: "formula", kept: true },
+      { arm: "A3" as const, attempt: 1, probeId: "2", branch: "A3-1", answer: "I refuse", kept: true },
+    ];
+    // A3's runs FIRST in the input, A1 second — the focus must still number arms canonically (A1=1, A3=2)
+    const runs: ArmAttemptRun[] = [
+      {
+        arm: "A3",
+        attempt: 1,
+        continuation: trace,
+        probes,
+        testSpecResult: { kind: "skipped" },
+        repo: "/repo",
+        branch: "A3-1",
+      },
+      {
+        arm: "A1",
+        attempt: 1,
+        continuation: trace,
+        probes,
+        testSpecResult: { kind: "skipped" },
+        repo: "/repo",
+        branch: "A1-1",
+      },
+    ];
+    const focus: string[] = [];
+    const lines: string[] = [];
+    const deps: ScoreRunDeps = {
+      manifest: integManifest,
+      callJudges: [integCallJudge({ E2: false, E4: true, "E5.1": true, E6: true })],
+      stageSeams: [
+        multiStageSeams({
+          report_boundary: () => ({ boundaries: [{ factId: "rf1", entryId: "a1", evidence: "used rf1" }] }),
+          record_grades: () => ({ grades: [{ axis: "E4", pass: true, evidence: "e" }] }),
+          write_summary: () => ({ summary: "s" }),
+        }),
+      ],
+      shuffle: identityShuffle,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+      bootstrapOptions: null,
+      pricing: ZERO_PRICING,
+      checkout: () => undefined,
+      meta: integMeta(),
+      onScoreProgress: (line) => {
+        lines.push(line);
+      },
+      onScoreArmFocus: (arm, index, total) => {
+        focus.push(`${arm ?? "-"}:${index ?? "-"}/${total ?? "-"}`);
+      },
+    };
+    await scoreRun(runs, deps);
+    // per-run focus: A3 (canonical position 2) first, then A1 (1); then the cross-arm clear
+    expect(focus[0]).toBe("A3:2/2");
+    expect(focus[1]).toBe("A1:1/2");
+    expect(focus.at(-1)).toBe("-:-/-");
+    // detail lines carry run numbering + arm-less probe lanes
+    expect(lines[0]).toBe("run 1/2 — exact metrics");
+    expect(lines).toContain("run 2/2 — exact metrics");
+    expect(lines).toContain("probe 1/2 grading");
+    expect(lines).toContain("run 1/2 — trajectory");
+    expect(lines.at(-1)).toBe("comparative");
+    expect(lines.some((l) => l.startsWith("arm "))).toBe(false); // the arm identity lives in the widget counter
   });
 });

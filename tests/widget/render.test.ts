@@ -22,6 +22,7 @@ function running(phase: WidgetState["phase"], over: Partial<WidgetState>): Widge
     ctxUsage: 12_000,
     ctxWindow: 200_000,
     tok: 300,
+    judgeUsages: null,
     hint: null,
     ...over,
   };
@@ -45,6 +46,7 @@ describe("renderLine — phase-bar + phase name", () => {
       ctxUsage: 142_000,
       ctxWindow: 200_000,
       tok: 1100,
+      judgeUsages: null,
       hint: null,
     });
     expect(md).toBe("🅑 ◧□□□□□□ build · ctx 142K/200K · 1.1k tok");
@@ -61,6 +63,7 @@ describe("renderLine — phase-bar + phase name", () => {
       ctxUsage: 30_000,
       ctxWindow: 200_000,
       tok: 500,
+      judgeUsages: null,
       hint: null,
     });
     expect(md).toBe("🅑 ■◧□□□□□ extract · ctx 30K/200K · 0.5k tok");
@@ -104,6 +107,58 @@ describe("renderLine — phase-bar + phase name", () => {
     expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■■◧ score 5/7 · ctx 124K/256K · 1.2k tok");
   });
 
+  it("score with judgeUsages (K=3, mixed windows): one ctx pair + one tok per judge", () => {
+    const md = renderLine(
+      running("score", {
+        armIndex: 1,
+        tool: "bare-pi",
+        detail: "run 3/15 — exact metrics",
+        judgeUsages: [
+          { ctxUsage: 45_000, ctxWindow: 262_144, tok: 3200 },
+          { ctxUsage: 32_000, ctxWindow: 200_000, tok: 1300 },
+          { ctxUsage: 200_000, ctxWindow: 1_000_000, tok: 10_100 },
+        ],
+      }),
+    );
+    expect(md).toBe(
+      "🅑 1/5 bare-pi · ■■■■■■◧ score run 3/15 — exact metrics · ctx 45K/262K 32K/200K 200K/1M · 3.2k 1.3k 10.1k tok",
+    );
+  });
+
+  it("score with judgeUsages (K=1): single pair, unresolved window renders ?", () => {
+    const md = renderLine(
+      running("score", {
+        detail: "probe 45/57 grading",
+        judgeUsages: [{ ctxUsage: 8_400, ctxWindow: null, tok: 250 }],
+      }),
+    );
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■■■◧ score probe 45/57 grading · ctx 8K/? · 0.3k tok");
+  });
+
+  it("score with judgeUsages present ignores the single-agent ctx/tok fields", () => {
+    const md = renderLine(
+      running("score", {
+        ctxUsage: 999_000, // would render 999K — must be suppressed by the judge list
+        judgeUsages: [{ ctxUsage: 8_000, ctxWindow: 100_000, tok: 400 }],
+      }),
+    );
+    expect(md).toContain("ctx 8K/100K · 0.4k tok");
+    expect(md).not.toContain("999K");
+  });
+
+  it("comparative (arm counter cleared): no arm segment, judge list still shows", () => {
+    const md = renderLine(
+      running("score", {
+        armIndex: null,
+        armTotal: null,
+        tool: null,
+        detail: "comparative",
+        judgeUsages: [{ ctxUsage: 20_000, ctxWindow: 200_000, tok: 2000 }],
+      }),
+    );
+    expect(md).toBe("🅑 ■■■■■■◧ score comparative · ctx 20K/200K · 2.0k tok");
+  });
+
   it("probe with no judge (ctxUsage null): ctx/tok omitted", () => {
     const md = renderLine(
       running("probe", {
@@ -136,6 +191,7 @@ describe("renderLine — terminal states (stay visible)", () => {
       ctxUsage: null,
       ctxWindow: null,
       tok: null,
+      judgeUsages: null,
       hint: "/bench-compact:run-scenario /tmp/scenario",
     });
     expect(md).toBe("🅑 ■■□□□□□ prepared · /bench-compact:run-scenario /tmp/scenario");
@@ -148,6 +204,7 @@ describe("renderLine — terminal states (stay visible)", () => {
         armIndex: 2,
         tool: "memkeeper-selector",
         detail: "3/10",
+        judgeUsages: null,
         hint: "/bench-compact:resume",
       }),
     );
@@ -186,6 +243,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
         ctxUsage: 124000,
         ctxWindow: 200000,
         tok: 300,
+        judgeUsages: null,
         hint: null,
       },
       MARKUP_THEME,
@@ -214,6 +272,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
         ctxUsage: null,
         ctxWindow: null,
         tok: null,
+        judgeUsages: null,
         hint: "/bench-compact:resume",
       },
       MARKUP_THEME,
@@ -235,6 +294,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
         ctxUsage: null,
         ctxWindow: null,
         tok: null,
+        judgeUsages: null,
         hint: "/bench-compact:results",
       },
       MARKUP_THEME,
@@ -261,6 +321,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
       ctxUsage: 142000,
       ctxWindow: 200000,
       tok: 1100,
+      judgeUsages: null,
       hint: null,
     } as const;
     const strip = (t: string): string => t.replace(/<[^>]+>/g, "");

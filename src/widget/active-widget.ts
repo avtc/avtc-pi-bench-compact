@@ -7,7 +7,7 @@
 // Mirrors run-state's globalThis singleton pattern (one active widget per process).
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import type { WidgetPhase, WidgetStatus } from "./render.js";
+import type { JudgeUsage, WidgetPhase, WidgetStatus } from "./render.js";
 
 /** The narrow widget surface the orchestrator + abort use. {@link WidgetController}
  *  satisfies this structurally; tests inject capturing implementations. */
@@ -17,10 +17,14 @@ export interface WidgetPort {
   setStatus(status: WidgetStatus, hint: string | null): void;
   /** Arm counter (`<armN>/<total> <tool>`); the harness calls this per arm/attempt. */
   setArm(index: number, total: number, tool: string): void;
+  /** Clear the arm counter (cross-arm stages — comparative scoring). */
+  clearArm(): void;
   /** Trailing detail on the phase label (e.g. `<attempt>/<N>`). */
   setDetail(detail: string | null): void;
   /** Set the background agent's context window when it starts (the <w> in `ctx <u>/<w>`). */
   setCtxWindow(ctxWindow: number | null): void;
+  /** Set the per-judge usage list (score phase — K parallel judges). */
+  setJudgeUsages(list: readonly JudgeUsage[] | null): void;
   /** Forward a background-agent event (user-simulator / judge) → two-tier token accumulator. */
   onEvent(event: AgentEvent): void;
   hide(): void;

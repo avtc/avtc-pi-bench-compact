@@ -22,7 +22,6 @@ import type { JudgeAgentSpec } from "../config/background-agents.js";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
-  NO_REASONING,
   NO_STAGE_END_HOOK,
   runBenchStage,
   type StageRunInput,
@@ -47,15 +46,18 @@ export interface JudgeSpec {
  *  scoring-session ctx (model registry) + the per-call budget/signal/rate-limit.
  *  `resolveModel`/`runStage` default to the real implementations; tests inject fakes. */
 /** Options for {@link defaultJudgeTransport} — the shared budget/timeout/event fields
- *  of a {@link JudgeTransport} without its seams (resolveModel/runStage/ctx). */
+ *  of a {@link JudgeTransport} without its seams (resolveModel/runStage/ctx). The
+ *  event/model hooks carry the judge's ENSEMBLE INDEX (0-based): the K judges run
+ *  in parallel, so per-judge consumers (the score widget's per-slot usage list)
+ *  need to tell the streams apart. */
 export interface JudgeTransportOptions {
   readonly maxTokens: number;
   /** Per-turn wall-clock cap for a single judge LLM call; null = no cap. */
   readonly timeoutMs: number | null;
   readonly signal: AbortSignal;
   readonly rateLimitOptions?: RateLimitOptions | null;
-  readonly onEvent?: (event: AgentEvent) => void;
-  readonly onModelResolved?: (model: Model<Api>) => void;
+  readonly onEvent?: (event: AgentEvent, judge: number) => void;
+  readonly onModelResolved?: (model: Model<Api>, judge: number) => void;
 }
 
 /** The judge transport: options + the injectable seams + the scoring-session ctx. */
@@ -99,15 +101,17 @@ export function judgeSpecs(
 
 /** Build a `CallJudge` (one no-tools LLM turn → assistant text) for one judge spec.
  *  Resolves the model, runs a single-turn stage with no tools, + returns the
- *  assistant's text. Throws `BenchJudgeError` on an unavailable model, a timeout,
- *  or an abort (the orchestrate layer stop-and-surfaces). */
-export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): CallJudge {
+ *  assistant's text. `judgeIndex` (the spec's ensemble position) tags the forwarded
+ *  events so parallel judge streams stay distinguishable. Throws `BenchJudgeError`
+ *  on an unavailable model, a timeout, or an abort (the orchestrate layer
+ *  stop-and-surfaces). */
+export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport, judgeIndex: number): CallJudge {
   return async (systemPrompt, userContent): Promise<string> => {
     const resolved = await transport.resolveModel(transport.ctx, spec.model);
     if (!resolved.ok) {
       throw new BenchJudgeError("model-unavailable", `judge model not available: ${resolved.error}`);
     }
-    transport.onModelResolved?.(resolved.model);
+    transport.onModelResolved?.(resolved.model, judgeIndex);
     const run = (): Promise<StageRunResult> =>
       transport.runStage({
         systemPrompt,
@@ -124,7 +128,7 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
         // A per-turn wall-clock cap: a hung cloud-judge call surfaces as a
         // BenchJudgeError("timeout") instead of hanging until the run idle-alert.
         timeoutMs: transport.timeoutMs,
-        onEvent: transport.onEvent ?? NO_EVENT_SINK,
+        onEvent: transport.onEvent === undefined ? NO_EVENT_SINK : (event) => transport.onEvent?.(event, judgeIndex),
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
       });
@@ -143,12 +147,13 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
  *  spec. `resolveModel` resolves the spec's model; `runStage` is the transport's
  *  runStage (identity passthrough — the tool-bearing stages build the full
  *  StageRunInput themselves via runJsonToolStage). */
-export function buildStageSeams(spec: JudgeSpec, transport: JudgeTransport): JsonToolStageSeams {
+export function buildStageSeams(spec: JudgeSpec, transport: JudgeTransport, judgeIndex: number): JsonToolStageSeams {
   return {
     resolveModel: () => transport.resolveModel(transport.ctx, spec.model),
     runStage: transport.runStage,
-    onEvent: transport.onEvent,
-    onModelResolved: transport.onModelResolved,
+    onEvent: transport.onEvent === undefined ? undefined : (event) => transport.onEvent?.(event, judgeIndex),
+    onModelResolved:
+      transport.onModelResolved === undefined ? undefined : (model) => transport.onModelResolved?.(model, judgeIndex),
   };
 }
 
@@ -169,8 +174,8 @@ export function buildJudgeEnsemble(
 ): JudgeEnsemble {
   const specs = judgeSpecs(judgesNumber, members);
   return {
-    callJudges: specs.map((spec) => buildCallJudge(spec, transport)),
-    stageSeams: specs.map((spec) => buildStageSeams(spec, transport)),
+    callJudges: specs.map((spec, i) => buildCallJudge(spec, transport, i)),
+    stageSeams: specs.map((spec, i) => buildStageSeams(spec, transport, i)),
   };
 }
 

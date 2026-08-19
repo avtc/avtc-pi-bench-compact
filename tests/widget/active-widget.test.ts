@@ -24,9 +24,13 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     setDetail: (detail) => {
       calls.push(`setDetail:${detail ?? "-"}`);
     },
+    clearArm: () => {
+      calls.push("clearArm");
+    },
     setCtxWindow: (w) => {
       calls.push(`setCtxWindow:${w ?? "-"}`);
     },
+    setJudgeUsages: () => {},
     onEvent: (event) => {
       calls.push(`onEvent:${event.type}`);
     },

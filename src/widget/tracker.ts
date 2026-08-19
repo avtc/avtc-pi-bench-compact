@@ -19,7 +19,14 @@ import { Text } from "@earendil-works/pi-tui";
 import { log } from "../log.js";
 import { deltaTextOf, deltaTokens, messageEndUsage, streamedOutputUsage } from "../runtime/streaming-tokens.js";
 import { getTermWidth } from "./fitline.js";
-import { fitThemedRenderedLine, PHASE_ORDER, type WidgetPhase, type WidgetState, type WidgetStatus } from "./render.js";
+import {
+  fitThemedRenderedLine,
+  type JudgeUsage,
+  PHASE_ORDER,
+  type WidgetPhase,
+  type WidgetState,
+  type WidgetStatus,
+} from "./render.js";
 
 /** Throttle window (ms) — leading + trailing edge. */
 const THROTTLE_MS = 200;
@@ -68,6 +75,7 @@ const DEFAULT_STATE: WidgetState = {
   ctxUsage: null,
   ctxWindow: null,
   tok: null,
+  judgeUsages: null,
   hint: null,
 };
 
@@ -94,6 +102,13 @@ export class WidgetController {
   // --- arm counter (omitted during build — harness leaves armIndex null) ---
   setArm(index: number, total: number, tool: string): void {
     this.state = { ...this.state, armIndex: index, armTotal: total, tool };
+    this.schedule();
+  }
+
+  /** Clear the arm counter (cross-arm stages — comparative scoring — where no
+   *  single arm is the subject; the counter segment is omitted until set again). */
+  clearArm(): void {
+    this.state = { ...this.state, armIndex: null, armTotal: null, tool: null };
     this.schedule();
   }
 
@@ -124,6 +139,13 @@ export class WidgetController {
   /** Harness sets the background agent's context window when it starts the agent. */
   setCtxWindow(ctxWindow: number | null): void {
     this.state = { ...this.state, ctxWindow };
+    this.schedule();
+  }
+
+  /** Set the per-judge usage list (score phase — K parallel judges). Replaces the
+   *  single-agent ctx/tok segments; null clears it back. */
+  setJudgeUsages(list: readonly JudgeUsage[] | null): void {
+    this.state = { ...this.state, judgeUsages: list };
     this.schedule();
   }
 
@@ -260,5 +282,83 @@ export function widgetStageHooks(
   return {
     onEvent: widget.onEvent.bind(widget),
     onModelResolved: (model) => widget.setCtxWindow(model.contextWindow ?? null),
+  };
+}
+
+// --- per-judge score hooks (K parallel judges → per-slot usage list) --------
+
+/** The judge-tagged hooks the score phase forwards: like {@link WidgetStageHooks}
+ *  but every callback carries the judge's ensemble index (0-based) so K parallel
+ *  judge streams keep SEPARATE per-slot accumulators instead of interleaving into
+ *  one. */
+export interface JudgeStageHooks {
+  readonly onEvent: (event: AgentEvent, judge: number) => void;
+  readonly onModelResolved: (model: Model<Api>, judge: number) => void;
+}
+
+/** One judge slot's mutable two-tier accumulator (mirror of the controller's
+ *  single-agent fields, scoped to one judge stream). */
+interface JudgeSlot {
+  primaryTokens: number;
+  fallbackTokens: number;
+  ctxUsage: number | null;
+  ctxWindow: number | null;
+}
+
+const newSlot = (): JudgeSlot => ({ primaryTokens: 0, fallbackTokens: 0, ctxUsage: null, ctxWindow: null });
+
+/** Build the per-judge score hooks. Events from concurrent judge calls land in
+ *  their own slot (keyed by the ensemble index); every event republishes the
+ *  slot list (in index order) via `setJudgeUsages`. The widget is resolved
+ *  lazily per event (the run command owns the active-widget lifecycle — hooks
+ *  built once per score-deps must survive widget re-creation). Null widget →
+ *  inert hooks (non-TUI). */
+export function scoreJudgeHooks(
+  getWidget: () => { setJudgeUsages(list: readonly JudgeUsage[] | null): void } | null,
+): JudgeStageHooks {
+  const slots = new Map<number, JudgeSlot>();
+  const slotOf = (judge: number): JudgeSlot => {
+    let slot = slots.get(judge);
+    if (slot === undefined) {
+      slot = newSlot();
+      slots.set(judge, slot);
+    }
+    return slot;
+  };
+  const publish = (): void => {
+    const widget = getWidget();
+    if (widget === null) return;
+    const list: JudgeUsage[] = [...slots.keys()]
+      .sort((a, b) => a - b)
+      .map((judge) => {
+        const s = slots.get(judge) as JudgeSlot;
+        return { ctxUsage: s.ctxUsage ?? 0, ctxWindow: s.ctxWindow, tok: Math.max(s.primaryTokens, s.fallbackTokens) };
+      });
+    widget.setJudgeUsages(list);
+  };
+  return {
+    onEvent: (event, judge) => {
+      const slot = slotOf(judge);
+      if (event.type === "message_start") {
+        // New request → reset THIS judge's current-request token tiers.
+        slot.primaryTokens = 0;
+        slot.fallbackTokens = 0;
+      } else if (event.type === "message_end") {
+        const u = messageEndUsage((event as { message: Parameters<typeof messageEndUsage>[0] }).message);
+        if (u !== null) slot.ctxUsage = u.totalTokens;
+      } else if (event.type === "message_update") {
+        const streamed = streamedOutputUsage(event);
+        if (streamed !== null && streamed > slot.primaryTokens) slot.primaryTokens = streamed;
+        const delta = deltaTextOf(event);
+        if (delta !== null) slot.fallbackTokens += deltaTokens(delta);
+      } else {
+        return; // turn_start/tool_* etc. — no state change
+      }
+      publish();
+    },
+    onModelResolved: (model, judge) => {
+      slotOf(judge).ctxWindow = model.contextWindow ?? null;
+      publish();
+    },
   };
 }
