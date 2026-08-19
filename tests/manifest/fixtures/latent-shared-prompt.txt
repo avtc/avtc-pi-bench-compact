@@ -62,6 +62,19 @@ Exclude anything recoverable without memory:
   (exact constants, paths, commands, and error strings usually live in the repo)
 - knowledge persisted in todo items or user-decisions (the non-content entry
   types described above)
+- facts restated in the KEPT TAIL — anything the tail already says (an applied
+  fix, a restated plan, a recap of what changed) is answerable from context
+- facts a fresh agent could re-derive from the summary plus the repo by
+  reasoning: generic mechanism rationales ("why does X run after Y" when the
+  order is visible in code), first-principles environment facts, algebraic
+  consequences of visible formulas. Keep facts whose CONTENT is historical:
+  what was observed (run outputs, measured numbers), what was tried and
+  rejected, what the user said or decided, what values existed before a change.
+
+Before recording each probe, VERIFY recoverability with your tools: grep the
+repo working tree for the answer's distinctive strings and numbers, and re-scan
+the kept tail for them. If any hit reproduces the answer or its essentials,
+drop the candidate.
 
 For each detail, note the entry-id(s) where it actually occurs.
 
@@ -74,7 +87,9 @@ For each detail you keep, write ONE probe: a short question we will ask the comp
 agents.
 - Neutral wording — do not hint the answer. (Bad: "we rejected write-through,
   right?" Good: "why was write-through caching rejected?")
-- One fact per probe.
+- One fact per probe — and one probe per fact: before recording, re-read your
+  recorded questions; if the same core fact would answer a new question (even
+  rephrased), skip it.
 - accept: a list of phrasings that all count as correct
   (e.g. ["it serialized writes", "write lock contention", "it made writes
   sequential"]).
