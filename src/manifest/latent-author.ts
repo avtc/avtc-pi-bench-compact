@@ -30,6 +30,9 @@ import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "./lat
 /** The per-probeClass floor: finalize is rejected below it (the exhausted-facts
  *  path lets the operator accept fewer via the deadlock dialog). */
 export const LATENT_MIN_PER_CLASS = 3;
+/** The entry types that carry conversation content (the closed list the authoring
+ *  agent may cite; everything else is metadata / persistence / compaction). */
+const CONTENT_ENTRY_TYPES = new Set(["message", "custom_message", "branch_summary"]);
 /** The per-probeClass cap: the 11th probe of a class is rejected at add time. */
 export const LATENT_CAP_PER_CLASS = LATENT_PROBE_CLASS_CAP;
 
@@ -277,7 +280,21 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
         : Object.fromEntries(deps.enabledArms.map((a) => [a, "absent"])),
   }));
   const spanEntryIds = spanContentEntryIds(deps.sessionPaths, deps.tailStartsAtEntryId);
-  const validation = validateLatentProbes(pool, {
+  // The author reads the JSONL through a line-numbered view and sometimes cites the
+  // LINE POSITION as the entry id. Resolve numeric citations against the id at that
+  // line (exact real-id matches always win; unresolvable citations pass through and
+  // the validation below rejects them with its message).
+  const citations = spanCitationIndex(deps.sessionPaths, deps.tailStartsAtEntryId);
+  const normalized: LatentProbe[] = pool.map((p) => ({
+    ...p,
+    entryIds: p.entryIds.map((id) => {
+      if (spanEntryIds.has(id)) return id;
+      if (!/^\d+$/.test(id)) return id;
+      const atLine = citations.positionToSpanId.get(Number(id));
+      return atLine ?? id;
+    }),
+  }));
+  const validation = validateLatentProbes(normalized, {
     mode: deps.mode,
     spanEntryIds,
     enabledArms: deps.enabledArms,
@@ -285,7 +302,46 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
   if (!validation.ok) {
     throw new Error(`latent pool validation failed: ${validation.reasons.join("; ")}`);
   }
-  return { kind: "completed", pool };
+  return { kind: "completed", pool: normalized };
+}
+
+/** A parsed session line: its 1-based position (what a line-numbered read view
+ *  shows) + the entry object. Torn trailing lines (crash mid-append) are skipped,
+ *  like readArmCompaction. */
+function parsedLines(path: string): readonly { position: number; entry: { id?: string; type?: string } }[] {
+  const out: { position: number; entry: { id?: string; type?: string } }[] = [];
+  let position = 0;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    position += 1;
+    if (line.trim().length === 0) continue;
+    try {
+      out.push({ position, entry: JSON.parse(line) as { id?: string; type?: string } });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+/** A 1-based line-position → span-entry-id index for citation normalization: the
+ *  authoring agent reads the JSONL through a line-numbered view and may cite the
+ *  position instead of the id. Positions are per file; a position resolves only if
+ *  the entry it points at is a CONTENT entry inside the compacted-away span (tail
+ *  and post-compaction positions deliberately do not resolve). */
+export function spanCitationIndex(
+  sessionPaths: readonly string[],
+  tailStartsAtEntryId: string,
+): { positionToSpanId: ReadonlyMap<number, string> } {
+  const positionToSpanId = new Map<number, string>();
+  for (const path of sessionPaths) {
+    for (const { position, entry } of parsedLines(path)) {
+      if (entry.id === tailStartsAtEntryId) break; // tail begins — positions past it must not resolve
+      if (entry.id !== undefined && entry.type !== undefined && CONTENT_ENTRY_TYPES.has(entry.type)) {
+        positionToSpanId.set(position, entry.id);
+      }
+    }
+  }
+  return { positionToSpanId };
 }
 
 /** The span's CONTENT entry ids (message / custom_message / branch_summary — the
@@ -294,20 +350,12 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
  *  the intersection. Validation against this set enforces both in-span AND
  *  content-type constraints (persistence-record ids are never in it). */
 export function spanContentEntryIds(sessionPaths: readonly string[], tailStartsAtEntryId: string): Set<string> {
-  const CONTENT_TYPES = new Set(["message", "custom_message", "branch_summary"]);
   let span: Set<string> | null = null;
   for (const path of sessionPaths) {
     const ids = new Set<string>();
-    for (const line of readFileSync(path, "utf8").split("\n")) {
-      if (line.trim().length === 0) continue;
-      let entry: { id?: string; type?: string };
-      try {
-        entry = JSON.parse(line) as { id?: string; type?: string };
-      } catch {
-        continue; // torn trailing line (crash mid-append) — skip, like readArmCompaction
-      }
+    for (const { entry } of parsedLines(path)) {
       if (entry.id === tailStartsAtEntryId) break; // tail begins — span done
-      if (entry.id !== undefined && entry.type !== undefined && CONTENT_TYPES.has(entry.type)) {
+      if (entry.id !== undefined && entry.type !== undefined && CONTENT_ENTRY_TYPES.has(entry.type)) {
         ids.add(entry.id);
       }
     }

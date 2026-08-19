@@ -310,6 +310,77 @@ describe("runLatentAuthoringAgent", () => {
     expect(r.pool[0]).toMatchObject({ id: "l1", arm: "A3", probeClass: "cued", verdicts: { A3: "absent" } });
   });
 
+  it("numeric citations (line positions from the read view) resolve to the id at that line", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    // lines: 1 header, 2 e1, 3 e2, 4 tail, 5 compaction — the agent cites "2"/"3" (positions)
+    const path = join(dir, "arm.jsonl");
+    const entries = [
+      { id: "h0", type: "session" },
+      { id: "e1", type: "message", content: "reasoning about write-through" },
+      { id: "e2", type: "message", content: "more rationale" },
+      { id: "cut-1", type: "message", content: "tail" },
+      { id: "c9", type: "compaction", summary: "the summary", firstKeptEntryId: "cut-1" },
+    ];
+    writeFileSync(path, entries.map((e) => JSON.stringify(e)).join("\n"));
+    const seams = fakeSeams(async (find) => {
+      const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+      for (let i = 0; i < 3; i++) {
+        await exec(add, { ...item("cued", "q"), entryIds: ["2"] }); // position of e1
+        await exec(add, { ...item("uncued", "q"), entryIds: [i === 0 ? "e2" : "3"] }); // real id / position of e2
+      }
+      await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
+    });
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [path],
+      tailStartsAtEntryId: "cut-1",
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+    });
+    expect(r.kind).toBe("completed");
+    if (r.kind !== "completed") return;
+    expect(r.pool.map((p) => p.entryIds)).toEqual([["e1"], ["e2"], ["e1"], ["e2"], ["e1"], ["e2"]]);
+  });
+
+  it("a citation resolving into the TAIL (position past firstKeptEntryId) is NOT resolved — validation rejects it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const path = join(dir, "arm.jsonl");
+    const entries = [
+      { id: "e1", type: "message", content: "span" },
+      { id: "cut-1", type: "message", content: "tail" },
+      { id: "t2", type: "message", content: "tail content" }, // line 3 — the agent cites "3"
+      { id: "c9", type: "compaction", summary: "s", firstKeptEntryId: "cut-1" },
+    ];
+    writeFileSync(path, entries.map((e) => JSON.stringify(e)).join("\n"));
+    const seams = fakeSeams(async (find) => {
+      const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+      for (let i = 0; i < 3; i++) {
+        await exec(add, { ...item("cued", "q"), entryIds: ["3"] }); // tail position — unresolvable
+        await exec(add, { ...item("uncued", "q"), entryIds: ["e1"] });
+      }
+      await exec(find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }, {});
+    });
+    await expect(
+      runLatentAuthoringAgent({
+        seams,
+        cwd: dir,
+        mode: "per-arm",
+        arm: "A1",
+        enabledArms: ["A1"],
+        sessionPaths: [path],
+        tailStartsAtEntryId: "cut-1",
+        ui: null,
+        signal: new AbortController().signal,
+        maxTokens: 1000,
+      }),
+    ).rejects.toThrow(/latent pool validation failed.*"3".*not in the pre-sliced/);
+  });
+
   it("shared: verdicts stamped for every enabled arm", async () => {
     const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
     const session = makeSession(dir, "arm.jsonl");
