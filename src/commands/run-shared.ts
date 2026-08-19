@@ -406,6 +406,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
   }
   if (result.kind === "done") {
     ui.notify(`run ${result.runId} done: ${result.resultsPath}`, "info");
+    // The run needs the operator either way (stop → resume, done → results) — an away
+    // operator gets the same bell/telegram ping as a stop (same no-agent-settled reason).
+    requestAttention("bench-compact", `run ${result.runId} done: ${result.resultsPath}`);
   }
   // stopped: startRun already notified the detailed stop message via deps.notify
   // (arm/attempt/phase + message) — do NOT double-notify. The live-progress widget

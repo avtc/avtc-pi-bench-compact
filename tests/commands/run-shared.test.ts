@@ -429,7 +429,7 @@ describe("executeRun — attention ping for an away operator (vendored pi-notifi
     expect(spy).toHaveBeenCalledWith("bench-compact", "run failed: boom");
   });
 
-  it("done → no attention request (the run finished; the operator's call, not a stop)", async () => {
+  it("done → requestAttention(bench-compact, run done: results path) (the operator is pinged either way)", async () => {
     const { ctx } = fakeCommandCtx();
     await executeRun({
       ctx,
@@ -444,7 +444,8 @@ describe("executeRun — attention ping for an away operator (vendored pi-notifi
         reportPath: "/runs/r1/report.md",
       }),
     });
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("bench-compact", "run 2026-01-01-1 done: /runs/r1/results.json");
   });
 });
 
