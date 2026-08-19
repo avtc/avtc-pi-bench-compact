@@ -23,7 +23,7 @@
 // `ProbeStoppedError`; the run driver catches + notifies. An abort (run signal)
 // is `probe-hung`; any other error is `probe-failed`.
 
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export type { ProbeUsage } from "../storage/probe-lifecycle.js";
@@ -34,6 +34,7 @@ import { log } from "../log.js";
 import type { LatentProbe } from "../manifest/latent.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
+import { copySessionFork } from "../session/fork.js";
 import { type InjectMode, inject } from "../session/inject.js";
 import { extractContentText } from "../session/message-text.js";
 import { loadSession } from "../session/switch.js";
@@ -254,7 +255,7 @@ const DEFAULT_OPS: ProbeOps = {
   branchExists,
   commitCountAhead,
   commit: commitAll,
-  copySeed: (src, dest) => copyFileSync(src, dest),
+  copySeed: copySessionFork,
   awaitSettled: awaitAgentSettled,
   isQaOnly: isQaOnlyBranch,
   changedFiles: diffNameOnly,

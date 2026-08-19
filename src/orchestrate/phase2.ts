@@ -22,7 +22,6 @@
 // per-run turn-cap: the run is bounded by context monitoring (steer to wrap up as
 // usage approaches the model's window) + the notification extension's idle-alert.
 
-import { copyFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { isolateArmOrStop } from "../arms/switch.js";
 import { resolveBackgroundAgents } from "../config/background-agents.js";
@@ -31,6 +30,7 @@ import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled, withStallWatch } from "../session/done.js";
 import { subscribeAgentEvent } from "../session/events.js";
+import { copySessionFork } from "../session/fork.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import { buildSimulatorDriver, driveUntilStop, makeDriveStop, type SimulatorHooks } from "../simulator/loop.js";
@@ -279,7 +279,7 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
     commitCountAhead: deps.ops?.commitCountAhead ?? commitCountAhead,
     deleteBranch: deps.ops?.deleteBranch ?? resetBranch,
     commit: deps.ops?.commit ?? commitAll,
-    copySeed: deps.ops?.copySeed ?? ((src, dest) => copyFileSync(src, dest)),
+    copySeed: deps.ops?.copySeed ?? copySessionFork,
     awaitSettled: deps.ops?.awaitSettled ?? awaitAgentSettled,
     makeMonitor: deps.ops?.makeMonitor ?? makeContextMonitor,
     captureTrace: deps.ops?.captureTrace ?? captureTrace,

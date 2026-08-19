@@ -20,7 +20,7 @@
 // summary HALTS the run — the operator inspects + decides. No auto-retry, no silent
 // skip. Surfaced via {@link Phase1StoppedError}; the run driver catches + notifies.
 
-import { copyFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { ARM_DEFS } from "../arms/definitions.js";
 import { isolateArmOrStop } from "../arms/switch.js";
@@ -31,6 +31,7 @@ import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { appendUserEntry } from "../production/live-seams.js";
 import { CompactionCancelledError, triggerCompact } from "../session/compact.js";
+import { copySessionFork } from "../session/fork.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
@@ -123,7 +124,7 @@ const DEFAULT_OPS: Phase1Ops = {
   deleteBranch: resetBranch,
   exists: existsSync,
   newestBranches,
-  copySeed: (src, dest) => copyFileSync(src, dest),
+  copySeed: copySessionFork,
   appendAntiPeek: (sessionPath, text) => appendUserEntry(sessionPath, text, {}),
 };
 

@@ -15,7 +15,7 @@
 // `switchSession` starts from a valid ctx. Mirrors runPhase1/runContinuations.
 
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type {
@@ -50,6 +50,7 @@ import {
   withStallWatch,
 } from "../session/done.js";
 import { readMessageEndUsage, subscribeAgentEvent } from "../session/events.js";
+import { copySessionFork } from "../session/fork.js";
 import { makeAntiPeekInjectFactory } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import {
@@ -348,7 +349,7 @@ export interface TrialCompactSeamDeps {
  *  are absent there are no hooks to disable — the cut is already native). The fresh
  *  ctx from the copy's `withSession` is threaded into `holder.current`. */
 export function buildTrialCompactSeam(deps: TrialCompactSeamDeps): BuildSeams["trialCompact"] {
-  const copyFile = deps.copyFile ?? copyFileSync;
+  const copyFile = deps.copyFile ?? copySessionFork;
   const load = deps.loadSession ?? loadSession;
   const trigger = deps.triggerCompact ?? triggerCompact;
   const configure = deps.configureArm ?? configureArm;
