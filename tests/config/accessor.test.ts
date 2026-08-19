@@ -51,12 +51,12 @@ describe("getBenchConfig", () => {
     expect(cfg.testspecTimeoutMs).toBe(30000);
   });
 
-  it("defaults the background-agent settings (background 32K/20m, per-agent overrides null)", () => {
+  it("defaults the background-agent settings (background xhigh/64K/20m, per-agent overrides null)", () => {
     _setHandleForTest(fakeHandle({}));
     const cfg = getBenchConfig();
     expect(cfg.backgroundModel).toBeNull();
-    expect(cfg.backgroundThinkingLevel).toBeNull();
-    expect(cfg.backgroundMaxTokens).toBe(32768);
+    expect(cfg.backgroundThinkingLevel).toBe("xhigh");
+    expect(cfg.backgroundMaxTokens).toBe(65536);
     expect(cfg.backgroundTimeoutMs).toBe(1200000);
     for (const key of [
       "authorModel",

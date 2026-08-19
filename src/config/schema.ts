@@ -46,8 +46,8 @@ export const DEFAULTS = {
   judgeTurnTimeoutMs: 300000 as number | null,
   testspecTimeoutMs: 120000,
   backgroundModel: NO_MODEL,
-  backgroundThinkingLevel: null as ThinkingLevel | null,
-  backgroundMaxTokens: 32768,
+  backgroundThinkingLevel: "xhigh" as ThinkingLevel | null,
+  backgroundMaxTokens: 65536,
   backgroundTimeoutMs: 1200000,
   authorModel: NO_MODEL,
   authorThinkingLevel: null as ThinkingLevel | null,
@@ -107,18 +107,16 @@ const BACKGROUND_THINKING_PRESETS: readonly (readonly [string, string | null])[]
   ["xhigh", "xhigh"],
   ["max", "max"],
 ];
-/** Shared background-agent output-token-cap presets (32K = the default). */
-const BACKGROUND_MAX_TOKENS_PRESETS: readonly number[] = [8192, 16384, 32768, 65536, 131072, 262144];
-/** Shared background-agent wall-clock presets (human durations; 20m = the default). */
-const BACKGROUND_TIMEOUT_PRESETS: readonly string[] = ["1m", "2m", "5m", "10m", "20m", "30m", "1h"];
-/** Authoring output-token overrides: "default" = the background setting, then quick picks. */
-const AUTHOR_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], 2048, 4096, 8192, 16384, 32768, 65536];
-/** Tiny-reply output-token overrides (tail check + simulator): "default", then quick picks. */
-const SMALL_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], 128, 256, 512, 1024, 2048, 4096];
-/** Latent-authoring output-token overrides: "default", then quick picks. */
-const LATENT_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], 16384, 32768, 65536, 131072, 262144];
-/** Per-agent wall-clock overrides: "default" = the background setting, then quick picks. */
-const AGENT_TIMEOUT_PRESETS: readonly PresetElement[] = [["default", null], "1m", "2m", "5m", "10m", "20m"];
+/** Shared background-agent output-token-cap presets (64K = the default), used
+ *  identically by every background agent's max-tokens setting. */
+const BACKGROUND_MAX_TOKENS_PRESETS: readonly number[] = [16384, 32768, 65536, 131072, 262144];
+/** Shared background-agent wall-clock presets (human durations; 20m = the default), used
+ *  identically by every background agent's timeout setting. */
+const BACKGROUND_TIMEOUT_PRESETS: readonly string[] = ["5m", "10m", "20m", "60m", "120m"];
+/** Per-agent max-tokens presets: "default" = inherit the background setting, then the shared picks. */
+const AGENT_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_MAX_TOKENS_PRESETS];
+/** Per-agent timeout presets: "default" = inherit the background setting, then the shared picks. */
+const AGENT_TIMEOUT_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_TIMEOUT_PRESETS];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -233,7 +231,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "number",
     defaultValue: DEFAULTS.latentStageMaxTokens,
     min: 1,
-    presets: LATENT_MAX_TOKENS_PRESETS,
+    presets: AGENT_MAX_TOKENS_PRESETS,
   }),
   setting("judgeTurnTimeoutMs", {
     label: "Judge turn timeout",
@@ -278,7 +276,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "duration",
     defaultValue: DEFAULTS.backgroundTimeoutMs,
     min: 1000,
-    max: 3600000,
+    max: 7200000,
     presets: BACKGROUND_TIMEOUT_PRESETS,
   }),
   setting("authorModel", {
@@ -302,7 +300,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "number",
     defaultValue: DEFAULTS.authorMaxTokens,
     min: 1,
-    presets: AUTHOR_MAX_TOKENS_PRESETS,
+    presets: AGENT_MAX_TOKENS_PRESETS,
   }),
   setting("authorTimeoutMs", {
     label: "Manifest author timeout",
@@ -310,7 +308,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "duration",
     defaultValue: DEFAULTS.authorTimeoutMs,
     min: 1000,
-    max: 3600000,
+    max: 7200000,
     presets: AGENT_TIMEOUT_PRESETS,
   }),
   setting("tailCheckModel", {
@@ -334,7 +332,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "number",
     defaultValue: DEFAULTS.tailCheckMaxTokens,
     min: 1,
-    presets: SMALL_MAX_TOKENS_PRESETS,
+    presets: AGENT_MAX_TOKENS_PRESETS,
   }),
   setting("tailCheckTimeoutMs", {
     label: "Tail check timeout",
@@ -342,7 +340,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "duration",
     defaultValue: DEFAULTS.tailCheckTimeoutMs,
     min: 1000,
-    max: 3600000,
+    max: 7200000,
     presets: AGENT_TIMEOUT_PRESETS,
   }),
   setting("simulatorModel", {
@@ -365,7 +363,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "number",
     defaultValue: DEFAULTS.simulatorMaxTokens,
     min: 1,
-    presets: SMALL_MAX_TOKENS_PRESETS,
+    presets: AGENT_MAX_TOKENS_PRESETS,
   }),
   setting("simulatorTurnTimeoutMs", {
     label: "Simulator turn timeout",
@@ -373,7 +371,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "duration",
     defaultValue: DEFAULTS.simulatorTurnTimeoutMs,
     min: 1000,
-    max: 3600000,
+    max: 7200000,
     presets: AGENT_TIMEOUT_PRESETS,
   }),
   setting("latentModel", {
@@ -395,7 +393,7 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "duration",
     defaultValue: DEFAULTS.latentTimeoutMs,
     min: 1000,
-    max: 3600000,
+    max: 7200000,
     presets: AGENT_TIMEOUT_PRESETS,
   }),
   setting("scenario", {

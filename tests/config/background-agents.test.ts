@@ -6,13 +6,13 @@ import { resolveBackgroundAgents } from "../../src/config/background-agents.js";
 import type { BenchConfig } from "../../src/config/types.js";
 
 /** A minimal config with every background-agent setting at its default
- *  (per-agent null; background 32K tokens / 20m). Each test overrides what it exercises. */
+ *  (per-agent null; background xhigh/64K/20m). Each test overrides what it exercises. */
 function cfg(overrides: Partial<BenchConfig>): BenchConfig {
   return {
     evaluatedModel: "eval/model",
     backgroundModel: null,
-    backgroundThinkingLevel: null,
-    backgroundMaxTokens: 32768,
+    backgroundThinkingLevel: "xhigh",
+    backgroundMaxTokens: 65536,
     backgroundTimeoutMs: 1200000,
     authorModel: null,
     authorThinkingLevel: null,
@@ -39,24 +39,24 @@ describe("resolveBackgroundAgents", () => {
     const agents = resolveBackgroundAgents(cfg({}));
     expect(agents.author).toEqual({
       model: "eval/model",
-      thinking: null,
-      maxTokens: 32768,
+      thinking: "xhigh",
+      maxTokens: 65536,
       timeoutMs: 1200000,
     });
     expect(agents.tailCheck).toEqual({
       model: "eval/model",
-      thinking: null,
-      maxTokens: 32768,
+      thinking: "xhigh",
+      maxTokens: 65536,
       timeoutMs: 1200000,
     });
     expect(agents.simulator).toEqual({
       model: "eval/model",
-      thinking: null,
-      maxTokens: 32768,
+      thinking: "xhigh",
+      maxTokens: 65536,
       timeoutMs: 1200000,
     });
     // The latent authoring agent's model base is the session default (null).
-    expect(agents.latent).toEqual({ model: null, thinking: null, maxTokens: 32768, timeoutMs: 1200000 });
+    expect(agents.latent).toEqual({ model: null, thinking: "xhigh", maxTokens: 65536, timeoutMs: 1200000 });
   });
 
   it("per-agent model/thinking override the background defaults; background overrides the bases", () => {
