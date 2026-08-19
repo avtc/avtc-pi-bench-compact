@@ -14,6 +14,7 @@ import {
   sanitizeCitations,
 } from "../../src/manifest/author.js";
 import type { AuthorOutput, ScenarioManifest } from "../../src/manifest/schema.js";
+import type { StageRunInput } from "../../src/runtime/agent-loop.js";
 
 /** Minimal stand-in for a resolved bench model (only `id` is read by the seams). */
 const FAKE_MODEL: Model<Api> = { id: "fake" } as unknown as Model<Api>;
@@ -199,6 +200,8 @@ describe("runAuthoringAgent", () => {
       scenarioCtx,
       signal: new AbortController().signal,
       maxTokens: 2000,
+      thinking: null,
+      timeoutMs: 120000,
     });
 
     expect(manifest.recallFacts[0].fact).toBe("scores in ~/.scores.json");
@@ -229,6 +232,8 @@ describe("runAuthoringAgent", () => {
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
+        thinking: null,
+        timeoutMs: 120000,
       }),
     ).rejects.toThrow(/finalize_manifest/i);
   });
@@ -255,6 +260,8 @@ describe("runAuthoringAgent", () => {
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
+        thinking: null,
+        timeoutMs: 120000,
       }),
     ).rejects.toThrow(/model/i);
   });
@@ -294,6 +301,8 @@ describe("runAuthoringAgent", () => {
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
+        thinking: null,
+        timeoutMs: 120000,
       }),
     ).rejects.toThrow(/timed.?out|timeout/i);
   });
@@ -332,6 +341,8 @@ describe("runAuthoringAgent", () => {
         scenarioCtx,
         signal: new AbortController().signal,
         maxTokens: 2000,
+        thinking: null,
+        timeoutMs: 120000,
       }),
     ).rejects.toThrow(/abort/i);
   });
@@ -368,6 +379,8 @@ describe("runAuthoringAgent", () => {
       scenarioCtx,
       signal: new AbortController().signal,
       maxTokens: 2000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(manifest.recallFacts[0]?.fact).toBe("second-final"); // accumulated ONCE (not per finalize)
     expect(manifest.taskObjective.description).toBe("second-final"); // LAST finalize wins
@@ -417,10 +430,65 @@ describe("runAuthoringAgent", () => {
       scenarioCtx,
       signal: new AbortController().signal,
       maxTokens: 2000,
+      thinking: null,
+      timeoutMs: 120000,
       rateLimitOptions,
     });
     expect(calls).toBe(2); // retried once after the rate-limit
     expect(manifest.recallFacts[0]?.fact).toBe("f");
+  });
+
+  it("threads thinking (off → null), maxTokens + timeoutMs into the stage input", async () => {
+    const capturedStage: { input: StageRunInput | null } = { input: null };
+    const fakeSeams: AuthoringSeams = {
+      resolveModel: async () => ({ ok: true, model: FAKE_MODEL, apiKey: "k" }),
+      runStage: async (input) => {
+        capturedStage.input = input;
+        const finalize = input.tools.find((t) => t.name === "finalize_manifest");
+        if (finalize) {
+          await finalize.execute("call1", { description: "d", testSpec: "t" });
+        }
+        return {
+          messages: [],
+          usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
+          outputTokens: 1,
+          aborted: false,
+          timedOut: false,
+        };
+      },
+    };
+    await runAuthoringAgent({
+      onAdd: () => {},
+      seams: fakeSeams,
+      cwd: process.cwd(),
+      preSlicedJsonlPath: "/tmp/sliced.jsonl",
+      fullJsonlPath: "/tmp/backup.jsonl",
+      tailStartsAtEntryId: "tail-start",
+      scenarioCtx,
+      signal: new AbortController().signal,
+      maxTokens: 2048,
+      thinking: "off",
+      timeoutMs: 45678,
+    });
+    expect(capturedStage.input?.reasoning).toBeNull(); // "off" = no reasoning = null
+    expect(capturedStage.input?.maxTokens).toBe(2048);
+    expect(capturedStage.input?.timeoutMs).toBe(45678);
+
+    // a real level passes through unchanged
+    await runAuthoringAgent({
+      onAdd: () => {},
+      seams: fakeSeams,
+      cwd: process.cwd(),
+      preSlicedJsonlPath: "/tmp/sliced.jsonl",
+      fullJsonlPath: "/tmp/backup.jsonl",
+      tailStartsAtEntryId: "tail-start",
+      scenarioCtx,
+      signal: new AbortController().signal,
+      maxTokens: 2048,
+      thinking: "high",
+      timeoutMs: 45678,
+    });
+    expect(capturedStage.input?.reasoning).toBe("high");
   });
 });
 

@@ -76,6 +76,8 @@ function baseDeps(dir: string, over: Partial<LatentStageDeps> | null): LatentSta
     seams: NO_SEAMS,
     signal: SIGNAL,
     maxTokens: 100,
+    thinking: null,
+    timeoutMs: 120000,
     rateLimitOptions: null,
     ...(over ?? {}),
   };

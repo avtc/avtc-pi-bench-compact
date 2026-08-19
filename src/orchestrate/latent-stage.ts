@@ -9,6 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ArmId } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import type { JsonToolStageSeams } from "../judge/stage-runner.js";
@@ -39,7 +40,11 @@ export interface LatentStageDeps {
   readonly ui: AskUi | null;
   readonly seams: JsonToolStageSeams;
   readonly signal: AbortSignal;
+  /** The authoring agent's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
   readonly maxTokens: number;
+  /** Wall-clock cap per latent-authoring LLM call. */
+  readonly timeoutMs: number;
   readonly rateLimitOptions: RateLimitOptions | null;
 }
 
@@ -65,6 +70,24 @@ export class LatentStageStoppedError extends Error {
 }
 
 /** Run the latent stage in per-arm mode. */
+/** The authoring-arg fields shared by both latent modes (mode/arm/sessionPaths/
+ *  tailStartsAtEntryId vary per mode — callers spread this + set those). */
+function sharedAuthoringArgs(
+  deps: LatentStageDeps,
+): Omit<Parameters<typeof runLatentAuthoringAgent>[0], "mode" | "arm" | "sessionPaths" | "tailStartsAtEntryId"> {
+  return {
+    seams: deps.seams,
+    cwd: deps.cwd,
+    enabledArms: deps.arms.map((a) => a.arm),
+    ui: deps.ui,
+    signal: deps.signal,
+    thinking: deps.thinking,
+    maxTokens: deps.maxTokens,
+    timeoutMs: deps.timeoutMs,
+    rateLimitOptions: deps.rateLimitOptions,
+  };
+}
+
 export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<LatentStageResult> {
   const author = deps.author ?? runLatentAuthoringAgent;
   const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
@@ -99,17 +122,11 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       reAuthored.push(arm);
     }
     const result = await author({
-      seams: deps.seams,
-      cwd: deps.cwd,
+      ...sharedAuthoringArgs(deps),
       mode: "per-arm",
       arm,
-      enabledArms: deps.arms.map((a) => a.arm),
       sessionPaths: [sessionPath],
       tailStartsAtEntryId: compaction.firstKeptEntryId,
-      ui: deps.ui,
-      signal: deps.signal,
-      maxTokens: deps.maxTokens,
-      rateLimitOptions: deps.rateLimitOptions,
     });
     if (result.kind === "stopped") {
       return {
@@ -183,17 +200,11 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
   }
 
   const result = await author({
-    seams: deps.seams,
-    cwd: deps.cwd,
+    ...sharedAuthoringArgs(deps),
     mode: "shared",
     arm: deps.arms[0].arm,
-    enabledArms: deps.arms.map((a) => a.arm),
     sessionPaths: deps.arms.map((a) => a.sessionPath),
     tailStartsAtEntryId: anchor,
-    ui: deps.ui,
-    signal: deps.signal,
-    maxTokens: deps.maxTokens,
-    rateLimitOptions: deps.rateLimitOptions,
   });
   if (result.kind === "stopped") {
     return {

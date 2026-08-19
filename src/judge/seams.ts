@@ -27,6 +27,7 @@ import {
   runBenchStage,
   type StageRunInput,
   type StageRunResult,
+  toStageReasoning,
 } from "../runtime/agent-loop.js";
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { extractAssistantText } from "../simulator/loop.js";
@@ -113,8 +114,8 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport): Call
         apiKey: resolved.apiKey,
         signal: transport.signal,
         // pi-agent-core's ThinkingLevel includes "off" (no reasoning); pi-ai's excludes
-        // it (null = no reasoning). Map "off" → null so the config level flows through.
-        reasoning: spec.reasoning === "off" ? NO_REASONING : spec.reasoning,
+        // it (null = no reasoning). toStageReasoning maps "off" → null.
+        reasoning: toStageReasoning(spec.reasoning),
         maxTurns: SINGLE_TURN,
         maxTokens: transport.maxTokens,
         // A per-turn wall-clock cap: a hung cloud-judge call surfaces as a

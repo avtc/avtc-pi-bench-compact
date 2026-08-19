@@ -51,6 +51,67 @@ describe("getBenchConfig", () => {
     expect(cfg.testspecTimeoutMs).toBe(30000);
   });
 
+  it("defaults the background-agent settings (background 32K/20m, per-agent overrides null)", () => {
+    _setHandleForTest(fakeHandle({}));
+    const cfg = getBenchConfig();
+    expect(cfg.backgroundModel).toBeNull();
+    expect(cfg.backgroundThinkingLevel).toBeNull();
+    expect(cfg.backgroundMaxTokens).toBe(32768);
+    expect(cfg.backgroundTimeoutMs).toBe(1200000);
+    for (const key of [
+      "authorModel",
+      "authorThinkingLevel",
+      "authorMaxTokens",
+      "authorTimeoutMs",
+      "tailCheckModel",
+      "tailCheckThinkingLevel",
+      "tailCheckMaxTokens",
+      "tailCheckTimeoutMs",
+      "simulatorModel",
+      "simulatorThinkingLevel",
+      "simulatorMaxTokens",
+      "simulatorTurnTimeoutMs",
+      "latentModel",
+      "latentThinkingLevel",
+      "latentTimeoutMs",
+      "latentStageMaxTokens",
+    ] as const) {
+      expect(cfg[key]).toBeNull();
+    }
+  });
+
+  it("maps background-agent overrides (models, thinking, per-agent tokens + timeouts)", () => {
+    _setHandleForTest(
+      fakeHandle({
+        backgroundModel: "p/m",
+        backgroundThinkingLevel: "low",
+        backgroundMaxTokens: 16384,
+        backgroundTimeoutMs: 600000,
+        authorMaxTokens: 4096,
+        authorTimeoutMs: 300000,
+        tailCheckMaxTokens: 512,
+        tailCheckTimeoutMs: 120000,
+        simulatorMaxTokens: 1024,
+        simulatorTurnTimeoutMs: 60000,
+        latentStageMaxTokens: 65536,
+        latentTimeoutMs: 900000,
+      }),
+    );
+    const cfg = getBenchConfig();
+    expect(cfg.backgroundModel).toBe("p/m");
+    expect(cfg.backgroundThinkingLevel).toBe("low");
+    expect(cfg.backgroundMaxTokens).toBe(16384);
+    expect(cfg.backgroundTimeoutMs).toBe(600000);
+    expect(cfg.authorMaxTokens).toBe(4096);
+    expect(cfg.authorTimeoutMs).toBe(300000);
+    expect(cfg.tailCheckMaxTokens).toBe(512);
+    expect(cfg.tailCheckTimeoutMs).toBe(120000);
+    expect(cfg.simulatorMaxTokens).toBe(1024);
+    expect(cfg.simulatorTurnTimeoutMs).toBe(60000);
+    expect(cfg.latentStageMaxTokens).toBe(65536);
+    expect(cfg.latentTimeoutMs).toBe(900000);
+  });
+
   it("maps provided values (numbers, models, booleans, strings)", () => {
     _setHandleForTest(
       fakeHandle({

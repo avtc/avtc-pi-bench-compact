@@ -9,7 +9,7 @@
 // protected text (staged in .featyard/task-plans/2026-08-18-latent-probes-prompts.md).
 
 import { readFileSync } from "node:fs";
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { Value } from "typebox/value";
 import type { ArmId } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
@@ -282,7 +282,11 @@ export interface RunLatentAuthoringDeps {
   /** Dialog surface; null in non-TUI/batch (no-progress → stop). */
   readonly ui: AskUi | null;
   readonly signal: AbortSignal;
+  /** The authoring agent's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
   readonly maxTokens: number;
+  /** Wall-clock cap per latent-authoring LLM call. */
+  readonly timeoutMs: number;
   readonly rateLimitOptions?: RateLimitOptions | null;
   readonly onAdd?: (counts: LatentCounts) => void;
 }
@@ -319,7 +323,9 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
       tailStartsAtEntryId: deps.tailStartsAtEntryId,
       tailStartLine: citations.tailStartLine,
     }),
+    reasoning: deps.thinking,
     maxTokens: deps.maxTokens,
+    timeoutMs: deps.timeoutMs,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,
   })) as LatentFinalizeAction;

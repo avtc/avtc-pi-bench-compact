@@ -10,7 +10,7 @@
 // system prompt + maps the captured payload to its own shape; this module owns
 // the run + the StageRunInput literal (single source of truth).
 
-import type { AgentEvent, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentTool, ThinkingLevel as CoreThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   NO_EVENT_SINK,
@@ -20,6 +20,7 @@ import {
   NO_TURN_LIMIT,
   type StageRunInput,
   type StageRunResult,
+  toStageReasoning,
 } from "../runtime/agent-loop.js";
 import type { ResolvedBenchModel } from "../runtime/model.js";
 import type { JsonOutputTool } from "../runtime/tools.js";
@@ -68,6 +69,10 @@ export function buildStageDeps(transport: StageTransport, content: StageContent)
     label: content.label,
     userMessageContent: content.userMessageContent,
     maxTokens: transport.maxTokens,
+    // Judge tool-stages run with reasoning omitted (single-shot structured output).
+    reasoning: NO_REASONING,
+    // Judge tool-stages run uncapped (slow reads/greps/bash); per-call judge caps live elsewhere.
+    timeoutMs: null,
     signal: transport.signal,
     rateLimitOptions: transport.rateLimitOptions,
   };
@@ -86,7 +91,12 @@ export interface RunJsonToolStageDeps {
   readonly label: string;
   /** The user-message content that kicks off the stage. */
   readonly userMessageContent: string;
+  /** The stage's thinking level; NO_REASONING (null) omits the reasoning field. */
+  readonly reasoning: CoreThinkingLevel | null;
   readonly maxTokens: number;
+  /** Wall-clock cap per stage; null = no cap (the judge stages run uncapped — their
+   *  tool calls may run slow reads/greps/bash). */
+  readonly timeoutMs: number | null;
   readonly signal: AbortSignal;
   readonly rateLimitOptions?: RateLimitOptions | null;
 }
@@ -117,10 +127,10 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
       model: resolved.model,
       apiKey: resolved.apiKey,
       signal: deps.signal,
-      reasoning: NO_REASONING,
+      reasoning: toStageReasoning(deps.reasoning),
       maxTurns: NO_TURN_LIMIT, // multi-turn: inspect, then the terminal tool
       maxTokens: deps.maxTokens,
-      timeoutMs: null, // tool-bearing stage may run slow reads/greps/bash
+      timeoutMs: deps.timeoutMs,
       onEvent: deps.seams.onEvent ?? NO_EVENT_SINK,
       onStageEnd: NO_STAGE_END_HOOK,
       loopFn: NO_LOOP_OVERRIDE,

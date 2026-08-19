@@ -19,18 +19,18 @@
 // **The harness owns pacing + stop.** The driver signals stop (boundary / error);
 // it never captures the backup or compacts (the harness does).
 
-import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { log } from "../log.js";
 import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
-  NO_REASONING,
   NO_STAGE_END_HOOK,
   runBenchStage,
   type StageRunInput,
   type StageRunResult,
+  toStageReasoning,
 } from "../runtime/agent-loop.js";
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { CONDITION_TOPICS } from "./condition-topics.js";
@@ -120,6 +120,10 @@ export interface SimulatorDriverDeps {
   readonly targetContext: number;
   /** Per-call output cap for the simulator's `runBenchStage`. */
   readonly maxTokens: number;
+  /** The simulator's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
+  /** Per-turn wall-clock cap for the simulator's stage call (null = no cap). */
+  readonly timeoutMs: number | null;
   /** Cooperative-abort signal (the run/compaction signal). */
   readonly signal: AbortSignal;
   readonly hooks?: SimulatorHooks;
@@ -230,10 +234,10 @@ export class SimulatorDriver {
         model: resolved.model,
         apiKey: resolved.apiKey,
         signal: this.deps.signal,
-        reasoning: NO_REASONING,
+        reasoning: toStageReasoning(this.deps.thinking),
         maxTurns: 1,
         maxTokens: this.deps.maxTokens,
-        timeoutMs: null,
+        timeoutMs: this.deps.timeoutMs,
         onEvent: this.deps.onEvent ?? NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
@@ -282,7 +286,6 @@ export class SimulatorDriver {
 // --- shared drive helpers (build Phase 0 + continuation Phase 2) -----------
 
 /** Per-call output cap for the user-simulator's stage calls (build Phase 0 + continuation Phase 2). */
-export const SIMULATOR_MAX_TOKENS = 1024;
 
 /** Mutable drive-stop state shared between the driver's onStop hook + the drive loop. */
 export interface DriveStop {
@@ -298,10 +301,14 @@ export interface BuildSimulatorDriverArgs {
   readonly ctx: ExtensionContext;
   /** The task brief (manifest description / scenario idea) seeding the system prompt. */
   readonly task: string;
-  /** The evaluated model (`provider/id`, or null = session default) the simulator runs on. */
-  readonly evaluatedModel: string | null;
+  /** The simulator's model (`provider/id`, or null = session default). */
+  readonly model: string | null;
+  /** The simulator's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
   readonly targetContext: number;
   readonly maxTokens: number;
+  /** Per-turn wall-clock cap (null = no cap). */
+  readonly timeoutMs: number | null;
   readonly signal: AbortSignal;
   readonly inject: (text: string) => void;
   readonly onStop: NonNullable<SimulatorHooks["onStop"]>;
@@ -324,7 +331,7 @@ export function buildSimulatorDriver(args: BuildSimulatorDriverArgs): SimulatorD
   });
   const seams: SimulatorSeams = {
     getBranch: () => args.ctx.sessionManager.getBranch(),
-    resolveModel: (): Promise<ResolvedBenchModel> => resolveBenchModel(args.ctx, args.evaluatedModel),
+    resolveModel: (): Promise<ResolvedBenchModel> => resolveBenchModel(args.ctx, args.model),
     runStage: runBenchStage,
     inject: args.inject,
   };
@@ -333,6 +340,8 @@ export function buildSimulatorDriver(args: BuildSimulatorDriverArgs): SimulatorD
     systemPrompt,
     targetContext: args.targetContext,
     maxTokens: args.maxTokens,
+    thinking: args.thinking,
+    timeoutMs: args.timeoutMs,
     signal: args.signal,
     hooks: { onStop: args.onStop },
     firstInstruction: args.firstInstruction,

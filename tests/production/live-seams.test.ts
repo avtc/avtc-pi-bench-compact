@@ -125,7 +125,9 @@ describe("buildAuthorSeam", () => {
     } as unknown as ScenarioManifest;
     const author = buildAuthorSeam({
       ctxGetter: () => fakeCtx,
-      evaluatedModel: "provider/model-a",
+      authorModel: "provider/model-a",
+      thinking: null,
+      timeoutMs: 120000,
       scenarioCtx,
       signal,
       maxTokens: 4096,
@@ -159,7 +161,9 @@ describe("buildAuthorSeam", () => {
     const widget = capturingWidget();
     const author = buildAuthorSeam({
       ctxGetter: () => fakeCtx,
-      evaluatedModel: null,
+      authorModel: null,
+      thinking: null,
+      timeoutMs: 120000,
       scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
       signal: new AbortController().signal,
       maxTokens: 4096,
@@ -286,7 +290,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: "provider/m",
+      simulatorModel: "provider/m",
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -324,7 +330,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -364,7 +372,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 260000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -413,7 +423,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -466,7 +478,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -498,7 +512,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "x",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -526,7 +542,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -555,7 +573,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -583,7 +603,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -615,7 +637,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "x",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -648,7 +672,9 @@ describe("buildDriveAndCaptureSeam", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "x",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -691,7 +717,9 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
       buildSessionPath: "/tmp/build.jsonl",
       compactionBoundary: 140000,
       scenarioDescription: "build a game",
-      evaluatedModel: null,
+      simulatorModel: null,
+      simulatorThinking: null,
+      simulatorTimeoutMs: null,
       omFullReflectionThresholdTokens: 4000,
       signal: new AbortController().signal,
       maxTokens: 1024,
@@ -724,7 +752,9 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
     let authorResolveCtx: unknown = null;
     const author = buildAuthorSeam({
       ctxGetter: () => holder.current,
-      evaluatedModel: null,
+      authorModel: null,
+      thinking: null,
+      timeoutMs: 120000,
       scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
       signal: new AbortController().signal,
       maxTokens: 4096,
@@ -762,7 +792,9 @@ describe("buildLiveSeams", () => {
   it("assembles the three seams bound to a shared ctx holder", () => {
     const config = {
       compactionBoundary: 140000,
-      evaluatedModel: null,
+      authorModel: null,
+      thinking: null,
+      timeoutMs: 120000,
       omFullReflectionThresholdTokens: 4000,
     } as unknown as BenchConfig;
     const seams = buildLiveSeams({
@@ -933,7 +965,10 @@ describe("tail-check seam (findTailContent wiring)", () => {
     const captured: { systemPrompt: string; userContent: string } = { systemPrompt: "", userContent: "" };
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      evaluatedModel: null,
+      tailCheckModel: null,
+      thinking: null,
+      maxTokens: 512,
+      timeoutMs: 120000,
       signal: new AbortController().signal,
       resolveModel: (async () => ({ ok: true, model: { id: "m" }, apiKey: "k" })) as unknown as ResolveModel,
       read: () => SESSION,
@@ -964,10 +999,51 @@ describe("tail-check seam (findTailContent wiring)", () => {
     expect([...ids].sort()).toEqual(["change-mind", "key-decision", "open-question"]);
   });
 
+  it("threads thinking (off → null) + maxTokens + timeoutMs into the stage input", async () => {
+    const capturedStage: { input: { reasoning: unknown; maxTokens: unknown; timeoutMs: unknown } | null } = {
+      input: null,
+    };
+    const seam = buildTailCheckSeam({
+      ctxGetter: () => fakeCtx,
+      tailCheckModel: null,
+      thinking: "off",
+      maxTokens: 512,
+      timeoutMs: 98765,
+      signal: new AbortController().signal,
+      resolveModel: (async () => ({ ok: true, model: { id: "m" }, apiKey: "k" })) as unknown as ResolveModel,
+      read: () => SESSION,
+      runStage: (async (input: {
+        reasoning: unknown;
+        maxTokens: unknown;
+        timeoutMs: unknown;
+        messages: { content: string }[];
+      }) => {
+        capturedStage.input = { reasoning: input.reasoning, maxTokens: input.maxTokens, timeoutMs: input.timeoutMs };
+        return {
+          aborted: false,
+          timedOut: false,
+          messages: [
+            {
+              role: "assistant",
+              content: [{ type: "text", text: `{"key-decision": true}` }],
+            },
+          ],
+        };
+      }) as unknown as RunStage,
+    });
+    await seam("/b.jsonl", "e3");
+    expect(capturedStage.input?.reasoning).toBeNull(); // "off" = no reasoning = null
+    expect(capturedStage.input?.maxTokens).toBe(512);
+    expect(capturedStage.input?.timeoutMs).toBe(98765);
+  });
+
   it("malformed LLM reply → conservative empty set (missing → surface, never infinite-continue)", async () => {
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      evaluatedModel: null,
+      tailCheckModel: null,
+      thinking: null,
+      maxTokens: 512,
+      timeoutMs: 120000,
       signal: new AbortController().signal,
       resolveModel: (async () => ({ ok: true, model: { id: "m" }, apiKey: "k" })) as unknown as ResolveModel,
       read: () => SESSION,
@@ -983,7 +1059,10 @@ describe("tail-check seam (findTailContent wiring)", () => {
   it("model unavailable → throws (stop-and-surface, not silent)", async () => {
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      evaluatedModel: null,
+      tailCheckModel: null,
+      thinking: null,
+      maxTokens: 512,
+      timeoutMs: 120000,
       signal: new AbortController().signal,
       resolveModel: (async () => ({ ok: false, error: "no such model" })) as unknown as ResolveModel,
       read: () => SESSION,
@@ -1000,7 +1079,9 @@ describe("driveAndCapture — plant threading (plant-and-continue resume)", () =
     buildSessionPath: "/tmp/build.jsonl",
     compactionBoundary: 140000,
     scenarioDescription: "build a game",
-    evaluatedModel: null,
+    simulatorModel: null,
+    simulatorThinking: null,
+    simulatorTimeoutMs: null,
     omFullReflectionThresholdTokens: 4000,
     signal: new AbortController().signal,
     maxTokens: 1024,
@@ -1076,7 +1157,9 @@ describe("extractDetailFromCounts (extract-phase widget coverage)", () => {
     } as unknown as WidgetPort;
     const author = buildAuthorSeam({
       ctxGetter: () => fakeCtx,
-      evaluatedModel: "provider/model-a",
+      authorModel: "provider/model-a",
+      thinking: null,
+      timeoutMs: 120000,
       scenarioCtx: { id: "sc1", description: "d", compactionBoundary: { phaseATokenBudget: 140000, plan: "build" } },
       signal: new AbortController().signal,
       maxTokens: 1024,

@@ -58,6 +58,16 @@ function asThinkingLevel(raw: Record<string, unknown>, key: string, fallback: Th
   return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v) ? (v as ThinkingLevel) : fallback;
 }
 
+/** Thinking-level-or-null reader for the background agents (null = "none" — omit reasoning). */
+function asThinkingLevelOrNull(
+  raw: Record<string, unknown>,
+  key: string,
+  fallback: ThinkingLevel | null,
+): ThinkingLevel | null {
+  if (raw[key] === null) return null;
+  return asThinkingLevel(raw, key, fallback as ThinkingLevel);
+}
+
 function asFastEvalMode(raw: Record<string, unknown>, key: string, fallback: FastEvalMode): FastEvalMode {
   return raw[key] === "probes-only" ? "probes-only" : fallback;
 }
@@ -94,9 +104,28 @@ export function getBenchConfig(): BenchConfig {
     fastEval: asFastEvalMode(raw, "fastEval", DEFAULTS.fastEval),
     latentProbes: asLatentProbesMode(raw, "latentProbes", DEFAULTS.latentProbes),
     judgeMaxTokens: asNumber(raw, "judgeMaxTokens", DEFAULTS.judgeMaxTokens),
-    latentStageMaxTokens: asNumber(raw, "latentStageMaxTokens", DEFAULTS.latentStageMaxTokens),
+    latentStageMaxTokens: asNumberOrNull(raw, "latentStageMaxTokens", DEFAULTS.latentStageMaxTokens),
     judgeTurnTimeoutMs: asNumberOrNull(raw, "judgeTurnTimeoutMs", DEFAULTS.judgeTurnTimeoutMs),
     testspecTimeoutMs: asNumber(raw, "testspecTimeoutMs", DEFAULTS.testspecTimeoutMs),
+    backgroundModel: asStringOrNull(raw, "backgroundModel", DEFAULTS.backgroundModel),
+    backgroundThinkingLevel: asThinkingLevelOrNull(raw, "backgroundThinkingLevel", DEFAULTS.backgroundThinkingLevel),
+    backgroundMaxTokens: asNumber(raw, "backgroundMaxTokens", DEFAULTS.backgroundMaxTokens),
+    backgroundTimeoutMs: asNumber(raw, "backgroundTimeoutMs", DEFAULTS.backgroundTimeoutMs),
+    authorModel: asStringOrNull(raw, "authorModel", DEFAULTS.authorModel),
+    authorThinkingLevel: asThinkingLevelOrNull(raw, "authorThinkingLevel", DEFAULTS.authorThinkingLevel),
+    authorMaxTokens: asNumberOrNull(raw, "authorMaxTokens", DEFAULTS.authorMaxTokens),
+    authorTimeoutMs: asNumberOrNull(raw, "authorTimeoutMs", DEFAULTS.authorTimeoutMs),
+    tailCheckModel: asStringOrNull(raw, "tailCheckModel", DEFAULTS.tailCheckModel),
+    tailCheckThinkingLevel: asThinkingLevelOrNull(raw, "tailCheckThinkingLevel", DEFAULTS.tailCheckThinkingLevel),
+    tailCheckMaxTokens: asNumberOrNull(raw, "tailCheckMaxTokens", DEFAULTS.tailCheckMaxTokens),
+    tailCheckTimeoutMs: asNumberOrNull(raw, "tailCheckTimeoutMs", DEFAULTS.tailCheckTimeoutMs),
+    simulatorModel: asStringOrNull(raw, "simulatorModel", DEFAULTS.simulatorModel),
+    simulatorThinkingLevel: asThinkingLevelOrNull(raw, "simulatorThinkingLevel", DEFAULTS.simulatorThinkingLevel),
+    simulatorMaxTokens: asNumberOrNull(raw, "simulatorMaxTokens", DEFAULTS.simulatorMaxTokens),
+    simulatorTurnTimeoutMs: asNumberOrNull(raw, "simulatorTurnTimeoutMs", DEFAULTS.simulatorTurnTimeoutMs),
+    latentModel: asStringOrNull(raw, "latentModel", DEFAULTS.latentModel),
+    latentThinkingLevel: asThinkingLevelOrNull(raw, "latentThinkingLevel", DEFAULTS.latentThinkingLevel),
+    latentTimeoutMs: asNumberOrNull(raw, "latentTimeoutMs", DEFAULTS.latentTimeoutMs),
     scenario: asStringOrNull(raw, "scenario", DEFAULTS.scenario),
     outputDir: asStringOrNull(raw, "outputDir", DEFAULTS.outputDir),
     armBarePiEnabled: asBoolean(raw, "armBarePiEnabled", DEFAULTS.armBarePiEnabled),

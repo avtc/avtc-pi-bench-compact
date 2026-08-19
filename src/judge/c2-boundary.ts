@@ -10,6 +10,7 @@
 
 import { Type } from "typebox";
 import type { ScenarioManifest } from "../manifest/schema.js";
+import { NO_REASONING } from "../runtime/agent-loop.js";
 import { benchReadOnlyTools, type JsonOutputTool, makeJsonOutputTool, NO_CAPTURE } from "../runtime/tools.js";
 import { BenchJudgeError } from "./errors.js";
 import type { RateLimitOptions } from "./rate-limit.js";
@@ -103,7 +104,9 @@ export async function findFirstCorrectUse(deps: FindFirstCorrectUseDeps): Promis
     terminalTool,
     label: "recall-cost boundary",
     userMessageContent: `Inspect the trajectory at ${deps.tracePath} and find the first correct use of each recallFact. Call report_boundary once.`,
+    reasoning: NO_REASONING,
     maxTokens: deps.maxTokens,
+    timeoutMs: null,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,
   };

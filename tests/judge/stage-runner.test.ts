@@ -22,6 +22,8 @@ describe("runJsonToolStage", () => {
       label: "test-stage",
       userMessageContent: "go",
       maxTokens: 4096,
+      reasoning: null,
+      timeoutMs: null,
       signal: new AbortController().signal,
     });
     expect(payload).toEqual({ value: "hello" });
@@ -57,6 +59,8 @@ describe("runJsonToolStage", () => {
       label: "test-stage",
       userMessageContent: "go",
       maxTokens: 4096,
+      reasoning: null,
+      timeoutMs: null,
       signal: new AbortController().signal,
     });
     // onModelResolved fired after resolve; the forwarded onEvent reached seams.onEvent.
@@ -80,6 +84,8 @@ describe("runJsonToolStage", () => {
         label: "authoring",
         userMessageContent: "g",
         maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/authoring model not available/i);
@@ -105,6 +111,8 @@ describe("runJsonToolStage", () => {
       label: "test-stage",
       userMessageContent: "g",
       maxTokens: 4096,
+      reasoning: null,
+      timeoutMs: null,
       signal: new AbortController().signal,
     });
     expect(payload).toEqual({ value: "auto" });
@@ -131,6 +139,8 @@ describe("runJsonToolStage", () => {
       label: "test-stage",
       userMessageContent: "g",
       maxTokens: 4096,
+      reasoning: null,
+      timeoutMs: null,
       signal: new AbortController().signal,
     });
     expect(count).toBe(1);
@@ -155,6 +165,8 @@ describe("runJsonToolStage", () => {
         label: "my-stage",
         userMessageContent: "g",
         maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/my-stage.*timed out/i);
@@ -175,6 +187,8 @@ describe("runJsonToolStage", () => {
         label: "x",
         userMessageContent: "g",
         maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/abort/i);
@@ -195,6 +209,8 @@ describe("runJsonToolStage", () => {
         label: "x",
         userMessageContent: "g",
         maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/did not call emit|no.*captured/i);

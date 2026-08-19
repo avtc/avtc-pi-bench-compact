@@ -22,9 +22,28 @@ function validConfig(): BenchConfig {
     fastEval: "off",
     latentProbes: "off",
     judgeMaxTokens: 32768,
-    latentStageMaxTokens: 32768,
+    latentStageMaxTokens: null,
     judgeTurnTimeoutMs: 300000,
     testspecTimeoutMs: 120000,
+    backgroundModel: null,
+    backgroundThinkingLevel: null,
+    backgroundMaxTokens: 32768,
+    backgroundTimeoutMs: 1200000,
+    authorModel: null,
+    authorThinkingLevel: null,
+    authorMaxTokens: null,
+    authorTimeoutMs: null,
+    tailCheckModel: null,
+    tailCheckThinkingLevel: null,
+    tailCheckMaxTokens: null,
+    tailCheckTimeoutMs: null,
+    simulatorModel: null,
+    simulatorThinkingLevel: null,
+    simulatorMaxTokens: null,
+    simulatorTurnTimeoutMs: null,
+    latentModel: null,
+    latentThinkingLevel: null,
+    latentTimeoutMs: null,
     scenario: null,
     outputDir: null,
     armBarePiEnabled: true,
@@ -202,5 +221,44 @@ describe("validateBenchConfig — multi-judge ensemble", () => {
     const normal = validConfig();
     normal.judgeTurnTimeoutMs = 300000;
     expect(validateBenchConfig(normal).ok).toBe(true);
+  });
+
+  it("rejects non-positive background defaults (they are the last fallback, always set)", () => {
+    const tokens = validConfig();
+    tokens.backgroundMaxTokens = 0;
+    expect(validateBenchConfig(tokens).ok).toBe(false);
+    const timeout = validConfig();
+    timeout.backgroundTimeoutMs = 500;
+    expect(validateBenchConfig(timeout).ok).toBe(false);
+  });
+
+  it("accepts null per-agent overrides but rejects non-positive set overrides", () => {
+    const allNull = validConfig();
+    allNull.authorMaxTokens = null;
+    allNull.authorTimeoutMs = null;
+    allNull.tailCheckMaxTokens = null;
+    allNull.tailCheckTimeoutMs = null;
+    allNull.simulatorMaxTokens = null;
+    allNull.simulatorTurnTimeoutMs = null;
+    allNull.latentStageMaxTokens = null;
+    allNull.latentTimeoutMs = null;
+    expect(validateBenchConfig(allNull)).toEqual({ ok: true });
+
+    const badTokens = validConfig();
+    badTokens.tailCheckMaxTokens = 0;
+    expect(validateBenchConfig(badTokens).ok).toBe(false);
+    const badLatentTokens = validConfig();
+    badLatentTokens.latentStageMaxTokens = 0;
+    expect(validateBenchConfig(badLatentTokens).ok).toBe(false);
+    const badTimeout = validConfig();
+    badTimeout.simulatorTurnTimeoutMs = 500;
+    expect(validateBenchConfig(badTimeout).ok).toBe(false);
+    const badLatentTimeout = validConfig();
+    badLatentTimeout.latentTimeoutMs = 999;
+    expect(validateBenchConfig(badLatentTimeout).ok).toBe(false);
+    const okAuthor = validConfig();
+    okAuthor.authorMaxTokens = 4096;
+    okAuthor.authorTimeoutMs = 60000;
+    expect(validateBenchConfig(okAuthor)).toEqual({ ok: true });
   });
 });

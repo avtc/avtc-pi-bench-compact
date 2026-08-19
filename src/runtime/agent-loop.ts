@@ -22,6 +22,7 @@ import type {
   AgentLoopConfig,
   AgentMessage,
   AgentTool,
+  ThinkingLevel as CoreThinkingLevel,
   StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { agentLoop } from "@earendil-works/pi-agent-core";
@@ -37,6 +38,13 @@ export const NO_REASONING = null;
 export const NO_EVENT_SINK = null;
 export const NO_STAGE_END_HOOK = null;
 export const NO_LOOP_OVERRIDE = null;
+
+/** Config thinking level (pi-agent-core — includes "off") → stage-input reasoning
+ *  (pi-ai — excludes it; null = no reasoning). "off" and an absent level both omit
+ *  the field. */
+export function toStageReasoning(level: CoreThinkingLevel | null): ThinkingLevel | null {
+  return level === "off" ? null : level;
+}
 
 /** Sequential tool execution (bench stages run tools one-by-one). */
 const SEQUENTIAL = "sequential" as const;

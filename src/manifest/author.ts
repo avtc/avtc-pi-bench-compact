@@ -10,7 +10,7 @@
 // scenario's taskObjective + compactionBoundary).
 
 import { readFileSync } from "node:fs";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
 import { log } from "../log.js";
@@ -83,8 +83,12 @@ export interface RunAuthoringAgentDeps {
   readonly scenarioCtx: ScenarioContext;
   /** Cooperative-abort signal (the run signal). */
   readonly signal: AbortSignal;
+  /** The authoring agent's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
   /** Per-call output-token cap for the authoring `runBenchStage`. */
   readonly maxTokens: number;
+  /** Wall-clock cap per authoring `runBenchStage` call. */
+  readonly timeoutMs: number;
   /**
    * Rate-limit options for the authoring stage (defaults: pause+resume on a 429,
    * up to 5 attempts). The authoring model is a cloud LLM that may be throttled;
@@ -449,7 +453,9 @@ export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<Sc
     terminalTool: finalizeManifest,
     label: "authoring",
     userMessageContent: `Read the FULL session file at ${deps.fullJsonlPath} and produce the manifest. The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId} — everything before that entry is the compacted-away span (find facts there); validate each finding against the tail per the instructions. Use your tools to read it, record each finding with its add_* tool as you confirm it, then call finalize_manifest with the task objective when done.`,
+    reasoning: deps.thinking,
     maxTokens: deps.maxTokens,
+    timeoutMs: deps.timeoutMs,
     signal: deps.signal,
     rateLimitOptions: deps.rateLimitOptions,
   })) as { description: string; testSpec: string };

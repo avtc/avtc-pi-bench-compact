@@ -5,6 +5,7 @@ import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model, UserMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { StageRunInput } from "../../src/runtime/agent-loop.js";
 import {
   driveUntilStop,
   extractAssistantText,
@@ -115,13 +116,39 @@ function makeDriver(seams: SimulatorSeams, opts: { targetContext?: number; hooks
     seams,
     systemPrompt: "SYSTEM",
     targetContext: opts.targetContext ?? 140_000,
+    thinking: null,
     maxTokens: 1024,
+    timeoutMs: null,
     signal: new AbortController().signal,
     hooks: opts.hooks,
   });
 }
 
 describe("SimulatorDriver", () => {
+  it("threads thinking + timeoutMs into the stage input (off → null)", async () => {
+    const capturedStage: { input: StageRunInput | null } = { input: null };
+    const seams = makeSeams({
+      runStage: async (input) => {
+        capturedStage.input = input;
+        return fakeStageResult("Build the next system.");
+      },
+    });
+    const driver = new SimulatorDriver({
+      seams,
+      systemPrompt: "SYSTEM",
+      targetContext: 140_000,
+      thinking: "off",
+      maxTokens: 1024,
+      timeoutMs: 45000,
+      signal: new AbortController().signal,
+    });
+    driver.trackContext(50_000);
+    await driver.onAgentSettled();
+    expect(capturedStage.input?.reasoning).toBeNull(); // "off" = no reasoning = null
+    expect(capturedStage.input?.timeoutMs).toBe(45000);
+    expect(capturedStage.input?.maxTokens).toBe(1024);
+  });
+
   it("context < boundary → runs the stage + injects the canned reply via followUp", async () => {
     const seams = makeSeams({ runStage: async () => fakeStageResult("Build the combat system next.") });
     const driver = makeDriver(seams, { targetContext: 140_000 });
@@ -189,6 +216,8 @@ describe("SimulatorDriver", () => {
       systemPrompt: "SYSTEM",
       targetContext: 100_000,
       maxTokens: 1024,
+      thinking: null,
+      timeoutMs: null,
       signal: ac.signal,
       hooks: { onStop },
     });
@@ -284,6 +313,8 @@ describe("SimulatorDriver", () => {
       systemPrompt: "SYSTEM",
       targetContext: 140_000,
       maxTokens: 1024,
+      thinking: null,
+      timeoutMs: null,
       signal: new AbortController().signal,
       onEvent: (e) => {
         events.push(e.type);
@@ -439,6 +470,8 @@ describe("SimulatorDriver — firstInstruction (plant-and-continue resume)", () 
       systemPrompt: "SYSTEM",
       targetContext: 140_000,
       maxTokens: 1024,
+      thinking: null,
+      timeoutMs: null,
       signal: new AbortController().signal,
       hooks: undefined,
       firstInstruction: "Bring up the changed-mind topic now.",

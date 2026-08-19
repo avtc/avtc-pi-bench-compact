@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+  type PresetElement,
   type RegisterSettingsOptions,
   registerSettingsCommand,
   type SettingSchema,
@@ -21,7 +23,8 @@ export const BENCH_SETTINGS_COMMAND = "bench-compact:settings";
 // `defaultValue` reads FROM this object so the two can never drift.
 // ---------------------------------------------------------------------------
 
-const NO_MODEL: string | null = null;
+/** The "no model set" default (session default) — the single null-model sentinel. */
+export const NO_MODEL: string | null = null;
 
 /** Raw default values for every settings key (the accessor maps these to BenchConfig). */
 export const DEFAULTS = {
@@ -39,9 +42,28 @@ export const DEFAULTS = {
   fastEval: "off" as FastEvalMode,
   latentProbes: "per-arm" as LatentProbesMode,
   judgeMaxTokens: 32768,
-  latentStageMaxTokens: 32768,
+  latentStageMaxTokens: null as number | null,
   judgeTurnTimeoutMs: 300000 as number | null,
   testspecTimeoutMs: 120000,
+  backgroundModel: NO_MODEL,
+  backgroundThinkingLevel: null as ThinkingLevel | null,
+  backgroundMaxTokens: 32768,
+  backgroundTimeoutMs: 1200000,
+  authorModel: NO_MODEL,
+  authorThinkingLevel: null as ThinkingLevel | null,
+  authorMaxTokens: null as number | null,
+  authorTimeoutMs: null as number | null,
+  tailCheckModel: NO_MODEL,
+  tailCheckThinkingLevel: null as ThinkingLevel | null,
+  tailCheckMaxTokens: null as number | null,
+  tailCheckTimeoutMs: null as number | null,
+  simulatorModel: NO_MODEL,
+  simulatorThinkingLevel: null as ThinkingLevel | null,
+  simulatorMaxTokens: null as number | null,
+  simulatorTurnTimeoutMs: null as number | null,
+  latentModel: NO_MODEL,
+  latentThinkingLevel: null as ThinkingLevel | null,
+  latentTimeoutMs: null as number | null,
   scenario: null as string | null,
   outputDir: null as string | null,
   armBarePiEnabled: true,
@@ -72,6 +94,31 @@ const TESTSPEC_TIMEOUT_PRESETS: readonly (readonly [string, number])[] = [
   ["5m", 300000],
   ["10m", 600000],
 ];
+/** Thinking-level presets for background agents: "none" (null — omit the reasoning
+ *  field entirely, the model default) + the standard ladder (mirrors the type-def's
+ *  THINKING_LEVEL_PRESETS; presets override replaces, so the ladder is restated). */
+const BACKGROUND_THINKING_PRESETS: readonly (readonly [string, string | null])[] = [
+  ["none", null],
+  ["off", "off"],
+  ["minimal", "minimal"],
+  ["low", "low"],
+  ["medium", "medium"],
+  ["high", "high"],
+  ["xhigh", "xhigh"],
+  ["max", "max"],
+];
+/** Shared background-agent output-token-cap presets (32K = the default). */
+const BACKGROUND_MAX_TOKENS_PRESETS: readonly number[] = [8192, 16384, 32768, 65536, 131072, 262144];
+/** Shared background-agent wall-clock presets (human durations; 20m = the default). */
+const BACKGROUND_TIMEOUT_PRESETS: readonly string[] = ["1m", "2m", "5m", "10m", "20m", "30m", "1h"];
+/** Authoring output-token overrides: "default" = the background setting, then quick picks. */
+const AUTHOR_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], 2048, 4096, 8192, 16384, 32768, 65536];
+/** Tiny-reply output-token overrides (tail check + simulator): "default", then quick picks. */
+const SMALL_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], 128, 256, 512, 1024, 2048, 4096];
+/** Latent-authoring output-token overrides: "default", then quick picks. */
+const LATENT_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], 16384, 32768, 65536, 131072, 262144];
+/** Per-agent wall-clock overrides: "default" = the background setting, then quick picks. */
+const AGENT_TIMEOUT_PRESETS: readonly PresetElement[] = [["default", null], "1m", "2m", "5m", "10m", "20m"];
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -182,10 +229,11 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("latentStageMaxTokens", {
     label: "Latent authoring max output tokens",
-    description: "Per-call output-token cap for the latent-probe authoring agent.",
+    description: "Per-call output-token cap for the latent-probe authoring agent. default = the background max tokens.",
     type: "number",
     defaultValue: DEFAULTS.latentStageMaxTokens,
-    presets: MAX_TOKENS_PRESETS,
+    min: 1,
+    presets: LATENT_MAX_TOKENS_PRESETS,
   }),
   setting("judgeTurnTimeoutMs", {
     label: "Judge turn timeout",
@@ -200,6 +248,155 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "number",
     defaultValue: DEFAULTS.testspecTimeoutMs,
     presets: TESTSPEC_TIMEOUT_PRESETS,
+  }),
+  setting("backgroundModel", {
+    label: "Background default model",
+    description:
+      "Model for every background agent (manifest author, tail check, simulator, latent authoring) unless overridden per agent. Empty = each agent keeps its built-in base (author/tail check/simulator: the evaluated model; latent authoring: the session default).",
+    type: "model",
+    defaultValue: DEFAULTS.backgroundModel,
+  }),
+  setting("backgroundThinkingLevel", {
+    label: "Background default thinking level",
+    description:
+      "Thinking level for every background agent unless overridden per agent. none = omit the reasoning field (the model's default).",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.backgroundThinkingLevel,
+    presets: BACKGROUND_THINKING_PRESETS,
+  }),
+  setting("backgroundMaxTokens", {
+    label: "Background max output tokens",
+    description: "Per-call output-token cap for every background agent unless overridden per agent.",
+    type: "number",
+    defaultValue: DEFAULTS.backgroundMaxTokens,
+    min: 1,
+    presets: BACKGROUND_MAX_TOKENS_PRESETS,
+  }),
+  setting("backgroundTimeoutMs", {
+    label: "Background timeout",
+    description: "Wall-clock cap for every background agent's LLM calls unless overridden per agent.",
+    type: "duration",
+    defaultValue: DEFAULTS.backgroundTimeoutMs,
+    min: 1000,
+    max: 3600000,
+    presets: BACKGROUND_TIMEOUT_PRESETS,
+  }),
+  setting("authorModel", {
+    label: "Manifest author model",
+    description:
+      "Model for the manifest-authoring agent (prepare). Empty = background default, then the evaluated model.",
+    type: "model",
+    defaultValue: DEFAULTS.authorModel,
+  }),
+  setting("authorThinkingLevel", {
+    label: "Manifest author thinking level",
+    description: "Thinking level for the manifest-authoring agent. none = background default.",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.authorThinkingLevel,
+    presets: BACKGROUND_THINKING_PRESETS,
+  }),
+  setting("authorMaxTokens", {
+    label: "Manifest author max output tokens",
+    description:
+      "Per-call output-token cap for the manifest-authoring agent (multi-turn, tool-bearing). default = the background max tokens.",
+    type: "number",
+    defaultValue: DEFAULTS.authorMaxTokens,
+    min: 1,
+    presets: AUTHOR_MAX_TOKENS_PRESETS,
+  }),
+  setting("authorTimeoutMs", {
+    label: "Manifest author timeout",
+    description: "Wall-clock cap for the manifest-authoring agent's LLM calls. default = the background timeout.",
+    type: "duration",
+    defaultValue: DEFAULTS.authorTimeoutMs,
+    min: 1000,
+    max: 3600000,
+    presets: AGENT_TIMEOUT_PRESETS,
+  }),
+  setting("tailCheckModel", {
+    label: "Tail check model",
+    description:
+      "Model for the kept-tail content check (prepare). Empty = background default, then the evaluated model.",
+    type: "model",
+    defaultValue: DEFAULTS.tailCheckModel,
+  }),
+  setting("tailCheckThinkingLevel", {
+    label: "Tail check thinking level",
+    description: "Thinking level for the tail check. none = background default.",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.tailCheckThinkingLevel,
+    presets: BACKGROUND_THINKING_PRESETS,
+  }),
+  setting("tailCheckMaxTokens", {
+    label: "Tail check max output tokens",
+    description:
+      "Per-call output-token cap for the tail check (the reply is a tiny JSON object). default = the background max tokens.",
+    type: "number",
+    defaultValue: DEFAULTS.tailCheckMaxTokens,
+    min: 1,
+    presets: SMALL_MAX_TOKENS_PRESETS,
+  }),
+  setting("tailCheckTimeoutMs", {
+    label: "Tail check timeout",
+    description: "Wall-clock cap for the tail-check LLM call. default = the background timeout.",
+    type: "duration",
+    defaultValue: DEFAULTS.tailCheckTimeoutMs,
+    min: 1000,
+    max: 3600000,
+    presets: AGENT_TIMEOUT_PRESETS,
+  }),
+  setting("simulatorModel", {
+    label: "Simulator model",
+    description:
+      "Model for the user-simulator (build drive + continuations). Empty = background default, then the evaluated model.",
+    type: "model",
+    defaultValue: DEFAULTS.simulatorModel,
+  }),
+  setting("simulatorThinkingLevel", {
+    label: "Simulator thinking level",
+    description: "Thinking level for the user-simulator. none = background default.",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.simulatorThinkingLevel,
+    presets: BACKGROUND_THINKING_PRESETS,
+  }),
+  setting("simulatorMaxTokens", {
+    label: "Simulator max output tokens",
+    description: "Per-call output-token cap for the user-simulator's turns. default = the background max tokens.",
+    type: "number",
+    defaultValue: DEFAULTS.simulatorMaxTokens,
+    min: 1,
+    presets: SMALL_MAX_TOKENS_PRESETS,
+  }),
+  setting("simulatorTurnTimeoutMs", {
+    label: "Simulator turn timeout",
+    description: "Wall-clock cap per user-simulator LLM call. default = the background timeout.",
+    type: "duration",
+    defaultValue: DEFAULTS.simulatorTurnTimeoutMs,
+    min: 1000,
+    max: 3600000,
+    presets: AGENT_TIMEOUT_PRESETS,
+  }),
+  setting("latentModel", {
+    label: "Latent authoring model",
+    description: "Model for the latent-probe authoring agent. Empty = background default, then the session default.",
+    type: "model",
+    defaultValue: DEFAULTS.latentModel,
+  }),
+  setting("latentThinkingLevel", {
+    label: "Latent authoring thinking level",
+    description: "Thinking level for the latent-probe authoring agent. none = background default.",
+    type: "thinking-level",
+    defaultValue: DEFAULTS.latentThinkingLevel,
+    presets: BACKGROUND_THINKING_PRESETS,
+  }),
+  setting("latentTimeoutMs", {
+    label: "Latent authoring timeout",
+    description: "Wall-clock cap for the latent-probe authoring agent's LLM calls. default = the background timeout.",
+    type: "duration",
+    defaultValue: DEFAULTS.latentTimeoutMs,
+    min: 1000,
+    max: 3600000,
+    presets: AGENT_TIMEOUT_PRESETS,
   }),
   setting("scenario", {
     label: "Scenario folder",
@@ -286,6 +483,30 @@ const TABS: readonly SettingsTabSchema[] = [
       "testspecTimeoutMs",
       "scenario",
       "outputDir",
+    ],
+  },
+  {
+    label: "Background agents",
+    settingIds: [
+      "backgroundModel",
+      "backgroundThinkingLevel",
+      "backgroundMaxTokens",
+      "backgroundTimeoutMs",
+      "authorModel",
+      "authorThinkingLevel",
+      "authorMaxTokens",
+      "authorTimeoutMs",
+      "tailCheckModel",
+      "tailCheckThinkingLevel",
+      "tailCheckMaxTokens",
+      "tailCheckTimeoutMs",
+      "simulatorModel",
+      "simulatorThinkingLevel",
+      "simulatorMaxTokens",
+      "simulatorTurnTimeoutMs",
+      "latentModel",
+      "latentThinkingLevel",
+      "latentTimeoutMs",
     ],
   },
   {

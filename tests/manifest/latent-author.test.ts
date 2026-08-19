@@ -337,6 +337,8 @@ describe("runLatentAuthoringAgent", () => {
       ui: null,
       signal: new AbortController().signal,
       maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(r.kind).toBe("completed");
     if (r.kind !== "completed") return;
@@ -375,6 +377,8 @@ describe("runLatentAuthoringAgent", () => {
       ui: null,
       signal: new AbortController().signal,
       maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(r.kind).toBe("completed");
     if (r.kind !== "completed") return;
@@ -414,6 +418,8 @@ describe("runLatentAuthoringAgent", () => {
       ui: null,
       signal: new AbortController().signal,
       maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(badResult?.details?.rejected).toBe(1);
     expect((badResult?.content ?? [])[0]?.text).toContain(
@@ -448,6 +454,8 @@ describe("runLatentAuthoringAgent", () => {
       ui: null,
       signal: new AbortController().signal,
       maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(r.kind).toBe("completed");
     if (r.kind !== "completed") return;
@@ -476,6 +484,8 @@ describe("runLatentAuthoringAgent", () => {
       ui: null,
       signal: new AbortController().signal,
       maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(r).toEqual({ kind: "stopped", counts: { cued: 1, uncued: 0 } });
   });
@@ -507,6 +517,8 @@ describe("runLatentAuthoringAgent", () => {
       ui: null,
       signal: new AbortController().signal,
       maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
     });
     expect(badText).toContain('rejected: entryId "cut-1" is not an in-span');
     expect(r.kind).toBe("completed"); // the 3+3 valid probes finalized; the bad one never entered the pool

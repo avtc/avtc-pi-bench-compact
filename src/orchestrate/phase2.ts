@@ -25,6 +25,7 @@
 import { copyFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { isolateArmOrStop } from "../arms/switch.js";
+import { resolveBackgroundAgents } from "../config/background-agents.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
@@ -32,13 +33,7 @@ import { AgentSettledAbortedError, awaitAgentSettled, withStallWatch } from "../
 import { subscribeAgentEvent } from "../session/events.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
-import {
-  buildSimulatorDriver,
-  driveUntilStop,
-  makeDriveStop,
-  SIMULATOR_MAX_TOKENS,
-  type SimulatorHooks,
-} from "../simulator/loop.js";
+import { buildSimulatorDriver, driveUntilStop, makeDriveStop, type SimulatorHooks } from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { appendAttempt } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
@@ -218,14 +213,17 @@ export function createDefaultSimulatorFactory(
   config: BenchConfig,
   manifest: ScenarioManifest,
 ): (args: MakeSimulatorArgs) => ContinuationDriver {
+  const simulator = resolveBackgroundAgents(config).simulator;
   return (args: MakeSimulatorArgs): ContinuationDriver =>
     buildSimulatorDriver({
       pi: args.pi,
       ctx: args.ctx,
       task: manifest.description,
-      evaluatedModel: config.evaluatedModel,
+      model: simulator.model,
+      thinking: simulator.thinking,
       targetContext: args.targetContext,
-      maxTokens: SIMULATOR_MAX_TOKENS,
+      maxTokens: simulator.maxTokens,
+      timeoutMs: simulator.timeoutMs,
       signal: args.signal,
       inject: args.inject,
       onStop: args.onStop,

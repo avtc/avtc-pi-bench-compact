@@ -46,7 +46,11 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
       reason: `judgesNumber must be 1 or 3 (got ${cfg.judgesNumber}) — only single-judge (1) or the 3-judge ensemble (3) are supported.`,
     };
   }
-  if (cfg.judgeMaxTokens < 1 || cfg.latentStageMaxTokens < 1 || cfg.testspecTimeoutMs < 1000) {
+  if (
+    cfg.judgeMaxTokens < 1 ||
+    (cfg.latentStageMaxTokens !== null && cfg.latentStageMaxTokens < 1) ||
+    cfg.testspecTimeoutMs < 1000
+  ) {
     return {
       ok: false,
       reason:
@@ -58,6 +62,33 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
     return {
       ok: false,
       reason: `judgeTurnTimeoutMs must be >= 1000 or Infinite (got ${cfg.judgeTurnTimeoutMs}).`,
+    };
+  }
+  // The shared background defaults are the last fallback for every background agent —
+  // always positive (the settings cannot store null for them).
+  if (cfg.backgroundMaxTokens < 1 || cfg.backgroundTimeoutMs < 1000) {
+    return {
+      ok: false,
+      reason: `background defaults must be positive (backgroundMaxTokens ${cfg.backgroundMaxTokens}, backgroundTimeoutMs ${cfg.backgroundTimeoutMs}).`,
+    };
+  }
+  // Per-agent overrides, when set, must be positive too.
+  const overrideMaxTokens = [
+    cfg.authorMaxTokens,
+    cfg.tailCheckMaxTokens,
+    cfg.simulatorMaxTokens,
+    cfg.latentStageMaxTokens,
+  ];
+  const overrideTimeouts = [
+    cfg.authorTimeoutMs,
+    cfg.tailCheckTimeoutMs,
+    cfg.simulatorTurnTimeoutMs,
+    cfg.latentTimeoutMs,
+  ];
+  if (overrideMaxTokens.some((v) => v !== null && v < 1) || overrideTimeouts.some((v) => v !== null && v < 1000)) {
+    return {
+      ok: false,
+      reason: "per-agent background overrides must be positive when set (maxTokens >= 1, timeoutMs >= 1000).",
     };
   }
   if (cfg.armOmFullEnabled) {

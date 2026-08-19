@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearArmConfig, readMemkeeperGlobalSettings } from "../arms/config.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
+import { resolveBackgroundAgents } from "../config/background-agents.js";
 import { type ArmId, type BenchConfig, judgeEnsembleFields } from "../config/types.js";
 import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
 import { buildJudgeEnsemble, defaultJudgeTransport } from "../judge/seams.js";
@@ -194,8 +195,6 @@ export interface BuildScoreDepsArgs {
   judgeTurnTimeoutMs: number | null;
 }
 
-/** The latent stage runs on the session default model (no per-stage model setting). */
-const LATENT_STAGE_MODEL: string | null = null;
 /** The JSON indent written to results.json. */
 const JSON_INDENT = 2;
 
@@ -337,6 +336,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       widget?.startPhase("latent", NO_DETAIL);
       const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
       const stage = deps.latentStage ?? runLatentStage;
+      const latentAgent = resolveBackgroundAgents(deps.config).latent;
       const latentResult = await stage(
         {
           arms: bases.map((b) => ({ arm: b.arm, sessionPath: branchSessionFile(sessionsDir, b.branch) })),
@@ -347,11 +347,13 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
           // exactly like the continuation + probe phases do.
           ui: ctxAfterPhase1.ui,
           seams: {
-            resolveModel: () => resolveBenchModel(ctxAfterPhase1, LATENT_STAGE_MODEL),
+            resolveModel: () => resolveBenchModel(ctxAfterPhase1, latentAgent.model),
             runStage: runBenchStage,
           },
           signal,
-          maxTokens: deps.config.latentStageMaxTokens,
+          thinking: latentAgent.thinking,
+          maxTokens: latentAgent.maxTokens,
+          timeoutMs: latentAgent.timeoutMs,
           rateLimitOptions: null,
         },
         latentMode,

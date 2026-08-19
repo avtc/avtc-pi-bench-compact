@@ -14,6 +14,7 @@ import {
   runBenchStage,
   StageRunError,
   type StageRunInput,
+  toStageReasoning,
 } from "../../src/runtime/agent-loop.js";
 
 // --- fake agentLoop seam ---------------------------------------------------
@@ -89,6 +90,17 @@ function baseInput(over: Partial<StageRunInput>): StageRunInput {
     ...over,
   };
 }
+
+describe("toStageReasoning", () => {
+  it("maps config thinking levels (pi-agent-core) to stage-input reasoning (pi-ai)", () => {
+    // "off" is a config-only level: it means no reasoning, which pi-ai expresses as null.
+    expect(toStageReasoning("off")).toBeNull();
+    expect(toStageReasoning(null)).toBeNull();
+    for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+      expect(toStageReasoning(level)).toBe(level);
+    }
+  });
+});
 
 describe("runBenchStage", () => {
   it("accumulates per-message-end usage (input/output/cacheRead/cacheWrite/cost) + counts turns", async () => {

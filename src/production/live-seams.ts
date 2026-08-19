@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -25,6 +26,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { getMemoryProxies, type MemoryProxies } from "../arms/proxies.js";
 import { configureArm } from "../arms/switch.js";
+import { resolveBackgroundAgents } from "../config/background-agents.js";
 import type { ArmId, BenchConfig } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { log } from "../log.js";
@@ -37,6 +39,7 @@ import {
   NO_REASONING,
   NO_STAGE_END_HOOK,
   runBenchStage,
+  toStageReasoning,
 } from "../runtime/agent-loop.js";
 import { type ResolvedBenchModel, resolveBenchModel } from "../runtime/model.js";
 import { triggerCompact } from "../session/compact.js";
@@ -54,7 +57,6 @@ import {
   driveUntilStop,
   extractAssistantText,
   makeDriveStop,
-  SIMULATOR_MAX_TOKENS,
   type SimulatorHooks,
 } from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
@@ -130,12 +132,16 @@ export type RunAuthor = typeof runAuthoringAgent;
  *  getter returning the holder's current (fresh) ctx for model-registry resolution. */
 export interface AuthorSeamDeps {
   readonly ctxGetter: () => ExtensionContext;
-  /** The evaluated model (`provider/id`) the authoring agent runs on (null = session default). */
-  readonly evaluatedModel: string | null;
+  /** The authoring agent's model (`provider/id`; null = session default). */
+  readonly authorModel: string | null;
+  /** The authoring agent's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
   /** Harness-authoritative scenario context (id/description/boundary) merged into the manifest. */
   readonly scenarioCtx: ScenarioContext;
   readonly signal: AbortSignal;
   readonly maxTokens: number;
+  /** Wall-clock cap per authoring LLM call. */
+  readonly timeoutMs: number;
   readonly rateLimitOptions?: RateLimitOptions | null;
   /** Injectable (default = resolveBenchModel). */
   readonly resolveModel?: ResolveModel;
@@ -146,9 +152,6 @@ export interface AuthorSeamDeps {
   /** The live-progress widget (the author seam advances to the 'extract' cell + wires the authoring agent's ctx/tok). */
   readonly widget?: WidgetPort | null;
 }
-
-/** Per-call output-token cap for the authoring agent's stage calls. */
-const AUTHOR_MAX_TOKENS = 8192;
 
 /** Build the `author` seam: run the manifest-authoring agent on the pre-sliced JSONL.
  *  The authoring tools' cwd is the JSONL's directory (so the file is within tool scope). */
@@ -180,7 +183,7 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
     deps.widget?.startPhase("extract", NO_DETAIL);
     const hooks = widgetStageHooks(deps.widget);
     const seams: AuthoringSeams = {
-      resolveModel: () => resolve(deps.ctxGetter(), deps.evaluatedModel),
+      resolveModel: () => resolve(deps.ctxGetter(), deps.authorModel),
       runStage,
       onEvent: hooks?.onEvent,
       onModelResolved: hooks?.onModelResolved,
@@ -196,7 +199,9 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
         deps.widget?.setDetail(extractDetailFromCounts(counts));
       },
       signal: deps.signal,
+      thinking: deps.thinking,
       maxTokens: deps.maxTokens,
+      timeoutMs: deps.timeoutMs,
       rateLimitOptions: deps.rateLimitOptions,
     });
     log.info(
@@ -213,18 +218,20 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
 
 // --- tail-check seam -------------------------------------------------------
 
-/** Per-call output-token cap for the tail check (the reply is a tiny JSON object). */
-const TAIL_CHECK_MAX_TOKENS = 512;
-/** Per-turn wall-clock cap for the tail-check stage call. */
-const TAIL_CHECK_TIMEOUT_MS = 120_000;
 /** Single-turn, no-tool stage (the reply IS the answer). */
 const SINGLE_TURN = 1;
 
 /** Inputs to {@link buildTailCheckSeam} (mirrors the author seam's threading). */
 export interface TailCheckSeamDeps {
   readonly ctxGetter: () => ExtensionContext;
-  /** The evaluated model the check runs on (null = session default). */
-  readonly evaluatedModel: string | null;
+  /** The tail check's model (`provider/id`; null = session default). */
+  readonly tailCheckModel: string | null;
+  /** The tail check's thinking level (null = omit the reasoning field). */
+  readonly thinking: ThinkingLevel | null;
+  /** Per-call output-token cap (the reply is a tiny JSON object). */
+  readonly maxTokens: number;
+  /** Per-turn wall-clock cap. */
+  readonly timeoutMs: number;
   readonly signal: AbortSignal;
   /** Injectable (default = resolveBenchModel). */
   readonly resolveModel?: ResolveModel;
@@ -270,7 +277,7 @@ export function buildTailCheckSeam(deps: TailCheckSeamDeps): NonNullable<BuildSe
   return async (backupPath: string, firstKeptEntryId: string): Promise<ReadonlySet<string>> => {
     const raw = readRawBackupEntries(backupPath, { read: deps.read ?? ((p) => readFileSync(p, "utf-8")) });
     const tailText = renderTailText(sliceKeptTail(raw, firstKeptEntryId));
-    const resolved = await resolve(deps.ctxGetter(), deps.evaluatedModel);
+    const resolved = await resolve(deps.ctxGetter(), deps.tailCheckModel);
     if (!resolved.ok) throw new Error(`tail check model not available: ${resolved.error}`);
     hooks?.onModelResolved(resolved.model);
     const result = await runStage({
@@ -280,10 +287,10 @@ export function buildTailCheckSeam(deps: TailCheckSeamDeps): NonNullable<BuildSe
       model: resolved.model,
       apiKey: resolved.apiKey,
       signal: deps.signal,
-      reasoning: NO_REASONING,
+      reasoning: toStageReasoning(deps.thinking),
       maxTurns: SINGLE_TURN,
-      maxTokens: TAIL_CHECK_MAX_TOKENS,
-      timeoutMs: TAIL_CHECK_TIMEOUT_MS,
+      maxTokens: deps.maxTokens,
+      timeoutMs: deps.timeoutMs,
       onEvent: hooks?.onEvent ?? NO_EVENT_SINK,
       onStageEnd: NO_STAGE_END_HOOK,
       loopFn: NO_LOOP_OVERRIDE,
@@ -403,12 +410,17 @@ export interface DriveAndCaptureSeamDeps {
   readonly buildSessionPath: string;
   readonly compactionBoundary: number;
   readonly scenarioDescription: string;
-  readonly evaluatedModel: string | null;
+  /** The user-simulator's model (`provider/id`; null = session default). */
+  readonly simulatorModel: string | null;
+  /** The user-simulator's thinking level (null = omit the reasoning field). */
+  readonly simulatorThinking: ThinkingLevel | null;
+  /** The user-simulator's per-call output-token cap. */
+  readonly maxTokens: number;
+  /** The user-simulator's per-turn wall-clock cap (null = no cap). */
+  readonly simulatorTimeoutMs: number | null;
   /** OM-full threshold for disabling memory during the build drive (raw backup). */
   readonly omFullReflectionThresholdTokens: number;
   readonly signal: AbortSignal;
-  readonly maxTokens: number;
-  /** Tokens added to the pacing target per continue attempt (default {@link CONTINUE_STEP_TOKENS}). */
   readonly continueStep?: number;
   readonly exists?: (path: string) => boolean;
   readonly writeHeader?: (path: string, header: MinimalSessionHeader) => void;
@@ -441,9 +453,11 @@ function ensureBuildSession(
  *  runner, using the anti-peek-wrapped inject seam. Delegates the driver construction
  *  to the shared {@link buildSimulatorDriver} (same as Phase 2). */
 function createDefaultBuildSimulatorFactory(deps: {
-  evaluatedModel: string | null;
+  model: string | null;
+  thinking: ThinkingLevel | null;
   scenarioDescription: string;
   maxTokens: number;
+  timeoutMs: number | null;
   antiPeekPrompt: string;
 }): (args: MakeBuildSimulatorArgs) => BuildDriver {
   // ONE anti-peek flag for the whole build session (created once per factory, which
@@ -457,9 +471,11 @@ function createDefaultBuildSimulatorFactory(deps: {
       pi: args.pi,
       ctx: args.ctx,
       task: deps.scenarioDescription,
-      evaluatedModel: deps.evaluatedModel,
+      model: deps.model,
+      thinking: deps.thinking,
       targetContext: args.targetContext,
       maxTokens: deps.maxTokens,
+      timeoutMs: deps.timeoutMs,
       signal: args.signal,
       inject: injector(args.pi),
       onStop: args.onStop,
@@ -511,9 +527,11 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
   const makeSimulator =
     deps.makeSimulator ??
     createDefaultBuildSimulatorFactory({
-      evaluatedModel: deps.evaluatedModel,
+      model: deps.simulatorModel,
+      thinking: deps.simulatorThinking,
       scenarioDescription: deps.scenarioDescription,
       maxTokens: deps.maxTokens,
+      timeoutMs: deps.simulatorTimeoutMs,
       antiPeekPrompt: ANTI_PEEK_PROMPT,
     });
   const getProxies = deps.getProxies ?? (() => null);
@@ -742,6 +760,7 @@ export interface BuildLiveSeamsArgs {
  *  prior ctx). Extract mode reuses only `trialCompact` + `author` (driveAndCapture unused). */
 export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   const holder: CtxHolder = { current: args.cmdCtx };
+  const agents = resolveBackgroundAgents(args.config);
   const scenarioCtx: ScenarioContext = {
     id: args.scenarioId,
     description: args.scenarioDescription,
@@ -749,11 +768,13 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   };
   const author = buildAuthorSeam({
     ctxGetter: () => holder.current,
-    evaluatedModel: args.config.evaluatedModel,
+    authorModel: agents.author.model,
+    thinking: agents.author.thinking,
     scenarioCtx,
     widget: args.widget,
     signal: args.signal,
-    maxTokens: AUTHOR_MAX_TOKENS,
+    maxTokens: agents.author.maxTokens,
+    timeoutMs: agents.author.timeoutMs,
   });
   const trialCompact = buildTrialCompactSeam({
     holder,
@@ -770,10 +791,12 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
     buildSessionPath: join(args.preSliceDir, BUILD_SESSION_NAME),
     compactionBoundary: args.config.compactionBoundary,
     scenarioDescription: args.scenarioDescription,
-    evaluatedModel: args.config.evaluatedModel,
+    simulatorModel: agents.simulator.model,
+    simulatorThinking: agents.simulator.thinking,
+    maxTokens: agents.simulator.maxTokens,
+    simulatorTimeoutMs: agents.simulator.timeoutMs,
     omFullReflectionThresholdTokens: args.config.omFullReflectionThresholdTokens,
     signal: args.signal,
-    maxTokens: SIMULATOR_MAX_TOKENS,
     getPi: getBenchPi,
     getProxies: getMemoryProxies,
     widget: args.widget,
@@ -784,7 +807,10 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   });
   const findTailContent = buildTailCheckSeam({
     ctxGetter: () => holder.current,
-    evaluatedModel: args.config.evaluatedModel,
+    tailCheckModel: agents.tailCheck.model,
+    thinking: agents.tailCheck.thinking,
+    maxTokens: agents.tailCheck.maxTokens,
+    timeoutMs: agents.tailCheck.timeoutMs,
     signal: args.signal,
     widget: args.widget,
   });

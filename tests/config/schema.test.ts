@@ -18,8 +18,8 @@ describe("BENCH_SCHEMA", () => {
     expect(BENCH_SETTINGS_COMMAND).toBe("bench-compact:settings");
   });
 
-  it("has three tabs (Models / Run / Arms) covering every setting id", () => {
-    expect(BENCH_SCHEMA.tabs.map((t) => t.label)).toEqual(["Models", "Run", "Arms"]);
+  it("has four tabs (Models / Run / Background agents / Arms) covering every setting id", () => {
+    expect(BENCH_SCHEMA.tabs.map((t) => t.label)).toEqual(["Models", "Run", "Background agents", "Arms"]);
     const tabbed = new Set(BENCH_SCHEMA.tabs.flatMap((t) => t.settingIds));
     for (const s of BENCH_SCHEMA.settings) {
       expect(tabbed.has(s.id)).toBe(true);
@@ -79,9 +79,9 @@ describe("BENCH_SCHEMA", () => {
       expect(row("judgeMaxTokens")).toMatchObject({ type: "number", defaultValue: 32768 });
       expect(row("judgeMaxTokens").presets).toEqual([16384, 32768, 65536, 131072, 262144]);
     });
-    it("latentStageMaxTokens: number, default 32768, same token ladder", () => {
-      expect(row("latentStageMaxTokens")).toMatchObject({ type: "number", defaultValue: 32768 });
-      expect(row("latentStageMaxTokens").presets).toEqual([16384, 32768, 65536, 131072, 262144]);
+    it("latentStageMaxTokens: number, default null (background max tokens), latent token ladder", () => {
+      expect(row("latentStageMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
+      expect(row("latentStageMaxTokens").presets).toEqual([["default", null], 16384, 32768, 65536, 131072, 262144]);
     });
     it("judgeTurnTimeoutMs: number, default 300000, labelled presets incl. Infinite(null)", () => {
       expect(row("judgeTurnTimeoutMs")).toMatchObject({ type: "number", defaultValue: 300000 });
@@ -108,6 +108,99 @@ describe("BENCH_SCHEMA", () => {
     });
     it("outputDir: string, default null", () => {
       expect(row("outputDir")).toMatchObject({ type: "string", defaultValue: null });
+    });
+  });
+
+  describe("Background agents tab", () => {
+    it("backgroundModel: model, default null", () => {
+      expect(row("backgroundModel")).toMatchObject({ type: "model", defaultValue: null });
+    });
+    it("backgroundThinkingLevel: thinking-level, default null, presets incl. none(null) + the full ladder", () => {
+      expect(row("backgroundThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+      expect(row("backgroundThinkingLevel").presets).toEqual([
+        ["none", null],
+        ["off", "off"],
+        ["minimal", "minimal"],
+        ["low", "low"],
+        ["medium", "medium"],
+        ["high", "high"],
+        ["xhigh", "xhigh"],
+        ["max", "max"],
+      ]);
+    });
+    it("backgroundMaxTokens: number, default 32768, no null preset (always set)", () => {
+      expect(row("backgroundMaxTokens")).toMatchObject({ type: "number", defaultValue: 32768, min: 1 });
+      expect(row("backgroundMaxTokens").presets).toEqual([8192, 16384, 32768, 65536, 131072, 262144]);
+    });
+    it("backgroundTimeoutMs: duration, default 1200000 (20m), bounded, no null preset (always set)", () => {
+      expect(row("backgroundTimeoutMs")).toMatchObject({
+        type: "duration",
+        defaultValue: 1200000,
+        min: 1000,
+        max: 3600000,
+      });
+      expect(row("backgroundTimeoutMs").presets).toEqual(["1m", "2m", "5m", "10m", "20m", "30m", "1h"]);
+    });
+    it("authorModel / authorThinkingLevel: model + thinking-level, default null", () => {
+      expect(row("authorModel")).toMatchObject({ type: "model", defaultValue: null });
+      expect(row("authorThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+    });
+    it("authorMaxTokens: number, default null (background max tokens)", () => {
+      expect(row("authorMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
+      expect(row("authorMaxTokens").presets).toEqual([["default", null], 2048, 4096, 8192, 16384, 32768, 65536]);
+    });
+    it("authorTimeoutMs: duration, default null (background timeout), bounded", () => {
+      expect(row("authorTimeoutMs")).toMatchObject({
+        type: "duration",
+        defaultValue: null,
+        min: 1000,
+        max: 3600000,
+      });
+      expect(row("authorTimeoutMs").presets).toEqual([["default", null], "1m", "2m", "5m", "10m", "20m"]);
+    });
+    it("tailCheckModel / tailCheckThinkingLevel: model + thinking-level, default null", () => {
+      expect(row("tailCheckModel")).toMatchObject({ type: "model", defaultValue: null });
+      expect(row("tailCheckThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+    });
+    it("tailCheckMaxTokens: number, default null (background max tokens)", () => {
+      expect(row("tailCheckMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
+      expect(row("tailCheckMaxTokens").presets).toEqual([["default", null], 128, 256, 512, 1024, 2048, 4096]);
+    });
+    it("tailCheckTimeoutMs: duration, default null (background timeout), bounded", () => {
+      expect(row("tailCheckTimeoutMs")).toMatchObject({
+        type: "duration",
+        defaultValue: null,
+        min: 1000,
+        max: 3600000,
+      });
+    });
+    it("simulatorModel / simulatorThinkingLevel: model + thinking-level, default null", () => {
+      expect(row("simulatorModel")).toMatchObject({ type: "model", defaultValue: null });
+      expect(row("simulatorThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+    });
+    it("simulatorMaxTokens: number, default null (background max tokens)", () => {
+      expect(row("simulatorMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
+      expect(row("simulatorMaxTokens").presets).toEqual([["default", null], 128, 256, 512, 1024, 2048, 4096]);
+    });
+    it("simulatorTurnTimeoutMs: duration, default null (background timeout), bounded", () => {
+      expect(row("simulatorTurnTimeoutMs")).toMatchObject({
+        type: "duration",
+        defaultValue: null,
+        min: 1000,
+        max: 3600000,
+      });
+    });
+    it("latentModel / latentThinkingLevel: model + thinking-level, default null", () => {
+      expect(row("latentModel")).toMatchObject({ type: "model", defaultValue: null });
+      expect(row("latentThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+    });
+    it("latentTimeoutMs: duration, default null (background timeout), bounded", () => {
+      expect(row("latentTimeoutMs")).toMatchObject({
+        type: "duration",
+        defaultValue: null,
+        min: 1000,
+        max: 3600000,
+      });
     });
   });
 

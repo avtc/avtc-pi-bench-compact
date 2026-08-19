@@ -96,11 +96,44 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   latentProbes: LatentProbesMode;
   /** Per-call output-token caps (judge ensemble / latent authoring). */
   judgeMaxTokens: number;
-  latentStageMaxTokens: number;
+  /** Per-call output-token cap for latent authoring (null = backgroundMaxTokens). */
+  latentStageMaxTokens: number | null;
   /** Wall-clock cap per judge LLM call; null = no cap (the "Infinite" preset). */
   judgeTurnTimeoutMs: number | null;
   /** Wall-clock cap for the embedded testSpec shell run. */
   testspecTimeoutMs: number;
+  // Background agents tab — per-agent values fall back to the matching background
+  // setting (no code-level fallback: the background settings always carry a value).
+  /** Shared default for every background agent's model (null = per-agent bases). */
+  backgroundModel: string | null;
+  /** Shared default thinking level (null = omit the reasoning field). */
+  backgroundThinkingLevel: ThinkingLevel | null;
+  /** Shared default per-call output-token cap for every background agent. */
+  backgroundMaxTokens: number;
+  /** Shared default wall-clock cap per background-agent LLM call (ms). */
+  backgroundTimeoutMs: number;
+  authorModel: string | null;
+  authorThinkingLevel: ThinkingLevel | null;
+  /** Per-call output-token cap override (null = backgroundMaxTokens). */
+  authorMaxTokens: number | null;
+  /** Wall-clock cap override per authoring LLM call (null = backgroundTimeoutMs). */
+  authorTimeoutMs: number | null;
+  tailCheckModel: string | null;
+  tailCheckThinkingLevel: ThinkingLevel | null;
+  /** Per-call output-token cap override (null = backgroundMaxTokens). */
+  tailCheckMaxTokens: number | null;
+  /** Wall-clock cap override for the tail-check LLM call (null = backgroundTimeoutMs). */
+  tailCheckTimeoutMs: number | null;
+  simulatorModel: string | null;
+  simulatorThinkingLevel: ThinkingLevel | null;
+  /** Per-call output-token cap override (null = backgroundMaxTokens). */
+  simulatorMaxTokens: number | null;
+  /** Wall-clock cap override per user-simulator LLM call (null = backgroundTimeoutMs). */
+  simulatorTurnTimeoutMs: number | null;
+  latentModel: string | null;
+  latentThinkingLevel: ThinkingLevel | null;
+  /** Wall-clock cap override per latent-authoring LLM call (null = backgroundTimeoutMs). */
+  latentTimeoutMs: number | null;
   scenario: string | null;
   outputDir: string | null;
   // Arms tab
