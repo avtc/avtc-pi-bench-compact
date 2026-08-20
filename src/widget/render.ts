@@ -148,6 +148,12 @@ function formatCtxTokens(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}K` : `${n}`;
 }
 
+/** Format the context window: `262K`, or `?` while unresolved (the model
+ *  resolution is still in flight). Shared by the single-agent + judge segments. */
+function formatCtxWindow(w: number | null): string {
+  return w === null ? "?" : formatCtxTokens(w);
+}
+
 /** Format the current-request output-token progress: `k` with 1 decimal. */
 function formatTokTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
@@ -223,8 +229,7 @@ function renderParts(state: WidgetState): Part[] {
   /** Format one judge's ctx pair: `45K/262K`, or `45K/?` while its window is
    *  unresolved (the model resolution is still in flight). */
   function formatJudgeCtx(u: JudgeUsage): string {
-    const window = u.ctxWindow === null ? "?" : formatCtxTokens(u.ctxWindow);
-    return `${formatCtxTokens(u.ctxUsage)}/${window}`;
+    return `${formatCtxTokens(u.ctxUsage)}/${formatCtxWindow(u.ctxWindow)}`;
   }
 
   // ctx/tok (background agent generating, not compact).
@@ -241,10 +246,9 @@ function renderParts(state: WidgetState): Part[] {
       color: COLOR_COUNTER,
     });
   } else if (showCtxTok(state)) {
-    const window = state.ctxWindow ?? 0;
     parts.push({
       kind: "fixed",
-      text: `ctx ${formatCtxTokens(state.ctxUsage as number)}/${formatCtxTokens(window)}`,
+      text: `ctx ${formatCtxTokens(state.ctxUsage as number)}/${formatCtxWindow(state.ctxWindow)}`,
       color: COLOR_COUNTER,
     });
     parts.push({ kind: "fixed", text: `${formatTokTokens(state.tok as number)} tok`, color: COLOR_COUNTER });

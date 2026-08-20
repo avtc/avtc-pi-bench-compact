@@ -125,6 +125,13 @@ describe("renderLine — phase-bar + phase name", () => {
     );
   });
 
+  it("single-agent ctx segment: unresolved window renders ? (parity with the judge list)", () => {
+    const md = renderLine(
+      running("latent", { armIndex: 2, tool: "om-full", ctxUsage: 45_000, ctxWindow: null, tok: 3200 }),
+    );
+    expect(md).toBe("🅑 2/5 om-full · ■■■◧□□□ latent · ctx 45K/? · 3.2k tok");
+  });
+
   it("score with judgeUsages (K=1): single pair, unresolved window renders ?", () => {
     const md = renderLine(
       running("score", {
