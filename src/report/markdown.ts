@@ -43,7 +43,7 @@ function deriveDeltas(result: BenchResultJson): {
   return { a1Present: true, deltas };
 }
 
-/** Per-arm probe-answer usage sums (probes-only C3 totals + the footer line).
+/** Per-arm probe-answer usage sums (the probes-only run-cost totals + the footer line).
  *  Null when the arm has no usage-bearing probes. */
 function probeUsageTotals(arm: NonNullable<BenchResultJson["arms"][ArmId]> | undefined): {
   tokensIn: number;
@@ -125,8 +125,8 @@ export function renderHeadline(result: BenchResultJson): string {
     const polarity = def?.polarity ?? "lowerBetter";
     const arrow = polarityArrow(polarity);
     const chan = def?.channel ?? "exact";
-    // Probes-only C3 is the PER-ANSWER compound — relabel it and follow it with a
-    // live totals row (the same sums the footer line shows, surfaced in the table).
+    // The probes-only run-cost metric is the PER-ANSWER compound — relabel it and
+    // follow it with a live totals row (the same sums the footer line shows, in the table).
     const perAnswerC3 =
       metric === "C3" && arms.some((a) => "answers" in ((result.arms[a]?.metrics.C3 ?? {}) as MetricJson));
     const label = `${metric} ${def?.name ?? ""}${perAnswerC3 ? "/answer" : ""}${chan === "comparative" ? " (rank)" : arrow ? ` (${arrow})` : ""}`;

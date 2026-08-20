@@ -173,8 +173,8 @@ export interface Phase1Deps {
    *  (without it the compaction-cost metric renders 0s after a resume). */
   priorWalls?: Phase1Walls;
   /** The walls file's path — each arm's compaction wall is merge-written HERE the
-   *  moment the arm finishes (crash durability: a crash mid-phase no longer strands
-   *  the already-compacted arms' walls in the dying process's memory). */
+   *  moment the arm finishes (crash durability: a crash mid-phase must not strand an
+   *  already-compacted arm's wall in the dying process's memory). */
   wallsPath: string;
   /** --reuse-bases: also reuse a committed base built under an OLDER tool version
    *  when the current version's base branch is absent (skip re-compaction after a
