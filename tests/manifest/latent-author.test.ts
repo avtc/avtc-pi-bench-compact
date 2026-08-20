@@ -9,19 +9,24 @@ import type { AgentEvent, AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { JsonToolStageSeams } from "../../src/judge/stage-runner.js";
-import type { AuthorLatentProbe } from "../../src/manifest/latent.js";
+import type { AuthorLatentProbe, LatentProbe } from "../../src/manifest/latent.js";
 import {
+  buildLatentRetryTaskMessage,
   buildLatentSystemPrompt,
   buildLatentTaskMessage,
   buildLatentTools,
   LATENT_CAP_PER_CLASS,
+  LATENT_MAX_PASSES,
   LATENT_MIN_PER_CLASS,
+  LATENT_REASON_RESUMED,
+  LATENT_REASON_TIMED_OUT,
   runLatentAuthoringAgent,
   type SpanCitations,
   spanCitationIndex,
   spanContentEntryIds,
 } from "../../src/manifest/latent-author.js";
 import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "../../src/manifest/latent-prompt.js";
+import { StageRunError } from "../../src/runtime/agent-loop.js";
 import type { AskUi } from "../../src/ui/ask.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,7 +122,7 @@ function citationsOf(...ids: string[]): SpanCitations {
 describe("buildLatentTools", () => {
   it("add_latent_probe accepts valid items and fires onAdd with per-class counts", async () => {
     const seen: string[] = [];
-    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { ...item("cued", "q1"), probeClass: "cued" });
@@ -126,7 +131,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe rejects schema mismatches with the shared rejection shape", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { question: "q", accept: [], entryIds: [], probeClass: "cued", note: "" });
@@ -138,7 +143,7 @@ describe("buildLatentTools", () => {
 
   it("add_latent_probe rejects placeholder-grade questions with the specific rejection (junk never enters the pool)", async () => {
     const seen: string[] = [];
-    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { ...item("cued", "placeholder"), question: "Test4" });
@@ -150,7 +155,7 @@ describe("buildLatentTools", () => {
   });
 
   it('add_latent_probe rejects placeholder-grade notes and accept lists (the A3 junk: note "t", accept "a")', async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const note = await add.execute("c1", { ...item("cued", "fine question"), note: "t" });
@@ -166,7 +171,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe rejects near-duplicate questions (padding runs never enter the pool)", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const first = await add.execute("c1", item("cued", "What is the exact LEGACY_DECAY value?"));
@@ -182,7 +187,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe enforces the per-class cap with the approved rejection", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     for (let i = 0; i < LATENT_CAP_PER_CLASS; i++) {
@@ -201,7 +206,7 @@ describe("buildLatentTools", () => {
   });
 
   it("finalize_latent: min met → captures done and terminates", async () => {
-    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -215,7 +220,7 @@ describe("buildLatentTools", () => {
   });
 
   it("finalize_latent: below min with progress → produce-more rejection, no terminate", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -235,7 +240,7 @@ describe("buildLatentTools", () => {
     // operator dialog was unreachable. Junk adds are now rejected at the gate — the
     // next unchanged finalize has NO progress and opens the dialog (accept fewer).
     const ui = fakeUi(["accept fewer probes and continue"]);
-    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"));
+    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null);
     const add = t.tools.find((x) => x.name === "add_latent_probe");
     const fin = t.tools.find((x) => x.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -260,13 +265,25 @@ describe("buildLatentTools", () => {
       return fin;
     };
 
-    const accept = buildLatentTools(".", fakeUi(["accept fewer probes and continue"]), () => {}, citationsOf("e1"));
+    const accept = buildLatentTools(
+      ".",
+      fakeUi(["accept fewer probes and continue"]),
+      () => {},
+      citationsOf("e1"),
+      null,
+    );
     const finA = await seed(accept);
     const ra = await finA.execute("f1", {});
     expect(ra.terminate).toBe(true);
     expect(accept.finalizeLatent._captured).toEqual(["accept"]);
 
-    const retry = buildLatentTools(".", fakeUi(["ask the authoring agent to try again"]), () => {}, citationsOf("e1"));
+    const retry = buildLatentTools(
+      ".",
+      fakeUi(["ask the authoring agent to try again"]),
+      () => {},
+      citationsOf("e1"),
+      null,
+    );
     const finR = await seed(retry);
     const rr = await finR.execute("f1", {});
     expect(rr.terminate).toBeUndefined();
@@ -278,19 +295,19 @@ describe("buildLatentTools", () => {
     expect(rr2.terminate).toBeUndefined();
     expect(retry.finalizeLatent._captured).toEqual([]);
 
-    const stop = buildLatentTools(".", fakeUi(["stop the run"]), () => {}, citationsOf("e1"));
+    const stop = buildLatentTools(".", fakeUi(["stop the run"]), () => {}, citationsOf("e1"), null);
     const finS = await seed(stop);
     const rs = await finS.execute("f1", {});
     expect(rs.terminate).toBe(true);
     expect(stop.finalizeLatent._captured).toEqual(["stop"]);
 
-    const dismissed = buildLatentTools(".", fakeUi([undefined]), () => {}, citationsOf("e1"));
+    const dismissed = buildLatentTools(".", fakeUi([undefined]), () => {}, citationsOf("e1"), null);
     const finD = await seed(dismissed);
     const rd = await finD.execute("f1", {});
     expect(rd.terminate).toBe(true);
     expect(dismissed.finalizeLatent._captured).toEqual(["stop"]);
 
-    const noUi = buildLatentTools(".", null, () => {}, citationsOf("e1"));
+    const noUi = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
     const finN = await seed(noUi);
     const rn = await finN.execute("f1", {});
     expect(rn.terminate).toBe(true);
@@ -607,5 +624,352 @@ describe("runLatentAuthoringAgent", () => {
     expect(r.kind).toBe("completed"); // the 3+3 valid probes finalized; the bad one never entered the pool
     if (r.kind !== "completed") return;
     expect(r.pool.every((p) => p.entryIds.every((id) => id === "e1"))).toBe(true);
+  });
+});
+
+// ── pass loop: auto-restart on mid-work deaths (timeout / context exhaustion) ──
+describe("runLatentAuthoringAgent — retry passes", () => {
+  const FAKE_MODEL_R: Model<Api> = { id: "fake" } as unknown as Model<Api>;
+
+  function sessionOf(dir: string): string {
+    const path = join(dir, "arm.jsonl");
+    writeFileSync(
+      path,
+      [
+        { id: "e1", type: "message", content: "span" },
+        { id: "cut-1", type: "message", content: "tail" },
+        { id: "c9", type: "compaction", summary: "s", firstKeptEntryId: "cut-1" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n"),
+    );
+    return path;
+  }
+
+  /** Fake seams with a scripted list of pass behaviors: each entry drives the tools
+   *  for that pass (adding probes / finalizing). `failFirst` kills pass 1 the way
+   *  the real pipeline surfaces a mid-work death — a timed-out stage result, or a
+   *  context-exhausted request wrapped in StageRunError — before the script runs. */
+  function scriptedSeams(
+    passes: Array<(find: (n: string) => AgentTool, input: { messages: [{ content: string }] }) => Promise<void>>,
+    failFirst: "timeout" | "context" | null,
+  ): { seams: JsonToolStageSeams; kickoffs: string[] } {
+    const kickoffs: string[] = [];
+    let i = 0;
+    return {
+      kickoffs,
+      seams: {
+        resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL_R, apiKey: "k" }),
+        runStage: async (input) => {
+          const inp = input as unknown as { tools: AgentTool[]; messages: [{ content: string }] };
+          kickoffs.push(inp.messages[0].content);
+          if (i === 0 && failFirst === "timeout") {
+            i += 1;
+            return { timedOut: true, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+          }
+          if (i === 0 && failFirst === "context") {
+            i += 1;
+            throw new StageRunError(
+              new Error("model m request failed: maximum context length is 8192 tokens, however you requested 262999"),
+            );
+          }
+          const step = passes[Math.min(i, passes.length - 1)];
+          i += 1;
+          const find = (n: string): AgentTool => {
+            const tool = inp.tools.find((t) => t.name === n);
+            if (tool === undefined) throw new Error(`tool ${n} missing`);
+            return tool;
+          };
+          await step(find, inp);
+          return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+        },
+        onEvent: (_e: AgentEvent) => {},
+      },
+    };
+  }
+
+  it("a timed-out pass auto-restarts: pass 2 completes over the kept probes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-retry-"));
+    const { seams, kickoffs } = scriptedSeams(
+      [
+        async (find) => {
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          for (let i = 0; i < 3; i++) {
+            await add.execute("c", item("cued", `cued retry fact number ${i} of the trio`));
+            await add.execute("c", item("uncued", `uncued retry fact number ${i} of the trio`));
+          }
+          await (find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }).execute("c", {});
+        },
+      ],
+      "timeout",
+    );
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A3",
+      enabledArms: ["A3"],
+      sessionPaths: [sessionOf(dir)],
+      tailStartsAtEntryId: "cut-1",
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+    if (r.kind !== "completed") return;
+    expect(r.pool).toHaveLength(6);
+    // pass 1 got the plain kickoff, pass 2 the retry kickoff with the timeout reason
+    expect(kickoffs[0]).toContain("then call finalize_latent when done.");
+    expect(kickoffs[1]).toContain(
+      `The previous authoring pass ended before finalize_latent (${LATENT_REASON_TIMED_OUT}).`,
+    );
+    expect(kickoffs[1]).toContain("Still needed: cued 3 more, uncued 3 more.");
+  });
+
+  it("a context-exhausted pass auto-restarts (StageRunError naming the context)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-retry-ooc-"));
+    const { seams } = scriptedSeams(
+      [
+        async (find) => {
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          for (let i = 0; i < 3; i++) {
+            await add.execute("c", item("cued", `cued ooc fact number ${i} of the trio`));
+            await add.execute("c", item("uncued", `uncued ooc fact number ${i} of the trio`));
+          }
+          await (find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }).execute("c", {});
+        },
+      ],
+      "context",
+    );
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [sessionOf(dir)],
+      tailStartsAtEntryId: "cut-1",
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+  });
+
+  it("a NON-retryable failure (lucid no-finalize) does NOT restart", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-noretry-"));
+    let calls = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL_R, apiKey: "k" }),
+      runStage: async (input) => {
+        calls += 1;
+        void (input as { tools: AgentTool[] }).tools;
+        return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+      },
+      onEvent: (_e: AgentEvent) => {},
+    };
+    await expect(
+      runLatentAuthoringAgent({
+        seams,
+        cwd: dir,
+        mode: "per-arm",
+        arm: "A1",
+        enabledArms: ["A1"],
+        sessionPaths: [sessionOf(dir)],
+        tailStartsAtEntryId: "cut-1",
+        ui: null,
+        signal: new AbortController().signal,
+        maxTokens: 1000,
+        thinking: null,
+        timeoutMs: 120000,
+      }),
+    ).rejects.toThrow(/did not call finalize_latent/);
+    expect(calls).toBe(1);
+  });
+
+  it("retries stop at the pass cap (3 total), then the failure surfaces", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-cap-"));
+    let calls = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL_R, apiKey: "k" }),
+      runStage: async (input) => {
+        calls += 1;
+        void (input as { tools: AgentTool[] }).tools;
+        return { timedOut: true, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+      },
+      onEvent: (_e: AgentEvent) => {},
+    };
+    await expect(
+      runLatentAuthoringAgent({
+        seams,
+        cwd: dir,
+        mode: "per-arm",
+        arm: "A1",
+        enabledArms: ["A1"],
+        sessionPaths: [sessionOf(dir)],
+        tailStartsAtEntryId: "cut-1",
+        ui: null,
+        signal: new AbortController().signal,
+        maxTokens: 1000,
+        thinking: null,
+        timeoutMs: 120000,
+      }),
+    ).rejects.toThrow(/timed out before finalize_latent/);
+    expect(calls).toBe(LATENT_MAX_PASSES);
+  });
+
+  it("seeds from a partial pool: counted, widget onAdd fired, retry kickoff with the resumed reason", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-seed-"));
+    const seen: string[] = [];
+    const { seams, kickoffs } = scriptedSeams(
+      [
+        async (find) => {
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          await add.execute("c", item("uncued", "a fresh uncued fact mined from the span"));
+          await add.execute("c", item("uncued", "another fresh uncued fact from the span"));
+          await (find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }).execute("c", {});
+        },
+      ],
+      null,
+    );
+    const seed = (n: number, cls: "cued" | "uncued", q: string): LatentProbe =>
+      ({ id: `l${n}`, ...item(cls, q), arm: "A3", verdicts: { A3: "absent" } }) as unknown as LatentProbe;
+    const seeds: readonly LatentProbe[] = [
+      seed(1, "cued", "the write-through threshold settled in the span"),
+      seed(2, "cued", "the vendor name chosen mid-conversation"),
+      seed(3, "cued", "the retry budget agreed on late"),
+      seed(4, "uncued", "the undocumented flag mentioned in passing"),
+    ];
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A3",
+      enabledArms: ["A3"],
+      sessionPaths: [sessionOf(dir)],
+      tailStartsAtEntryId: "cut-1",
+      seedProbes: seeds,
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+      onAdd: (c) => seen.push(`${c.cued}/${c.uncued}`),
+    });
+    expect(r.kind).toBe("completed");
+    if (r.kind !== "completed") return;
+    expect(r.pool).toHaveLength(6); // 4 seeds + 2 fresh
+    expect(r.pool[0]).toMatchObject({ id: "l1", probeClass: "cued" });
+    expect(r.pool[4]).toMatchObject({ id: "l5", probeClass: "uncued" });
+    expect(seen[0]).toBe("3/1"); // seeded counts surface immediately
+    expect(kickoffs[0]).toContain(
+      `The previous authoring pass ended before finalize_latent (${LATENT_REASON_RESUMED}).`,
+    );
+    expect(kickoffs[0]).toContain("- [cued] the write-through threshold settled in the span");
+    expect(kickoffs[0]).toContain("Still needed: cued 0 more, uncued 2 more.");
+  });
+
+  it("persistPartial fires after every accepted add with the full kept set", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-persist-"));
+    const persisted: number[] = [];
+    const { seams } = scriptedSeams(
+      [
+        async (find) => {
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          for (let i = 0; i < 3; i++) {
+            await add.execute("c", item("cued", `cued persist fact number ${i} of the trio`));
+            await add.execute("c", item("uncued", `uncued persist fact number ${i} of the trio`));
+          }
+          await (find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }).execute("c", {});
+        },
+      ],
+      null,
+    );
+    await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A3",
+      enabledArms: ["A3"],
+      sessionPaths: [sessionOf(dir)],
+      tailStartsAtEntryId: "cut-1",
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+      persistPartial: (probes) => persisted.push(probes.length),
+    });
+    expect(persisted).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("re-recording a SEEDED probe is rejected by the duplicate gate", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-seeddup-"));
+    let rejection = "";
+    const { seams } = scriptedSeams(
+      [
+        async (find) => {
+          const add = find("add_latent_probe") as unknown as {
+            execute: (id: string, a: unknown) => Promise<{ content: [{ text: string }] }>;
+          };
+          const r = await add.execute("c", item("cued", "the write-through threshold settled in the span"));
+          rejection = r.content[0].text;
+          await (find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }).execute("c", {});
+        },
+      ],
+      null,
+    );
+    const seed = (n: number, cls: "cued" | "uncued", q: string): LatentProbe =>
+      ({ id: `l${n}`, ...item(cls, q), arm: "A3", verdicts: { A3: "absent" } }) as unknown as LatentProbe;
+    const seeds: readonly LatentProbe[] = [
+      seed(1, "cued", "the write-through threshold settled in the span"),
+      seed(2, "cued", "the vendor name chosen mid-conversation"),
+      seed(3, "cued", "the retry budget agreed on late"),
+      seed(4, "uncued", "the undocumented flag mentioned in passing"),
+      seed(5, "uncued", "an offhand deadline nobody wrote down"),
+      seed(6, "uncued", "the side-channel discussed only verbally"),
+    ];
+    await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A3",
+      enabledArms: ["A3"],
+      sessionPaths: [sessionOf(dir)],
+      tailStartsAtEntryId: "cut-1",
+      seedProbes: seeds,
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(rejection).toContain("rejected");
+  });
+
+  it("kickoff with both minimums already met reads 'Still needed: nothing — call finalize_latent.'", () => {
+    const kept = [
+      item("cued", "cued fact one that is long enough"),
+      item("cued", "cued fact two that is long enough"),
+      item("cued", "cued fact three that is long enough"),
+      item("uncued", "uncued fact one that is long enough"),
+      item("uncued", "uncued fact two that is long enough"),
+      item("uncued", "uncued fact three that is long enough"),
+    ];
+    const msg = buildLatentRetryTaskMessage({
+      mode: "per-arm",
+      sessionPaths: ["E:/repo/sessions/arm.jsonl"],
+      tailStartsAtEntryId: "cut-1",
+      tailStartLine: 4,
+      reason: LATENT_REASON_TIMED_OUT,
+      kept,
+    });
+    expect(msg).toContain("Still needed: nothing — call finalize_latent.");
+    expect(msg).toContain("The KEPT TAIL starts at the entry with id cut-1 — line 4.");
+    expect(msg).toContain("Read the session file at E:/repo/sessions/arm.jsonl");
   });
 });

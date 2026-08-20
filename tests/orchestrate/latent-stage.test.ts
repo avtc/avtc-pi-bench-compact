@@ -145,7 +145,14 @@ describe("runLatentStagePerArm", () => {
           arm,
           tailStartsAtEntryId: "cut-1",
           summaryDigests: { [arm]: summaryDigest(summary) },
-          probes: [probe("l1", "cued")],
+          probes: [
+            probe("l1", "cued"),
+            probe("l2", "cued"),
+            probe("l3", "cued"),
+            probe("l4", "uncued"),
+            probe("l5", "uncued"),
+            probe("l6", "uncued"),
+          ],
         }),
       );
     }
@@ -153,7 +160,7 @@ describe("runLatentStagePerArm", () => {
     expect(r.kind).toBe("done");
     expect(calls.n).toBe(0);
     if (r.kind !== "done") return;
-    expect(r.pools.A1?.probes).toHaveLength(1); // the PRE-written pool, not re-authored
+    expect(r.pools.A1?.probes).toHaveLength(6); // the PRE-written complete pool, not re-authored
   });
 
   it("re-authors an arm whose summary digest changed", async () => {
@@ -191,7 +198,14 @@ describe("runLatentStagePerArm", () => {
           arm,
           tailStartsAtEntryId: "cut-1",
           summaryDigests: { [arm]: summaryDigest(summary) },
-          probes: [probe("l1", "cued")],
+          probes: [
+            probe("l1", "cued"),
+            probe("l2", "cued"),
+            probe("l3", "cued"),
+            probe("l4", "uncued"),
+            probe("l5", "uncued"),
+            probe("l6", "uncued"),
+          ],
         }),
       );
     }
@@ -250,7 +264,14 @@ describe("runLatentStagePerArm", () => {
         arm: "A1",
         tailStartsAtEntryId: "cut-1",
         summaryDigests: { A1: summaryDigest("summary one") },
-        probes: [{ ...probe("l1", "cued"), entryIds: ["not-in-span"] }],
+        probes: [
+          { ...probe("l1", "cued"), entryIds: ["not-in-span"] },
+          probe("l2", "cued"),
+          probe("l3", "cued"),
+          probe("l4", "uncued"),
+          probe("l5", "uncued"),
+          probe("l6", "uncued"),
+        ],
       }),
     );
     const r = await runLatentStagePerArm(baseDeps(dir, { author: fakeAuthor({ calls }).deps }));
@@ -402,5 +423,114 @@ describe("runLatentStageShared", () => {
       A3: summaryDigest("summary three"),
     });
     expect(r.pools.A1).toBe(r.pools.A3); // the SAME pool object for every arm
+  });
+});
+
+// ── partial pools: incremental persistence + resume continuation ──
+describe("runLatentStage — partial pools (stopped pass, resume)", () => {
+  it("a PARTIAL per-arm pool (below min, matching envelope) seeds the author + counts as re-authored", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-partial-"));
+    // A1 has a 2-cued/1-uncued partial pool with CURRENT digests (incremental writes)
+    writeFileSync(
+      join(dir, "latent-pool-A1.json"),
+      JSON.stringify({
+        mode: "per-arm",
+        arm: "A1",
+        tailStartsAtEntryId: "cut-1",
+        summaryDigests: { A1: summaryDigest("summary one") },
+        probes: [probe("l1", "cued"), probe("l2", "cued"), probe("l3", "uncued")],
+      }),
+    );
+    const calls = { n: 0 };
+    const seenSeeds: (readonly LatentProbe[] | undefined)[] = [];
+    const author: LatentStageDeps["author"] = async (a) => {
+      calls.n += 1;
+      seenSeeds.push(a.seedProbes);
+      return { kind: "completed", pool: [probe("l1", "cued")] };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r.kind).toBe("done");
+    expect(calls.n).toBe(2); // A1 continued from the partial pool, A3 authored fresh
+    if (r.kind !== "done") return;
+    // A1's author call carried the kept probes as seeds; A3's carried none
+    expect(seenSeeds[0]).toHaveLength(3);
+    expect(seenSeeds[1]).toBeUndefined();
+    // the seeded arm counts as re-authored (its pool ids may shift — stale probe
+    // branches must be purged); A3 was never authored before, so nothing to purge
+    expect(r.reAuthored).toContain("A1");
+    expect(r.reAuthored).not.toContain("A3");
+  });
+
+  it("persistPartial writes the pool file with the envelope + kept probes (crash-safe collection)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-persist-"));
+    const author: LatentStageDeps["author"] = async (a) => {
+      a.persistPartial?.([probe("l1", "cued"), probe("l2", "uncued")]);
+      return { kind: "stopped", counts: { cued: 1, uncued: 1 } };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r.kind).toBe("stopped");
+    // the partial pool SURVIVES the stop — resume seeds from it
+    const pool = readLatentPool(join(dir, "latent-pool-A1.json"));
+    expect(pool.probes).toHaveLength(2);
+    expect(pool.summaryDigests.A1).toBe(summaryDigest("summary one"));
+    expect(pool.tailStartsAtEntryId).toBe("cut-1");
+  });
+
+  it("a partial SHARED pool seeds the shared authoring run", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-shared-"));
+    const digests = { A1: summaryDigest("summary one"), A3: summaryDigest("summary three") };
+    writeFileSync(
+      join(dir, "latent-pool.json"),
+      JSON.stringify({
+        mode: "shared",
+        arm: null,
+        tailStartsAtEntryId: "cut-1",
+        summaryDigests: digests,
+        probes: [sharedProbe("l1", "cued"), sharedProbe("l2", "uncued")],
+      }),
+    );
+    const calls = { n: 0 };
+    let seeds: readonly LatentProbe[] | undefined;
+    const author: LatentStageDeps["author"] = async (a) => {
+      calls.n += 1;
+      seeds = a.seedProbes;
+      return { kind: "completed", pool: [sharedProbe("l1", "cued")] };
+    };
+    const r = await runLatentStageShared(baseDeps(dir, { author }));
+    expect(r.kind).toBe("done");
+    expect(calls.n).toBe(1);
+    expect(seeds).toHaveLength(2);
+  });
+
+  it("a COMPLETE pool with matching digests is still reused (no seeds, no authoring)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-complete-"));
+    writeFileSync(
+      join(dir, "latent-pool-A1.json"),
+      JSON.stringify({
+        mode: "per-arm",
+        arm: "A1",
+        tailStartsAtEntryId: "cut-1",
+        summaryDigests: { A1: summaryDigest("summary one") },
+        probes: [
+          probe("l1", "cued"),
+          probe("l2", "cued"),
+          probe("l3", "cued"),
+          probe("l4", "uncued"),
+          probe("l5", "uncued"),
+          probe("l6", "uncued"),
+        ],
+      }),
+    );
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      return { kind: "completed", pool: [] };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r.kind).toBe("done");
+    if (r.kind !== "done") return;
+    expect(r.pools.A1?.probes).toHaveLength(6); // reused untouched
+    expect(r.reAuthored).not.toContain("A1");
+    expect(calls.n).toBe(1); // only A3 authored
   });
 });

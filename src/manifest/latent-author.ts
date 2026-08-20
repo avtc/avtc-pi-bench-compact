@@ -12,8 +12,11 @@ import { readFileSync } from "node:fs";
 import type { AgentTool, AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { Value } from "typebox/value";
 import type { ArmId } from "../config/types.js";
+import { BenchJudgeError } from "../judge/errors.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
+import { log } from "../log.js";
+import { StageRunError } from "../runtime/agent-loop.js";
 import { benchAuthoringTools } from "../runtime/tools.js";
 import { type AskUi, askOperator } from "../ui/ask.js";
 import {
@@ -35,6 +38,18 @@ import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "./lat
 /** The per-probeClass floor: finalize is rejected below it (the exhausted-facts
  *  path lets the operator accept fewer via the deadlock dialog). */
 export const LATENT_MIN_PER_CLASS = 3;
+
+/** Total authoring passes per stage invocation: a pass that dies mid-work (LLM
+ *  call timeout, context-window exhaustion) automatically restarts in a fresh
+ *  context that already knows what is recorded + what remains — the kept probes
+ *  carry over (same tool set → same acc), so nothing is re-mined from scratch. */
+export const LATENT_MAX_PASSES = 3;
+
+/** Approved retry reasons — the kickoff's interpolation values (the run-stopped
+ *  one is used when the stage SEEDS a resumed run from a partial pool file). */
+export const LATENT_REASON_TIMED_OUT = "it timed out";
+export const LATENT_REASON_CONTEXT = "its context window was exhausted";
+export const LATENT_REASON_RESUMED = "the run stopped before it finished";
 /** The entry types that carry conversation content (the closed list the authoring
  *  agent may cite; everything else is metadata / persistence / compaction). */
 const CONTENT_ENTRY_TYPES = new Set(["message", "custom_message", "branch_summary"]);
@@ -110,6 +125,7 @@ export function buildLatentTools(
   ui: AskUi | null,
   onAdd: (counts: LatentCounts) => void,
   citations: SpanCitations,
+  persist: ((probes: readonly AuthorLatentProbe[]) => void) | null,
 ): { tools: AgentTool[]; finalizeLatent: LatentFinalizeTool; acc: AuthorLatentProbe[] } {
   const acc: AuthorLatentProbe[] = [];
   let lastRejectCount = 0;
@@ -210,6 +226,7 @@ export function buildLatentTools(
       }
       acc.push({ ...item, entryIds: resolvedIds });
       onAdd(counts());
+      persist?.(acc);
       return {
         content: [{ type: "text", text: "recorded add_latent_probe; keep going" }],
         details: { accepted: 1, rejected: 0 },
@@ -274,6 +291,56 @@ export function buildLatentTools(
   return { tools, finalizeLatent, acc };
 }
 
+/** The shared anchor + head lines of a latent kickoff (both builders compose them
+ *  with their own body — same mode-conditional wording). */
+function kickoffAnchorHead(deps: {
+  mode: LatentAuthoringMode;
+  sessionPaths: readonly string[];
+  tailStartsAtEntryId: string;
+  tailStartLine: number | null;
+}): { anchor: string; head: string } {
+  const atLine = deps.tailStartLine === null ? "" : ` — line ${deps.tailStartLine}`;
+  const anchor =
+    deps.mode === "per-arm"
+      ? `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}${atLine}.`
+      : `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}${atLine} — identical in every file.`;
+  const head =
+    deps.mode === "per-arm"
+      ? `Read the session file at ${deps.sessionPaths[0]} and write the latent probes per the instructions:`
+      : `Read the session files at\n${deps.sessionPaths.join("\n")} — forks of the same session — and write ONE shared set of latent probes per the instructions:`;
+  return { anchor, head };
+}
+
+/** Build the pass-2+ kickoff task message (VERBATIM approved protected text): the
+ *  previous pass's failure reason, the already-recorded probes (so the fresh
+ *  context never re-mines them), the remaining targets, and the original task
+ *  lines (paths + anchor) so the message is self-sufficient. */
+export function buildLatentRetryTaskMessage(deps: {
+  mode: LatentAuthoringMode;
+  sessionPaths: readonly string[];
+  tailStartsAtEntryId: string;
+  tailStartLine: number | null;
+  reason: string;
+  kept: readonly AuthorLatentProbe[];
+}): string {
+  const { anchor, head } = kickoffAnchorHead(deps);
+  const keptLines = deps.kept.map((p) => `- [${p.probeClass}] ${p.question}`).join("\n");
+  const cued = deps.kept.filter((p) => p.probeClass === "cued").length;
+  const uncued = deps.kept.length - cued;
+  const stillNeeded =
+    cued >= LATENT_MIN_PER_CLASS && uncued >= LATENT_MIN_PER_CLASS
+      ? "Still needed: nothing — call finalize_latent."
+      : `Still needed: cued ${Math.max(0, LATENT_MIN_PER_CLASS - cued)} more, uncued ${Math.max(
+          0,
+          LATENT_MIN_PER_CLASS - uncued,
+        )} more.`;
+  const tail =
+    deps.mode === "per-arm"
+      ? "Continue mining the compacted-away span for conversation-only knowledge that is NOT already recorded, validate each candidate against the summary and the kept tail, record each verified probe with add_latent_probe, then call finalize_latent when done."
+      : "Continue mining the compacted-away span for conversation-only knowledge that is NOT already recorded, validate each candidate against every summary and the shared kept tail, record each verified probe with add_latent_probe, then call finalize_latent when done.";
+  return `The previous authoring pass ended before finalize_latent (${deps.reason}).\n\nAlready recorded — do not re-record these:\n${keptLines}\n\n${stillNeeded}\n\n${head}\n${anchor}\n${tail}`;
+}
+
 // --- prompt + kickoff composition ---------------------------------------------
 
 /** Build the mode's system prompt with the file path(s) + tail anchor substituted
@@ -299,15 +366,7 @@ export function buildLatentTaskMessage(deps: {
    *  an explicit anchor beats hunting the id inside a 60KB JSON line). */
   tailStartLine: number | null;
 }): string {
-  const atLine = deps.tailStartLine === null ? "" : ` — line ${deps.tailStartLine}`;
-  const anchor =
-    deps.mode === "per-arm"
-      ? `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}${atLine}.`
-      : `The KEPT TAIL starts at the entry with id ${deps.tailStartsAtEntryId}${atLine} — identical in every file.`;
-  const head =
-    deps.mode === "per-arm"
-      ? `Read the session file at ${deps.sessionPaths[0]} and write the latent probes per the instructions:`
-      : `Read the session files at\n${deps.sessionPaths.join("\n")} — forks of the same session — and write ONE shared set of latent probes per the instructions:`;
+  const { anchor, head } = kickoffAnchorHead(deps);
   const tail =
     deps.mode === "per-arm"
       ? "find the compaction record, mine the compacted-away span for conversation-only knowledge, validate each candidate against the summary and the kept tail, record each verified probe with add_latent_probe, then call finalize_latent when done."
@@ -330,6 +389,14 @@ export interface RunLatentAuthoringDeps {
   readonly sessionPaths: readonly string[];
   /** First kept entry id — the injected tail anchor. */
   readonly tailStartsAtEntryId: string;
+  /** Probes kept from a PARTIAL pool (a stopped run's incremental writes): they
+   *  seed `acc` — counts, caps, and the duplicate gate continue over them — and
+   *  pass 1 opens with the retry kickoff (what is recorded + what remains). */
+  readonly seedProbes?: readonly LatentProbe[];
+  /** Incremental persistence: fired after every ACCEPTED add_latent_probe with the
+   *  full kept-so-far set — the stage writes the pool file, so a crash/stop never
+   *  loses collected probes (resume seeds from the partial file). */
+  readonly persistPartial?: (probes: readonly LatentProbe[]) => void;
   /** Dialog surface; null in non-TUI/batch (no-progress → stop). */
   readonly ui: AskUi | null;
   readonly signal: AbortSignal;
@@ -349,6 +416,37 @@ export type LatentAuthoringResult =
   | { kind: "completed"; pool: readonly LatentProbe[] }
   | { kind: "stopped"; counts: LatentCounts };
 
+/** Map the kept-so-far authoring probes to their POOL form (ids l1..ln over the
+ *  union — stable across incremental writes; verdicts start absent). Shared by
+ *  the incremental persist callback + the completed pool. */
+function poolFromAcc(
+  acc: readonly AuthorLatentProbe[],
+  deps: { mode: LatentAuthoringMode; arm: ArmId; enabledArms: readonly ArmId[] },
+): LatentProbe[] {
+  return acc.map((item, i) => ({
+    id: `l${i + 1}`,
+    ...item,
+    ...(deps.mode === "per-arm" ? { arm: deps.arm } : {}),
+    verdicts:
+      deps.mode === "per-arm"
+        ? { [deps.arm]: "absent" }
+        : Object.fromEntries(deps.enabledArms.map((a) => [a, "absent"])),
+  }));
+}
+
+/** Auto-retry triggers (the next pass runs automatically): the stage's per-LLM-call
+ *  timeout, or a model request that died on the context window (the wrapped
+ *  request-failure message names the context/token limit). Everything else — a
+ *  lucid no-finalize, an unavailable model, an abort — keeps today's throw. */
+function isRetryableLatentFailure(err: unknown): boolean {
+  if (err instanceof BenchJudgeError && err.category === "timeout") return true;
+  if (err instanceof StageRunError) {
+    const msg = err.cause instanceof Error ? err.cause.message : String(err.cause);
+    return /exceed|context|too long|too large|token limit/i.test(msg);
+  }
+  return false;
+}
+
 /** Run the latent-authoring agent for one stage (one arm in per-arm mode; the
  *  shared set across all arms in shared mode). Throws on model/stage failure and
  *  on pool validation failure (defense: out-of-span or non-content citations). */
@@ -361,25 +459,89 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     positionToSpanId,
     tailStartLine,
   };
-  const { tools, finalizeLatent, acc } = buildLatentTools(deps.cwd, deps.ui, deps.onAdd ?? (() => {}), citations);
-  const action = (await runJsonToolStage({
-    seams: deps.seams,
-    tools,
-    systemPrompt: buildLatentSystemPrompt(deps),
-    terminalTool: finalizeLatent,
-    label: "latent authoring",
-    userMessageContent: buildLatentTaskMessage({
-      mode: deps.mode,
-      sessionPaths: deps.sessionPaths,
-      tailStartsAtEntryId: deps.tailStartsAtEntryId,
-      tailStartLine: citations.tailStartLine,
-    }),
-    reasoning: deps.thinking,
-    maxTokens: deps.maxTokens,
-    timeoutMs: deps.timeoutMs,
-    signal: deps.signal,
-    rateLimitOptions: deps.rateLimitOptions,
-  })) as LatentFinalizeAction;
+  const persist =
+    deps.persistPartial === undefined
+      ? null
+      : (keptNow: readonly AuthorLatentProbe[]): void => deps.persistPartial?.(poolFromAcc(keptNow, deps));
+  const { tools, finalizeLatent, acc } = buildLatentTools(
+    deps.cwd,
+    deps.ui,
+    deps.onAdd ?? (() => {}),
+    citations,
+    persist,
+  );
+  const countsOf = (): LatentCounts => ({
+    cued: acc.filter((p) => p.probeClass === "cued").length,
+    uncued: acc.filter((p) => p.probeClass === "uncued").length,
+  });
+  // Seeds from a partial pool file: counted, capped, and duplicate-gated like any
+  // accepted probe; the widget detail reflects them from the start.
+  for (const p of deps.seedProbes ?? []) {
+    acc.push({
+      question: p.question,
+      accept: [...p.accept],
+      entryIds: [...p.entryIds],
+      probeClass: p.probeClass,
+      note: p.note,
+    });
+  }
+  if (deps.seedProbes !== undefined && deps.seedProbes.length > 0) {
+    const seeded = countsOf();
+    const scope = deps.mode === "per-arm" ? `arm ${deps.arm}` : "shared";
+    log.info(
+      `latent: ${scope} pass 1/${LATENT_MAX_PASSES} — kept probes from the partial pool (cued ${seeded.cued}, uncued ${seeded.uncued})`,
+    );
+    deps.onAdd?.(seeded);
+  }
+
+  const scope = deps.mode === "per-arm" ? `arm ${deps.arm}` : "shared";
+  let reason: string | null =
+    deps.seedProbes !== undefined && deps.seedProbes.length > 0 ? LATENT_REASON_RESUMED : null;
+  let action: LatentFinalizeAction;
+  for (let pass = 1; ; pass++) {
+    const userMessageContent =
+      reason === null
+        ? buildLatentTaskMessage({
+            mode: deps.mode,
+            sessionPaths: deps.sessionPaths,
+            tailStartsAtEntryId: deps.tailStartsAtEntryId,
+            tailStartLine: citations.tailStartLine,
+          })
+        : buildLatentRetryTaskMessage({
+            mode: deps.mode,
+            sessionPaths: deps.sessionPaths,
+            tailStartsAtEntryId: deps.tailStartsAtEntryId,
+            tailStartLine: citations.tailStartLine,
+            reason,
+            kept: acc,
+          });
+    try {
+      action = (await runJsonToolStage({
+        seams: deps.seams,
+        tools,
+        systemPrompt: buildLatentSystemPrompt(deps),
+        terminalTool: finalizeLatent,
+        label: "latent authoring",
+        userMessageContent,
+        reasoning: deps.thinking,
+        maxTokens: deps.maxTokens,
+        timeoutMs: deps.timeoutMs,
+        signal: deps.signal,
+        rateLimitOptions: deps.rateLimitOptions,
+      })) as LatentFinalizeAction;
+      break; // terminal tool captured — the pass loop ends
+    } catch (err) {
+      // Auto-restart (up to the pass cap) ONLY on the mid-work deaths: a per-LLM-call
+      // timeout or a context-window-exhausted request. The kept probes carry over
+      // (same acc), and the next pass opens with the retry kickoff.
+      if (!isRetryableLatentFailure(err) || pass >= LATENT_MAX_PASSES) throw err;
+      reason = err instanceof BenchJudgeError ? LATENT_REASON_TIMED_OUT : LATENT_REASON_CONTEXT;
+      const kept = countsOf();
+      log.info(
+        `latent: ${scope} pass ${pass + 1}/${LATENT_MAX_PASSES} — previous pass ${reason} (kept cued ${kept.cued}, uncued ${kept.uncued})`,
+      );
+    }
+  }
 
   const counts: LatentCounts = {
     cued: acc.filter((p) => p.probeClass === "cued").length,
@@ -387,15 +549,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
   };
   if (action === "stop") return { kind: "stopped", counts };
 
-  const pool: LatentProbe[] = acc.map((item, i) => ({
-    id: `l${i + 1}`,
-    ...item,
-    ...(deps.mode === "per-arm" ? { arm: deps.arm } : {}),
-    verdicts:
-      deps.mode === "per-arm"
-        ? { [deps.arm]: "absent" }
-        : Object.fromEntries(deps.enabledArms.map((a) => [a, "absent"])),
-  }));
+  const pool: LatentProbe[] = poolFromAcc(acc, deps);
   const spanEntryIds = citations.spanEntryIds;
   // The add-time guard already resolved numeric citations (line positions from
   // the read view) to real ids; this finalize pass is the invariant backstop.

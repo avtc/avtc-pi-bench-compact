@@ -162,22 +162,35 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       throw new Error(`latent: arm ${arm} has no compaction record in its session file`);
     }
     const poolPath = join(deps.runPath, `latent-pool-${arm}.json`);
+    let seeds: readonly LatentProbe[] | undefined;
     if (existsSync(poolPath)) {
       const pool = readLatentPool(poolPath);
       const stale = staleVerdictArms(pool, { [arm]: summaryDigest(compaction.summary) });
       if (stale.length === 0 && pool.tailStartsAtEntryId === compaction.firstKeptEntryId) {
-        const stop = invalidPoolStop(pool.probes, perArmPoolCtx(deps, sessionPath, compaction.firstKeptEntryId), {
-          arm,
-          lead: `latent: ${basename(poolPath)} failed validation`,
-          tail: "delete the file to re-author",
-        });
-        if (stop !== null) return stop;
-        log.info(`latent: arm ${arm} pool valid (summary unchanged) — reuse`);
-        pools[arm] = pool;
-        continue;
+        const cued = pool.probes.filter((p) => p.probeClass === "cued").length;
+        const uncued = pool.probes.length - cued;
+        if (cued >= LATENT_MIN_PER_CLASS && uncued >= LATENT_MIN_PER_CLASS) {
+          const stop = invalidPoolStop(pool.probes, perArmPoolCtx(deps, sessionPath, compaction.firstKeptEntryId), {
+            arm,
+            lead: `latent: ${basename(poolPath)} failed validation`,
+            tail: "delete the file to re-author",
+          });
+          if (stop !== null) return stop;
+          log.info(`latent: arm ${arm} pool valid (summary unchanged) — reuse`);
+          pools[arm] = pool;
+          continue;
+        }
+        // Partial pool — the incremental writes of a pass that died or was stopped
+        // mid-collection. Continue authoring FROM the kept probes (the author seeds
+        // its pool with them + opens with the what-is-recorded kickoff). Counted as
+        // re-authoring: pool ids may shift vs any earlier complete pool, so the
+        // arm's stale latent probe branches must be purged like a fresh authoring.
+        seeds = pool.probes;
+        reAuthored.push(arm);
+      } else {
+        log.info(`latent: arm ${arm} summary changed — re-authoring`);
+        reAuthored.push(arm);
       }
-      log.info(`latent: arm ${arm} summary changed — re-authoring`);
-      reAuthored.push(arm);
     }
     const result = await author({
       ...sharedAuthoringArgs(deps),
@@ -185,6 +198,16 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       arm,
       sessionPaths: [sessionPath],
       tailStartsAtEntryId: compaction.firstKeptEntryId,
+      seedProbes: seeds,
+      persistPartial: (probes): void => {
+        writeLatentPool(poolPath, {
+          mode: "per-arm",
+          arm,
+          tailStartsAtEntryId: compaction.firstKeptEntryId,
+          summaryDigests: { [arm]: summaryDigest(compaction.summary) },
+          probes,
+        });
+      },
     });
     if (result.kind === "stopped") {
       return {
@@ -238,24 +261,33 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
   if (anchor === undefined) throw new Error("latent: no arms enabled");
 
   const poolPath = join(deps.runPath, "latent-pool.json");
+  const summaryDigests: Record<string, string> = {};
+  for (const { arm, c } of compactions) summaryDigests[arm] = summaryDigest(c?.summary ?? "");
+  let seeds: readonly LatentProbe[] | undefined;
   if (existsSync(poolPath)) {
     const pool = readLatentPool(poolPath);
-    const current: Record<string, string> = {};
-    for (const { arm, c } of compactions) current[arm] = summaryDigest(c?.summary ?? "");
-    const stale = staleVerdictArms(pool, current);
+    const stale = staleVerdictArms(pool, summaryDigests);
     if (stale.length === 0 && pool.tailStartsAtEntryId === anchor) {
-      const stop = invalidPoolStop(pool.probes, sharedPoolCtx(deps, anchor), {
-        arm: null,
-        lead: `latent: ${basename(poolPath)} failed validation`,
-        tail: "delete the file to re-author",
-      });
-      if (stop !== null) return stop;
-      log.info("latent: shared pool valid (summaries unchanged) — reuse");
-      const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
-      for (const { arm } of compactions) pools[arm] = pool;
-      return { kind: "done", pools, reAuthored: [] };
+      const cued = pool.probes.filter((p) => p.probeClass === "cued").length;
+      const uncued = pool.probes.length - cued;
+      if (cued >= LATENT_MIN_PER_CLASS && uncued >= LATENT_MIN_PER_CLASS) {
+        const stop = invalidPoolStop(pool.probes, sharedPoolCtx(deps, anchor), {
+          arm: null,
+          lead: `latent: ${basename(poolPath)} failed validation`,
+          tail: "delete the file to re-author",
+        });
+        if (stop !== null) return stop;
+        log.info("latent: shared pool valid (summaries unchanged) — reuse");
+        const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
+        for (const { arm } of compactions) pools[arm] = pool;
+        return { kind: "done", pools, reAuthored: [] };
+      }
+      // Partial pool — same continuation as the per-arm mode (see comment there);
+      // the shared authored path returns every arm as re-authored either way.
+      seeds = pool.probes;
+    } else {
+      log.info("latent: shared summary changed — re-authoring");
     }
-    log.info("latent: shared summary changed — re-authoring");
   }
 
   const result = await author({
@@ -264,6 +296,16 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     arm: deps.arms[0].arm,
     sessionPaths: deps.arms.map((a) => a.sessionPath),
     tailStartsAtEntryId: anchor,
+    seedProbes: seeds,
+    persistPartial: (probes): void => {
+      writeLatentPool(poolPath, {
+        mode: "shared",
+        arm: null,
+        tailStartsAtEntryId: anchor,
+        summaryDigests,
+        probes,
+      });
+    },
   });
   if (result.kind === "stopped") {
     return {
@@ -272,8 +314,6 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
       message: `latent: arm ${deps.arms[0].arm} stopped below minimum (cued ${result.counts.cued}, uncued ${result.counts.uncued}) — run paused, resume to retry`,
     };
   }
-  const summaryDigests: Record<string, string> = {};
-  for (const { arm, c } of compactions) summaryDigests[arm] = summaryDigest(c?.summary ?? "");
   const pool: LatentPoolFile = {
     mode: "shared",
     arm: null,
