@@ -283,3 +283,75 @@ describe("renderHeadline", () => {
     expect(md).toContain("/p/runs/run1/results.json");
   });
 });
+
+describe("C3 rows (probes-only per-answer compound + live totals)", () => {
+  const probesOnlyResult = (): BenchResultJson => {
+    const base = syntheticResult(false);
+    const usage = (d: number, w: number) => ({ tokensIn: 100, tokensOut: 10, cacheRead: 0, cacheWrite: 0, dollars: d, wallMs: w });
+    return {
+      ...base,
+      metricDefs: {
+        ...base.metricDefs,
+        C3: { name: "run-cost", channel: "exact", polarity: "lowerBetter", desc: "d" },
+      },
+      arms: {
+        A1: {
+          tool: "bare-pi",
+          runsCompleted: 0,
+          runsFailed: 0,
+          metrics: { C3: { dollars: 0.004, wallMs: 14000, answers: 2 } },
+          probes: [{ probeId: "1", axis: "E6", question: "q", passes: [true], usages: [usage(0.02, 30000)] }],
+        },
+        A3: {
+          tool: "memkeeper-builder",
+          runsCompleted: 0,
+          runsFailed: 0,
+          metrics: { C3: { dollars: 0.007, wallMs: 16000, answers: 2 } },
+          probes: [{ probeId: "1", axis: "E6", question: "q", passes: [true], usages: [usage(0.05, 90000)] }],
+        },
+      },
+    };
+  };
+
+  it("renders the per-answer row (renamed) + the live-totals row beneath it", () => {
+    const md = renderHeadline(probesOnlyResult());
+    expect(md).toContain("| C3 run-cost/answer (↓) | $0.004/14s | $0.007/16s ");
+    expect(md).toContain("| C3 run-cost total (↓) | $0.020/30s | $0.050/90s |");
+    // the plain full-run label is gone in probes-only mode
+    expect(md).not.toContain("| C3 run-cost (↓) |");
+  });
+
+  it("an arm with NO probe usages renders — in the totals row", () => {
+    const base = probesOnlyResult();
+    const result: BenchResultJson = {
+      ...base,
+      arms: {
+        ...base.arms,
+        A3: {
+          ...(base.arms.A3 as NonNullable<BenchResultJson["arms"]["A3"]>),
+          probes: [{ probeId: "1", axis: "E6", question: "q", passes: [true], usages: [null] }],
+        },
+      },
+    };
+    const md = renderHeadline(result);
+    expect(md).toContain("| C3 run-cost total (↓) | $0.020/30s | — |");
+  });
+
+  it("a full-run scalar C3 keeps the single unrenamed row (no totals row)", () => {
+    const base = syntheticResult(false);
+    const result: BenchResultJson = {
+      ...base,
+      metricDefs: { ...base.metricDefs, C3: { name: "run-cost", channel: "exact", polarity: "lowerBetter", desc: "d" } },
+      arms: {
+        A1: {
+          ...(base.arms.A1 as NonNullable<BenchResultJson["arms"]["A1"]>),
+          metrics: { ...base.arms.A1?.metrics, C3: { mean: 4200, ci: [4000, 4400] } },
+        },
+      },
+    };
+    const md = renderHeadline(result);
+    expect(md).toContain("| C3 run-cost (↓) |");
+    expect(md).not.toContain("C3 run-cost/answer");
+    expect(md).not.toContain("C3 run-cost total");
+  });
+});

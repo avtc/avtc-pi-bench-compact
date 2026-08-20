@@ -43,6 +43,27 @@ function deriveDeltas(result: BenchResultJson): {
   return { a1Present: true, deltas };
 }
 
+/** Per-arm probe-answer usage sums (probes-only C3 totals + the footer line).
+ *  Null when the arm has no usage-bearing probes. */
+function probeUsageTotals(arm: NonNullable<BenchResultJson["arms"][ArmId]> | undefined): {
+  tokensIn: number;
+  tokensOut: number;
+  dollars: number;
+  wallMs: number;
+} | null {
+  const usages = (arm?.probes ?? []).flatMap((p) => p.usages ?? []).filter((u) => u !== null);
+  if (usages.length === 0) return null;
+  return usages.reduce(
+    (acc, u) => ({
+      tokensIn: acc.tokensIn + u.tokensIn,
+      tokensOut: acc.tokensOut + u.tokensOut,
+      dollars: acc.dollars + u.dollars,
+      wallMs: acc.wallMs + u.wallMs,
+    }),
+    { tokensIn: 0, tokensOut: 0, dollars: 0, wallMs: 0 },
+  );
+}
+
 /** Render one metric cell for one arm (value + Δ suffix when baseline present). */
 function renderCell(metricValue: MetricJson | undefined, delta: number | null | undefined, a1Present: boolean): string {
   if (metricValue === undefined) return "—";
@@ -104,13 +125,24 @@ export function renderHeadline(result: BenchResultJson): string {
     const polarity = def?.polarity ?? "lowerBetter";
     const arrow = polarityArrow(polarity);
     const chan = def?.channel ?? "exact";
-    const label = `${metric} ${def?.name ?? ""}${chan === "comparative" ? " (rank)" : arrow ? ` (${arrow})` : ""}`;
+    // Probes-only C3 is the PER-ANSWER compound — relabel it and follow it with a
+    // live totals row (the same sums the footer line shows, surfaced in the table).
+    const perAnswerC3 =
+      metric === "C3" && arms.some((a) => "answers" in ((result.arms[a]?.metrics.C3 ?? {}) as MetricJson));
+    const label = `${metric} ${def?.name ?? ""}${perAnswerC3 ? "/answer" : ""}${chan === "comparative" ? " (rank)" : arrow ? ` (${arrow})` : ""}`;
     const cells = arms.map((a) => {
       const mv = result.arms[a]?.metrics[metric];
       const delta = a === "A1" ? null : (deltas[a]?.[metric] ?? null);
       return renderCell(mv, delta, a1Present);
     });
     lines.push(`| ${label} | ${cells.join(" | ")} |`);
+    if (perAnswerC3) {
+      const totalCells = arms.map((a) => {
+        const totals = probeUsageTotals(result.arms[a]);
+        return totals === null ? "—" : `${dollars(totals.dollars)}/${(totals.wallMs / 1000).toFixed(0)}s`;
+      });
+      lines.push(`| C3 run-cost total (↓) | ${totalCells.join(" | ")} |`);
+    }
   }
   lines.push("");
 
