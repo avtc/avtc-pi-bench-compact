@@ -199,6 +199,32 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     expect(cap.lines.at(-1)).toContain("ctx 142K/200K");
   });
 
+  it("startPhase retires the finished background agent's ctx/tok (no stale carry into a phase without one)", () => {
+    const cap = capturingDeps(TERM_WIDE);
+    const c = new WidgetController(cap.deps, {
+      phase: "latent",
+      armIndex: 1,
+      armTotal: 2,
+      tool: "memkeeper-builder",
+      ctxWindow: 262_144,
+    });
+    c.show();
+    // the latent-authoring agent's final request lands 223K ctx + streamed output
+    c.onEvent(mk({ type: "message_update" })); // fallback tier accumulates nothing (no text)
+    c.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 223_000 } } }));
+    vi.advanceTimersByTime(200);
+    expect(cap.lines.at(-1)).toContain("ctx 223K/262K");
+    // authoring done → probes run on the main session (no background agent):
+    // the phase transition must clear the dead agent's segments, not linger them
+    c.startPhase("probe", null);
+    c.setDetail("probe 25/26 · attempt 2/3");
+    vi.advanceTimersByTime(200);
+    const line = cap.lines.at(-1) ?? "";
+    expect(line).toContain("probe 25/26");
+    expect(line).not.toContain("ctx");
+    expect(line).not.toContain("tok");
+  });
+
   it("compact phase never shows ctx/tok even when set", () => {
     const cap = capturingDeps(TERM_WIDE);
     const c = new WidgetController(cap.deps, {

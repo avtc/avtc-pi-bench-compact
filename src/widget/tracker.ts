@@ -114,7 +114,13 @@ export class WidgetController {
 
   // --- phase progression ---
   startPhase(phase: WidgetPhase, detail: string | null): void {
-    this.state = { ...this.state, phase, detail, status: "running" };
+    // A phase boundary retires the background-agent segments: ctx/tok belong to
+    // the CURRENT phase's background agent (observer / authoring / simulator /
+    // judge). Without this reset, a finished agent's last request lingers into a
+    // phase that runs no background agent (e.g. probes on the main session).
+    this.primaryTokens = 0;
+    this.fallbackTokens = 0;
+    this.state = { ...this.state, phase, detail, status: "running", ctxUsage: null, ctxWindow: null, tok: null };
     this.schedule();
   }
 
