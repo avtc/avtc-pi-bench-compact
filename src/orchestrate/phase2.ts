@@ -30,7 +30,7 @@ import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled, withStallWatch } from "../session/done.js";
 import { subscribeAgentEvent } from "../session/events.js";
-import { copySessionFork } from "../session/fork.js";
+import { copySessionFork, pinsFromSettings, type SessionRuntimePins } from "../session/fork.js";
 import { makeAntiPeekInject } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import { buildSimulatorDriver, driveUntilStop, makeDriveStop, type SimulatorHooks } from "../simulator/loop.js";
@@ -123,7 +123,7 @@ export interface Phase2Ops {
   deleteBranch: typeof resetBranch;
   commit: typeof commitAll;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
-  copySeed: (src: string, dest: string) => void;
+  copySeed: (src: string, dest: string, pins: SessionRuntimePins | null) => void;
   awaitSettled: typeof awaitAgentSettled;
   makeMonitor: typeof makeContextMonitor;
   captureTrace: typeof captureTrace;
@@ -336,7 +336,11 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
       // git branch): the transcript lives in the sessions store (outside the repo), so
       // each attempt gets its OWN file, appended to by the continuation below.
       const sessionPath = branchSessionFile(deps.sessionsDir, attemptBranch);
-      ops.copySeed(branchSessionFile(deps.sessionsDir, base.branch), sessionPath);
+      ops.copySeed(
+        branchSessionFile(deps.sessionsDir, base.branch),
+        sessionPath,
+        pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel),
+      );
       if (getRunState() !== null) updateRunState({ currentArm: base.arm, currentAttempt: attempt });
 
       const wallMsMap = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {

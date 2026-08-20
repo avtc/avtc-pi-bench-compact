@@ -172,6 +172,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
     expect(ops.copySeed.mock.calls[0]).toEqual([
       branchSessionFile(join(repo, "sessions"), base.branch),
       branchSessionFile(join(repo, "sessions"), appendProbeAttempt(base.branch, "1", 1)),
+      null,
     ]);
     expect(ops.readAnswer.mock.calls[0]?.[0]).toBe(
       branchSessionFile(join(repo, "sessions"), appendProbeAttempt(base.branch, "1", 1)),

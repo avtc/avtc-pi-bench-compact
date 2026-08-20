@@ -31,7 +31,7 @@ import { log } from "../log.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { appendUserEntry } from "../production/live-seams.js";
 import { CompactionCancelledError, triggerCompact } from "../session/compact.js";
-import { copySessionFork } from "../session/fork.js";
+import { copySessionFork, type SessionRuntimePins } from "../session/fork.js";
 import { loadSession } from "../session/switch.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
@@ -108,7 +108,7 @@ export interface Phase1Ops {
    *  scans older-version base candidates; the caller shape-filters base branches). */
   newestBranches: typeof newestBranches;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
-  copySeed: (src: string, dest: string) => void;
+  copySeed: (src: string, dest: string, pins: SessionRuntimePins | null) => void;
   /** Append the anti-peek user entry to the arm session file (post-copy, pre-load —
    *  NO agent turn fires, so the entry stays LAST and inside the compaction tail). */
   appendAntiPeek: (sessionPath: string, text: string) => void;
@@ -182,6 +182,10 @@ export interface Phase1Deps {
   reuseBases?: boolean;
   /** The live-progress widget (TUI-only; null/absent → no-op). */
   widget?: WidgetPort | null;
+  /** The run's runtime pins for every forked session (configured evaluated model +
+   *   thinking level — overriding the scenario build's historical change-entries).
+   *   Absent → plain forks (tests). */
+  runtimePins?: SessionRuntimePins;
   /** Injectable seams (defaults = real implementations). */
   ops?: Partial<Phase1Ops>;
 }
@@ -336,7 +340,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     // the transcript lives in the sessions store (outside the repo), so each arm gets
     // its OWN file, compacted in place by loadSession below.
     const sessionPath = branchSessionFile(sessionsDir, branch);
-    ops.copySeed(branchSessionFile(sessionsDir, "main"), sessionPath);
+    ops.copySeed(branchSessionFile(sessionsDir, "main"), sessionPath, deps.runtimePins ?? null);
     // Anti-peek as a FILE entry, not a sendUserMessage: sending fires an agent turn
     // whose response lands AFTER the message and can push it out of the compaction
     // tail window (plus a wasted turn of tokens per arm). Appended pre-load, the

@@ -244,6 +244,7 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     expect(ops.copySeed).toHaveBeenCalledWith(
       branchSessionFile(sessionsDir, "main"),
       branchSessionFile(sessionsDir, b1.branch),
+      null,
     );
     expect(ops.loadSession).toHaveBeenCalledWith(
       expect.anything(),

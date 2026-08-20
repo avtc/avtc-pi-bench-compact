@@ -34,7 +34,7 @@ import { log } from "../log.js";
 import type { LatentProbe } from "../manifest/latent.js";
 import type { ScenarioManifest } from "../manifest/schema.js";
 import { AgentSettledAbortedError, awaitAgentSettled } from "../session/done.js";
-import { copySessionFork } from "../session/fork.js";
+import { copySessionFork, type SessionRuntimePins } from "../session/fork.js";
 import { type InjectMode, inject } from "../session/inject.js";
 import { extractContentText } from "../session/message-text.js";
 import { loadSession } from "../session/switch.js";
@@ -134,7 +134,7 @@ export interface ProbeOps {
   commitCountAhead: typeof commitCountAhead;
   commit: typeof commitAll;
   /** Seed a branch's session file by copying its parent's (parallel to forking the git branch). */
-  copySeed: (src: string, dest: string) => void;
+  copySeed: (src: string, dest: string, pins: SessionRuntimePins | null) => void;
   awaitSettled: typeof awaitAgentSettled;
   isQaOnly: typeof isQaOnlyBranch;
   /** List the files a probe branch changed vs its base (feeds the kept-probe log line). */
@@ -170,6 +170,10 @@ export interface ProbeDeps {
   readonly latentProbes?: readonly LatentProbe[];
   /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
   readonly repo: string;
+  /** Runtime pins for every probe fork (configured evaluated model + thinking level,
+   *  overriding the scenario build's historical change-entries on replay). Absent →
+   *  plain forks (tests). */
+  readonly runtimePins?: SessionRuntimePins;
   /** The om-full arm's reflection-threshold override (threaded to per-arm isolation). */
   readonly omFullReflectionThresholdTokens: number;
   /** The per-branch session-transcript store (sibling of the repo; agent-invisible). Each
@@ -402,7 +406,7 @@ export async function runProbes(deps: ProbeDeps): Promise<ProbeResult> {
       // Seed this probe's session file from its arm base's (parallel to forking the git
       // branch): the transcript lives in the sessions store (outside the repo), so each
       // probe gets its OWN file, appended to by the probe turn below.
-      ops.copySeed(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath);
+      ops.copySeed(branchSessionFile(deps.sessionsDir, baseBranch), sessionPath, deps.runtimePins ?? null);
 
       // Load the arm base in-place + drive the single probe turn. switchSession
       // RE-ACTIVATES the extension (fresh pi stashed in globalThis) AND invalidates the

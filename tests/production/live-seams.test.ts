@@ -799,6 +799,8 @@ describe("buildLiveSeams", () => {
       thinking: null,
       timeoutMs: 120000,
       omFullReflectionThresholdTokens: 4000,
+      evaluatedModel: null,
+      evaluatedThinkingLevel: "high",
     } as unknown as BenchConfig;
     const seams = buildLiveSeams({
       cmdCtx: fakeCmdCtx,

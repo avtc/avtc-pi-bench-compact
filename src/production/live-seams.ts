@@ -49,7 +49,7 @@ import {
   withStallWatch,
 } from "../session/done.js";
 import { readMessageEndUsage, subscribeAgentEvent } from "../session/events.js";
-import { copySessionFork } from "../session/fork.js";
+import { copySessionFork, pinsFromSettings, type SessionRuntimePins } from "../session/fork.js";
 import { makeAntiPeekInjectFactory } from "../session/inject.js";
 import { loadSession } from "../session/switch.js";
 import {
@@ -340,6 +340,9 @@ export interface TrialCompactSeamDeps {
   readonly omFullReflectionThresholdTokens: number;
   /** Where to write the trial copy (must be OUTSIDE the repo — contamination rule). */
   readonly trialCopyPath: string;
+  /** Runtime pins for the trial copy (the trial runs under the configured evaluated
+   *  model + thinking level, like every other forked session). */
+  readonly runtimePins?: SessionRuntimePins;
   readonly copyFile?: (src: string, dest: string) => void;
   readonly loadSession?: typeof loadSession;
   readonly triggerCompact?: TriggerCompactOp;
@@ -365,7 +368,7 @@ export function buildTrialCompactSeam(deps: TrialCompactSeamDeps): BuildSeams["t
     });
   const getProxies = deps.getProxies ?? (() => null);
   return async (backupPath: string): Promise<TrialCut> => {
-    copyFile(backupPath, deps.trialCopyPath);
+    copyFile(backupPath, deps.trialCopyPath, deps.runtimePins ?? null);
     const { compactionEntry } = await load(deps.holder.current, deps.trialCopyPath, async (sessionCtx) => {
       deps.holder.current = sessionCtx;
       const pi = getPi();
@@ -789,6 +792,7 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
     signal: args.signal,
     omFullReflectionThresholdTokens: args.config.omFullReflectionThresholdTokens,
     trialCopyPath: join(args.preSliceDir, TRIAL_COPY_NAME),
+    runtimePins: pinsFromSettings(args.config.evaluatedModel, args.config.evaluatedThinkingLevel),
     getPi: getBenchPi,
     getProxies: getMemoryProxies,
   });

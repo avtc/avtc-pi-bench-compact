@@ -308,6 +308,7 @@ describe("runContinuations — N attempts per arm, each driven + committed", () 
       expect(ops.copySeed.mock.calls[k - 1]).toEqual([
         branchSessionFile(join(repo, "sessions"), base.branch),
         branchSessionFile(join(repo, "sessions"), attemptBranch),
+        { model: { provider: "test", modelId: "model" }, thinkingLevel: "high" },
       ]);
       expect(ops.loadSession.mock.calls[k - 1]?.[1]).toBe(branchSessionFile(join(repo, "sessions"), attemptBranch));
       expect(ops.captureTrace.mock.calls[k - 1]?.[0]).toBe(branchSessionFile(join(repo, "sessions"), attemptBranch));

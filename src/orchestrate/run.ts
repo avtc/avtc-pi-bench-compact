@@ -34,6 +34,7 @@ import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { runBenchStage } from "../runtime/agent-loop.js";
 import { resolveBenchModel } from "../runtime/model.js";
+import { pinsFromSettings } from "../session/fork.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
 import {
@@ -319,6 +320,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       priorWalls,
       wallsPath,
       armsEnabled: deps.config.armsEnabled,
+      runtimePins: pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel),
       resume: resuming,
       reuseBases: deps.resume?.reuseBases === true,
       widget,
@@ -440,6 +442,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         manifest: deps.manifest,
         latentProbes: activeLatentForArm(runPath, deps.config.latentProbes, base.arm),
         repo: deps.scenarioRepo,
+        runtimePins: pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel),
         sessionsDir,
         omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
         resume: resuming,
