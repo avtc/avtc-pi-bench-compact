@@ -155,7 +155,7 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
       }),
     );
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("0.0k tok"); // 2 tokens → 0.0k (2/1000=0.002→0.0)
+    expect(cap.lines.at(-1)).toContain("2 tok"); // 2 tokens → raw (adaptive <1K)
   });
 
   it("message_update prefers provider streamed usage.output over the fallback", () => {
@@ -181,7 +181,7 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     c.onEvent(mk({ type: "message_start" })); // reset
     c.onEvent(mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "abcd" } })); // 1 token
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("0.0k tok"); // reset then 1 token → 0.0k
+    expect(cap.lines.at(-1)).toContain("1 tok"); // reset then 1 token (raw)
   });
 
   it("message_end sets ctxUsage from usage.totalTokens", () => {
@@ -197,7 +197,7 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     c.show();
     c.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 142_000 } } }));
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("ctx 142K/200K");
+    expect(cap.lines.at(-1)).toContain("ctx 142k/200k");
   });
 
   it("startPhase retires the finished background agent's ctx/tok (no stale carry into a phase without one)", () => {
@@ -210,11 +210,11 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
       ctxWindow: 262_144,
     });
     c.show();
-    // the latent-authoring agent's final request lands 223K ctx + streamed output
+    // the latent-authoring agent's final request lands 223k ctx + streamed output
     c.onEvent(mk({ type: "message_update" })); // fallback tier accumulates nothing (no text)
     c.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 223_000 } } }));
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("ctx 223K/262K");
+    expect(cap.lines.at(-1)).toContain("ctx 223k/262k");
     // authoring done → probes run on the main session (no background agent):
     // the phase transition must clear the dead agent's segments, not linger them
     c.startPhase("probe", null);
@@ -239,7 +239,7 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     c.onEvent(mk({ type: "message_update" })); // sets tok=0 (renders the ctx segment)
     c.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 190_000 } } }));
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("ctx 190K/262K");
+    expect(cap.lines.at(-1)).toContain("ctx 190k/262k");
     // the per-arm authoring agent finished; the NEXT arm's authoring has not
     // streamed yet — the phase is still "latent", so only clearAgent applies
     c.clearAgent();
@@ -400,7 +400,7 @@ describe("scoreJudgeHooks — per-judge slot accumulators", () => {
     hooks.onModelResolved(mkModel({ id: "j0", contextWindow: 200_000 }), 0);
     hooks.onEvent(mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "abcdefgh" } }), 0);
     hooks.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 20_000 } } }), 0);
-    // judge 1: 12 chars → 3 tok; window 1M, ctx 900k
+    // judge 1: 12 chars → 3 tok; window 1.0M, ctx 900k
     hooks.onModelResolved(mkModel({ id: "j1", contextWindow: 1_000_000 }), 1);
     hooks.onEvent(
       mk({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "aaaaaaaaaaaa" } }),
@@ -408,7 +408,7 @@ describe("scoreJudgeHooks — per-judge slot accumulators", () => {
     );
     hooks.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 900_000 } } }), 1);
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("ctx 20K/200K 900K/1M · 0.0k 0.0k tok");
+    expect(cap.lines.at(-1)).toContain("ctx 20k/200k 900k/1.0M · 2 3 tok");
   });
 
   it("message_start resets only ITS judge's tiers (parallel requests stay independent)", () => {
@@ -434,7 +434,7 @@ describe("scoreJudgeHooks — per-judge slot accumulators", () => {
       1,
     );
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toContain("1.0k 0.1k tok");
+    expect(cap.lines.at(-1)).toContain("1.0k 100 tok");
   });
 
   it("null widget (non-TUI) is inert — no throw", () => {

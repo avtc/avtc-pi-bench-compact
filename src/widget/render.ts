@@ -141,22 +141,22 @@ function phaseBarThemed(state: WidgetState, theme: Theme): string {
     .join("");
 }
 
-/** Format a context-token count: `M` (>= 1M, rounded), `K` (>= 1000, rounded),
- *  else raw. */
-function formatCtxTokens(n: number): string {
-  if (n >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
-  return n >= 1000 ? `${Math.round(n / 1000)}K` : `${n}`;
+/** Format a token count with adaptive k/M suffix and one-decimal-below-10 —
+ *  the same convention as the memkeeper widget + pi's own footer (raw under 1K,
+ *  `9.5k` under 10K, `223k` under 1M), so the two widgets stacked on screen read
+ *  alike. */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${Math.round(n / 1_000_000)}M`;
 }
 
-/** Format the context window: `262K`, or `?` while unresolved (the model
+/** Format the context window: `262k`, or `?` while unresolved (the model
  *  resolution is still in flight). Shared by the single-agent + judge segments. */
 function formatCtxWindow(w: number | null): string {
-  return w === null ? "?" : formatCtxTokens(w);
-}
-
-/** Format the current-request output-token progress: `k` with 1 decimal. */
-function formatTokTokens(n: number): string {
-  return `${(n / 1000).toFixed(1)}k`;
+  return w === null ? "?" : formatTokens(w);
 }
 
 /** The phase label: terminal name when done/prepared, else the phase + its detail.
@@ -229,7 +229,7 @@ function renderParts(state: WidgetState): Part[] {
   /** Format one judge's ctx pair: `45K/262K`, or `45K/?` while its window is
    *  unresolved (the model resolution is still in flight). */
   function formatJudgeCtx(u: JudgeUsage): string {
-    return `${formatCtxTokens(u.ctxUsage)}/${formatCtxWindow(u.ctxWindow)}`;
+    return `${formatTokens(u.ctxUsage)}/${formatCtxWindow(u.ctxWindow)}`;
   }
 
   // ctx/tok (background agent generating, not compact).
@@ -242,16 +242,16 @@ function renderParts(state: WidgetState): Part[] {
     });
     parts.push({
       kind: "fixed",
-      text: `${usages.map((u) => formatTokTokens(u.tok)).join(" ")} tok`,
+      text: `${usages.map((u) => formatTokens(u.tok)).join(" ")} tok`,
       color: COLOR_COUNTER,
     });
   } else if (showCtxTok(state)) {
     parts.push({
       kind: "fixed",
-      text: `ctx ${formatCtxTokens(state.ctxUsage as number)}/${formatCtxWindow(state.ctxWindow)}`,
+      text: `ctx ${formatTokens(state.ctxUsage as number)}/${formatCtxWindow(state.ctxWindow)}`,
       color: COLOR_COUNTER,
     });
-    parts.push({ kind: "fixed", text: `${formatTokTokens(state.tok as number)} tok`, color: COLOR_COUNTER });
+    parts.push({ kind: "fixed", text: `${formatTokens(state.tok as number)} tok`, color: COLOR_COUNTER });
   }
 
   // Status word (stopped only; running has none; done is folded into the label).

@@ -49,7 +49,7 @@ describe("renderLine — phase-bar + phase name", () => {
       judgeUsages: null,
       hint: null,
     });
-    expect(md).toBe("🅑 ◧□□□□□□ build · ctx 142K/200K · 1.1k tok");
+    expect(md).toBe("🅑 ◧□□□□□□ build · ctx 142k/200k · 1.1k tok");
   });
 
   it("extract: build done, extract active, authoring-agent ctx/tok, NO arm counter", () => {
@@ -66,7 +66,7 @@ describe("renderLine — phase-bar + phase name", () => {
       judgeUsages: null,
       hint: null,
     });
-    expect(md).toBe("🅑 ■◧□□□□□ extract · ctx 30K/200K · 0.5k tok");
+    expect(md).toBe("🅑 ■◧□□□□□ extract · ctx 30k/200k · 500 tok");
   });
 
   it("compact: build+extract done, compact active, ctx/tok EXCLUDED", () => {
@@ -76,21 +76,21 @@ describe("renderLine — phase-bar + phase name", () => {
 
   it("eval: build+extract+compact done, eval active, attempt detail + ctx/tok", () => {
     const md = renderLine(running("eval", { detail: "3/10", ctxUsage: 12_000, tok: 300 }));
-    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■◧□□ eval 3/10 · ctx 12K/200K · 0.3k tok");
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■◧□□ eval 3/10 · ctx 12k/200k · 300 tok");
   });
 
   it("latent: detail dot-joins the phase (cued/uncued tally), same ctx/tok format as the other phases", () => {
     const md = renderLine(
       running("latent", { armIndex: 2, tool: "om-full", detail: "cued 1/3 · uncued 2/3", ctxUsage: 45_000, tok: 3200 }),
     );
-    expect(md).toBe("🅑 2/5 om-full · ■■■◧□□□ latent · cued 1/3 · uncued 2/3 · ctx 45K/200K · 3.2k tok");
+    expect(md).toBe("🅑 2/5 om-full · ■■■◧□□□ latent · cued 1/3 · uncued 2/3 · ctx 45k/200k · 3.2k tok");
   });
 
   it("probe: 4 done, probe active, probe detail + ctx/tok (judge)", () => {
     const md = renderLine(
       running("probe", { armIndex: 2, tool: "memkeeper-selector", detail: "5/7", ctxUsage: 8000, tok: 200 }),
     );
-    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■◧□ probe 5/7 · ctx 8K/200K · 0.2k tok");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■◧□ probe 5/7 · ctx 8.0k/200k · 200 tok");
   });
 
   it("score: 5 done, score active, score detail + ctx/tok (judge)", () => {
@@ -104,7 +104,7 @@ describe("renderLine — phase-bar + phase name", () => {
         tok: 1200,
       }),
     );
-    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■■◧ score 5/7 · ctx 124K/256K · 1.2k tok");
+    expect(md).toBe("🅑 2/5 memkeeper-selector · ■■■■■■◧ score 5/7 · ctx 124k/256k · 1.2k tok");
   });
 
   it("score with judgeUsages (K=3, mixed windows): one ctx pair + one tok per judge", () => {
@@ -121,7 +121,7 @@ describe("renderLine — phase-bar + phase name", () => {
       }),
     );
     expect(md).toBe(
-      "🅑 1/5 bare-pi · ■■■■■■◧ score run 3/15 — exact metrics · ctx 45K/262K 32K/200K 200K/1M · 3.2k 1.3k 10.1k tok",
+      "🅑 1/5 bare-pi · ■■■■■■◧ score run 3/15 — exact metrics · ctx 45k/262k 32k/200k 200k/1.0M · 3.2k 1.3k 10k tok",
     );
   });
 
@@ -129,7 +129,7 @@ describe("renderLine — phase-bar + phase name", () => {
     const md = renderLine(
       running("latent", { armIndex: 2, tool: "om-full", ctxUsage: 45_000, ctxWindow: null, tok: 3200 }),
     );
-    expect(md).toBe("🅑 2/5 om-full · ■■■◧□□□ latent · ctx 45K/? · 3.2k tok");
+    expect(md).toBe("🅑 2/5 om-full · ■■■◧□□□ latent · ctx 45k/? · 3.2k tok");
   });
 
   it("score with judgeUsages (K=1): single pair, unresolved window renders ?", () => {
@@ -139,18 +139,18 @@ describe("renderLine — phase-bar + phase name", () => {
         judgeUsages: [{ ctxUsage: 8_400, ctxWindow: null, tok: 250 }],
       }),
     );
-    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■■■◧ score probe 45/57 grading · ctx 8K/? · 0.3k tok");
+    expect(md).toBe("🅑 1/5 memkeeper-builder · ■■■■■■◧ score probe 45/57 grading · ctx 8.4k/? · 250 tok");
   });
 
   it("score with judgeUsages present ignores the single-agent ctx/tok fields", () => {
     const md = renderLine(
       running("score", {
-        ctxUsage: 999_000, // would render 999K — must be suppressed by the judge list
+        ctxUsage: 999_000, // would render 999k — must be suppressed by the judge list
         judgeUsages: [{ ctxUsage: 8_000, ctxWindow: 100_000, tok: 400 }],
       }),
     );
-    expect(md).toContain("ctx 8K/100K · 0.4k tok");
-    expect(md).not.toContain("999K");
+    expect(md).toContain("ctx 8.0k/100k · 400 tok");
+    expect(md).not.toContain("999k");
   });
 
   it("comparative (arm counter cleared): no arm segment, judge list still shows", () => {
@@ -163,7 +163,7 @@ describe("renderLine — phase-bar + phase name", () => {
         judgeUsages: [{ ctxUsage: 20_000, ctxWindow: 200_000, tok: 2000 }],
       }),
     );
-    expect(md).toBe("🅑 ■■■■■■◧ score comparative · ctx 20K/200K · 2.0k tok");
+    expect(md).toBe("🅑 ■■■■■■◧ score comparative · ctx 20k/200k · 2.0k tok");
   });
 
   it("probe with no judge (ctxUsage null): ctx/tok omitted", () => {
@@ -220,15 +220,17 @@ describe("renderLine — terminal states (stay visible)", () => {
 });
 
 describe("renderLine — formatting", () => {
-  it("ctx tokens format as K (>=1000), raw (<1000)", () => {
-    expect(renderLine(running("eval", { ctxUsage: 999, tok: 1 }))).toContain("ctx 999/200K");
-    expect(renderLine(running("eval", { ctxUsage: 1500, tok: 1 }))).toContain("ctx 2K/200K"); // rounds up
+  it("ctx tokens format adaptively (raw <1K, one decimal <10K, integer k above)", () => {
+    expect(renderLine(running("eval", { ctxUsage: 999, tok: 1 }))).toContain("ctx 999/200k");
+    expect(renderLine(running("eval", { ctxUsage: 1500, tok: 1 }))).toContain("ctx 1.5k/200k");
+    expect(renderLine(running("eval", { ctxUsage: 12_345, tok: 1 }))).toContain("ctx 12k/200k");
   });
 
-  it("tok formats as k with 1 decimal", () => {
-    expect(renderLine(running("eval", { tok: 0 }))).toContain("0.0k tok");
-    expect(renderLine(running("eval", { tok: 50 }))).toContain("0.1k tok"); // 0.05 → 0.1 (round half up)
-    expect(renderLine(running("eval", { tok: 12_345 }))).toContain("12.3k tok");
+  it("tok formats adaptively (raw <1K, one decimal <10K, integer k above)", () => {
+    expect(renderLine(running("eval", { tok: 0 }))).toContain("0 tok");
+    expect(renderLine(running("eval", { tok: 50 }))).toContain("50 tok");
+    expect(renderLine(running("eval", { tok: 3200 }))).toContain("3.2k tok");
+    expect(renderLine(running("eval", { tok: 12_345 }))).toContain("12k tok");
   });
 });
 
@@ -263,8 +265,8 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
     );
     expect(themed).toContain("<accent>eval 3/10</accent>");
     expect(themed).toContain("<muted>2/5 memkeeper-builder</muted>");
-    expect(themed).toContain("<dim>ctx 124K/200K</dim>");
-    expect(themed).toContain("<dim>0.3k tok</dim>");
+    expect(themed).toContain("<dim>ctx 124k/200k</dim>");
+    expect(themed).toContain("<dim>300 tok</dim>");
   });
 
   it("stopped: status word error, hint dim, bar stays at the stop point", () => {
