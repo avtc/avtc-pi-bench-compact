@@ -104,7 +104,10 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
     metricDefs: {
       E1: { name: "resume", channel: "comparative", polarity: "rankLowerBetter", desc: "d" },
       E4: { name: "proactive-recall", channel: "binary", polarity: "higherBetter", desc: "d" },
+      E6: { name: "abstention", channel: "binary", polarity: "higherBetter", desc: "d" },
       "E5.1": { name: "recall-accuracy", channel: "binary", polarity: "higherBetter", desc: "d" },
+      "E5.2": { name: "recall-accuracy", channel: "binary", polarity: "higherBetter", desc: "d" },
+      "E5.3": { name: "recall-accuracy", channel: "binary", polarity: "higherBetter", desc: "d" },
       C1: { name: "footprint", channel: "exact", polarity: "lowerBetter", desc: "d" },
       C4: { name: "compaction-cost", channel: "exact", polarity: "lowerBetter", desc: "d" },
     } as BenchResultJson["metricDefs"],
@@ -145,12 +148,47 @@ describe("renderHeadline", () => {
       },
     };
     const md = renderHeadline(withProbes);
+    // one table per probe category (axis), canonical metric order; no Axis column
+    expect(md).toContain("## Probe breakdown — E6 abstention");
+    expect(md).toContain("## Probe breakdown — E5.2 recall-accuracy (latent, cued)");
+    expect(md).toContain("## Probe breakdown — E5.3 recall-accuracy (latent, uncued)");
     // manifest probe: one shared row
-    expect(md).toContain("| p1 · shared manifest question | E6 | 1/2 | 2/2 |");
+    expect(md).toContain("| p1 · shared manifest question | 1/2 | 2/2 |");
     // latent probes: one row PER ARM, labeled with the arm, not unioned
     expect(md).toContain("pl1 (A1) · A1's latent question");
     expect(md).toContain("pl1 (A3) · A3's DIFFERENT latent question");
     expect(md).not.toContain("| pl1 · ");
+  });
+
+  it("probe breakdown: per-table rate row aggregates that axis's probes per arm (— when ungraded)", () => {
+    const base = syntheticResult(false);
+    const withProbes: BenchResultJson = {
+      ...base,
+      arms: {
+        ...base.arms,
+        A1: {
+          ...(base.arms.A1 as NonNullable<BenchResultJson["arms"]["A1"]>),
+          probes: [
+            { probeId: "1", axis: "E6", question: "q one", passes: [true, false], usages: [null, null] },
+            { probeId: "2", axis: "E6", question: "q two", passes: [true, true], usages: [null, null] },
+            { probeId: "l1", axis: "E5.2", question: "latent", passes: [false, false], usages: [null, null] },
+          ],
+        },
+        A3: {
+          ...(base.arms.A3 as NonNullable<BenchResultJson["arms"]["A3"]>),
+          probes: [
+            { probeId: "1", axis: "E6", question: "q one", passes: [true, false], usages: [null, null] },
+          ],
+        },
+      },
+    };
+    const md = renderHeadline(withProbes);
+    // E6 table: A1 3/4 = 75%, A3 1/2 = 50%
+    expect(md).toContain("| **rate** | 75% | 50% |");
+    // E5.2 table: A1 0/2 = 0%, A3 ungraded → —
+    expect(md).toContain("| **rate** | 0% | — |");
+    // E5.3 has no rows at all → no table for it
+    expect(md).not.toContain("## Probe breakdown — E5.3");
   });
 
   it("renders the header: scenario/runId/cfgId + config + tool versions", () => {

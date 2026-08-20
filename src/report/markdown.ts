@@ -145,15 +145,24 @@ export function renderHeadline(result: BenchResultJson): string {
     lines.push("");
   }
 
-  // --- Probe breakdown (per-probe pass rate × arm; probe-answer axes detail) ---
+  // --- Probe breakdown (one table per probe category/axis; cell = passed/graded) ---
   const probeArms = arms.filter((a) => (result.arms[a]?.probes?.length ?? 0) > 0);
   if (probeArms.length > 0) {
-    lines.push("## Probe breakdown   (passes per probe × arm; cell = passed/graded)");
-    lines.push(`| Probe | Axis | ${probeArms.map((a) => a).join(" | ")} |`);
-    lines.push(`|---|---|${probeArms.map(() => "---").join("|")}|`);
     // Rows: manifest probes (positional ids) union across arms in numeric order —
     // the SAME question in every arm. Latent pool ids (l*) name a DIFFERENT question
     // per arm, so they render one row per arm (a cross-arm union would mix questions).
+    type BreakdownRow = {
+      readonly label: string;
+      readonly axis: MetricId;
+      readonly cells: readonly string[];
+      readonly passesByArm: readonly number[];
+      readonly gradedByArm: readonly number[];
+    };
+    const shortQuestion = (question: string): string =>
+      question.length > 64 ? `${question.slice(0, 61)}...` : question;
+    const passCell = (p: { passes: readonly boolean[] } | undefined): string =>
+      p === undefined ? "—" : `${p.passes.filter(Boolean).length}/${p.passes.length}`;
+    const rows: BreakdownRow[] = [];
     const numericIds = [
       ...new Set(
         probeArms.flatMap((a) => (result.arms[a]?.probes ?? []).map((p) => p.probeId).filter((id) => /^\d+$/.test(id))),
@@ -164,20 +173,53 @@ export function renderHeadline(result: BenchResultJson): string {
         .map((a) => (result.arms[a]?.probes ?? []).find((p) => p.probeId === probeId))
         .find((p) => p !== undefined);
       if (first === undefined) continue;
-      const q = first.question.length > 64 ? `${first.question.slice(0, 61)}...` : first.question;
-      const cells = probeArms.map((a) => {
-        const p = (result.arms[a]?.probes ?? []).find((entry) => entry.probeId === probeId);
-        if (p === undefined) return "—";
-        return `${p.passes.filter(Boolean).length}/${p.passes.length}`;
+      rows.push({
+        label: `p${probeId} · ${shortQuestion(first.question)}`,
+        axis: first.axis,
+        cells: probeArms.map((a) => passCell((result.arms[a]?.probes ?? []).find((entry) => entry.probeId === probeId))),
+        passesByArm: probeArms.map(
+          (a) => (result.arms[a]?.probes ?? []).find((entry) => entry.probeId === probeId)?.passes.filter(Boolean).length ?? 0,
+        ),
+        gradedByArm: probeArms.map(
+          (a) => (result.arms[a]?.probes ?? []).find((entry) => entry.probeId === probeId)?.passes.length ?? 0,
+        ),
       });
-      lines.push(`| p${probeId} · ${q} | ${first.axis} | ${cells.join(" | ")} |`);
     }
     for (const a of probeArms) {
       const latentRows = (result.arms[a]?.probes ?? []).filter((p) => !/^\d+$/.test(p.probeId));
       for (const p of latentRows) {
-        const q = p.question.length > 64 ? `${p.question.slice(0, 61)}...` : p.question;
-        lines.push(`| p${p.probeId} (${a}) · ${q} | ${p.axis} | ${probeArms.map((arm) => (arm === a ? `${p.passes.filter(Boolean).length}/${p.passes.length}` : "—")).join(" | ")} |`);
+        rows.push({
+          label: `p${p.probeId} (${a}) · ${shortQuestion(p.question)}`,
+          axis: p.axis,
+          cells: probeArms.map((arm) => (arm === a ? passCell(p) : "—")),
+          passesByArm: probeArms.map((arm) => (arm === a ? p.passes.filter(Boolean).length : 0)),
+          gradedByArm: probeArms.map((arm) => (arm === a ? p.passes.length : 0)),
+        });
       }
+    }
+    // One table per probe category (axis), in canonical metric order; the header
+    // names the category (latent axes carry their cued/uncued flavor).
+    const axisOrder = [
+      ...METRIC_ORDER.filter((m) => rows.some((r) => r.axis === m)),
+      ...[...new Set(rows.map((r) => r.axis))].filter((m) => !METRIC_ORDER.includes(m)),
+    ];
+    for (const axis of axisOrder) {
+      const def = result.metricDefs[axis];
+      const latentFlavor = axis === "E5.2" ? " (latent, cued)" : axis === "E5.3" ? " (latent, uncued)" : "";
+      lines.push(`## Probe breakdown — ${axis} ${def?.name ?? ""}${latentFlavor}`);
+      lines.push(`| Probe | ${probeArms.map((a) => a).join(" | ")} |`);
+      lines.push(`|---|${probeArms.map(() => "---").join("|")}|`);
+      for (const row of rows.filter((r) => r.axis === axis)) {
+        lines.push(`| ${row.label} | ${row.cells.join(" | ")} |`);
+      }
+      const rateCells = probeArms.map((_, i) => {
+        const graded = rows.filter((r) => r.axis === axis).reduce((n, r) => n + r.gradedByArm[i], 0);
+        if (graded === 0) return "—";
+        const passes = rows.filter((r) => r.axis === axis).reduce((n, r) => n + r.passesByArm[i], 0);
+        return `${Math.round((passes / graded) * 100)}%`;
+      });
+      lines.push(`| **rate** | ${rateCells.join(" | ")} |`);
+      lines.push("");
     }
     // Per-arm answer-cost summary (sums over every probe × attempt with usage).
     const costCells = probeArms.map((a) => {

@@ -869,8 +869,8 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).toContain("scen-integ");
     expect(markdown).toContain("## Probe breakdown");
-    expect(markdown).toContain("| p1 · what is the formula? | E5.1 | 1/1 | 1/1 |");
-    expect(markdown).toContain("| p2 · decide Y? | E6 | 1/1 | 1/1 |");
+    expect(markdown).toContain("| p1 · what is the formula? | 1/1 | 1/1 |"); // per-axis tables drop the Axis column
+    expect(markdown).toContain("| p2 · decide Y? | 1/1 | 1/1 |");
   });
 
   it("probe breakdown accumulates passes across attempts", async () => {
@@ -902,7 +902,7 @@ describe("scoreRun (full assembly: A1 + A3, N=1)", () => {
     expect(resultJson.arms.A1?.probes).toEqual([
       { probeId: "1", axis: "E5.1", question: "what is the formula?", passes: [false, false], usages: [null, null] },
     ]);
-    expect(markdown).toContain("| p1 · what is the formula? | E5.1 | 0/2 |");
+    expect(markdown).toContain("| p1 · what is the formula? | 0/2 |");
   });
 
   it("C2 recall-cost flows through (recovered fact -> finite mean; notRecoveredRate 0)", async () => {
