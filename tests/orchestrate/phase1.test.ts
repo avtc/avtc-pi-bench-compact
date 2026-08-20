@@ -52,6 +52,7 @@ import { CompactionCancelledError } from "../../src/session/compact.js";
 import { ANTI_PEEK_PROMPT } from "../../src/storage/anti-peek.js";
 import { buildArmBaseBranch } from "../../src/storage/branches.js";
 import { branchSessionFile } from "../../src/storage/paths.js";
+import { readPhase1Walls } from "../../src/storage/phase1-walls.js";
 
 // --- fake builders ----------------------------------------------------------
 
@@ -180,6 +181,7 @@ function makeDeps(opts: {
   widget?: WidgetPort | null;
   resume?: boolean;
   reuseBases?: boolean;
+  wallsPath?: string;
 }): Phase1Deps {
   return {
     cmdCtx: opts.cmdCtx ?? ({ id: "cmd-handler-ctx" } as unknown as ExtensionCommandContext),
@@ -194,6 +196,7 @@ function makeDeps(opts: {
     widget: opts.widget,
     resume: opts.resume ?? false,
     reuseBases: opts.reuseBases ?? false,
+    wallsPath: opts.wallsPath ?? join(opts.sessionsDir, "phase1-walls.json"),
     ops: opts.ops as unknown as Phase1Ops,
   };
 }
@@ -731,5 +734,53 @@ describe("runPhase1 — --reuse-bases (older-version base fallback)", () => {
       buildArmBaseBranch({ date: "2026-08-11", id: 1, cfgId: "cfg-test1", tool: "om-default", ver: "gabc123" }),
     );
     expect(ops.fork).toHaveBeenCalled();
+  });
+});
+
+// --- per-arm durable wall persistence (crash mid-phase-1 loses nothing) ---
+
+describe("runPhase1 — per-arm wall persistence", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-phase1-walls-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("writes each arm's wall to the walls file IMMEDIATELY (a crash after arm 1 keeps it)", async () => {
+    const ops = makeFakeOps();
+    const wallsPath = join(repo, "phase1-walls.json");
+    const sessionsDir = join(repo, "sessions");
+    // Simulate the crash-after-first-arm shape: the SECOND arm's loadSession rejects.
+    const defaultLoad = ops.loadSession.getMockImplementation() as
+      | ((ctx: unknown, path: string, cb: (ctx: ExtensionCommandContext) => Promise<unknown>) => Promise<unknown>)
+      | undefined;
+    let calls = 0;
+    ops.loadSession.mockImplementation(
+      async (ctx: unknown, path: string, cb: (ctx: ExtensionCommandContext) => Promise<unknown>) => {
+        calls++;
+        if (calls >= 2) throw new Error("simulated crash mid-phase-1");
+        return defaultLoad?.(ctx, path, cb);
+      },
+    );
+    const deps = makeDeps({ ops, scenarioRepo: repo, sessionsDir, armsEnabled: ["A1", "A2"], wallsPath });
+    await expect(runPhase1(deps)).rejects.toThrow(/simulated crash/);
+    // arm A1's wall was already persisted before the crash — the durable-file guarantee.
+    expect(readPhase1Walls(wallsPath)).toEqual({ A1: 4200 });
+  });
+
+  it("merges per-arm writes (a full phase persists every arm)", async () => {
+    const ops = makeFakeOps();
+    const wallsPath = join(repo, "phase1-walls.json");
+    const deps = makeDeps({
+      ops,
+      scenarioRepo: repo,
+      sessionsDir: join(repo, "sessions"),
+      armsEnabled: ["A1", "A2"],
+      wallsPath,
+    });
+    await runPhase1(deps);
+    expect(readPhase1Walls(wallsPath)).toEqual({ A1: 4200, A2: 4200 });
   });
 });

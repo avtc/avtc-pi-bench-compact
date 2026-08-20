@@ -207,4 +207,36 @@ describe("addedSessionLines (pure helper)", () => {
     const probe = `${SESSION}\n${USER("q")}\n${ASSISTANT_TEXT("a")}\n`;
     expect(addedSessionLines(base, probe)).toEqual([ASSISTANT_TEXT("a")]);
   });
+
+  it("treats a re-keyed session header as metadata, not a transcript modification (fork re-key)", () => {
+    // The fork assigns a fresh session id to every probe session — line 0 differs
+    // while the transcript is a clean append. The header is identity metadata:
+    // append-cleanliness is judged over the ENTRY lines only.
+    const REKEYED_SESSION = '{"type":"session","id":"fresh-fork-id","cwd":"/x"}';
+    const base = [SESSION, USER("q")].join("\n");
+    const probe = [REKEYED_SESSION, USER("q"), ASSISTANT_TEXT("a")].join("\n");
+    expect(addedSessionLines(base, probe)).toEqual([ASSISTANT_TEXT("a")]);
+  });
+
+  it("still throws on a modified ENTRY line when the headers differ (real tamper)", () => {
+    const REKEYED_SESSION = '{"type":"session","id":"fresh-fork-id","cwd":"/x"}';
+    const base = [SESSION, USER("q")].join("\n");
+    const probe = [REKEYED_SESSION, USER("changed")].join("\n");
+    expect(() => addedSessionLines(base, probe)).toThrow(/not a clean append|modif/i);
+  });
+
+  it("probeUsageFromSession computes usage across a re-keyed header fork", () => {
+    const REKEYED_SESSION = '{"type":"session","id":"fresh-fork-id","cwd":"/x"}';
+    const USAGE_MSG = (t: string) =>
+      `{"type":"message","id":"a-${t}","timestamp":"2026-08-19T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"${t}"}],"usage":{"input":100,"output":20,"cacheRead":5,"cacheWrite":0,"cost":{"total":0.01}}}}`;
+    const USAGE_MSG2 = USAGE_MSG("b").replace("10:00:00", "10:00:09");
+    const base = [SESSION, USER("q")].join("\n");
+    const probe = [REKEYED_SESSION, USER("q"), USAGE_MSG("a"), USAGE_MSG2].join("\n");
+    const usage = probeUsageFromSession(base, probe);
+    expect(usage).not.toBeNull();
+    expect(usage?.tokensIn).toBe(200);
+    expect(usage?.tokensOut).toBe(40);
+    expect(usage?.dollars).toBeCloseTo(0.02);
+    expect(usage?.wallMs).toBe(9000);
+  });
 });

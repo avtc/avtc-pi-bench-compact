@@ -317,6 +317,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
       memkeeperGlobalSettings,
       priorWalls,
+      wallsPath,
       armsEnabled: deps.config.armsEnabled,
       resume: resuming,
       reuseBases: deps.resume?.reuseBases === true,

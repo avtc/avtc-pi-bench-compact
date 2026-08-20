@@ -37,6 +37,7 @@ import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import { buildArmBaseBranch, type RunConfig, type ToolVersion } from "../storage/branches.js";
 import { branchSessionFile } from "../storage/paths.js";
 import type { Phase1Walls } from "../storage/phase1-walls.js";
+import { writePhase1Walls } from "../storage/phase1-walls.js";
 import {
   branchExists,
   checkout,
@@ -171,6 +172,10 @@ export interface Phase1Deps {
    *  read by the run driver) — reconstructed bases recover their compaction wall
    *  (without it the compaction-cost metric renders 0s after a resume). */
   priorWalls?: Phase1Walls;
+  /** The walls file's path — each arm's compaction wall is merge-written HERE the
+   *  moment the arm finishes (crash durability: a crash mid-phase no longer strands
+   *  the already-compacted arms' walls in the dying process's memory). */
+  wallsPath: string;
   /** --reuse-bases: also reuse a committed base built under an OLDER tool version
    *  when the current version's base branch is absent (skip re-compaction after a
    *  tool fix that did not change compaction behavior). */
@@ -391,6 +396,11 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     // store, outside the repo), so the repo working tree is unchanged — this is an empty
     // `--allow-empty` boundary commit recording the arm-base fork point.
     ops.commit(scenarioRepo, `phase-1: compacted base for arm ${arm} (${def.tool})`);
+
+    // Persist the wall NOW (merge): a crash/resume mid-phase must not strand this
+    // arm's wall in the dying process — the durable file is the only wall record
+    // (the tokens/$ live on in the compaction entry; the wall has no other home).
+    writePhase1Walls(deps.wallsPath, { [arm]: wallMs });
 
     bases.push({ arm, tool: def.tool, ver, cfgId, branch, wallMs, usage: compactionEntry.usage });
     log.info(`phase-1: arm ${arm} compacted (${wallMs}ms) → ${branch}`);

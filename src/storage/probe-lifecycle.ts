@@ -189,9 +189,24 @@ function isMutatingEntry(entry: SessionEntry): boolean {
  *
  * Pure transformation of the two file contents (testable in isolation).
  */
+/** True iff the line is the session-identity header (`type:"session"`). The
+ *  fork assigns every probe session a FRESH id (re-key), so the header legitimately
+ *  differs between a base and its fork — identity metadata, not transcript content.
+ *  Append-cleanliness is therefore judged over the ENTRY lines only. */
+function isSessionHeader(line: string): boolean {
+  try {
+    return (JSON.parse(line) as { type?: unknown }).type === "session";
+  } catch {
+    return false;
+  }
+}
+
 export function addedSessionLines(baseJsonl: string, probeJsonl: string): string[] {
-  const base = baseJsonl.split("\n").filter((l) => l.trim().length > 0);
-  const probe = probeJsonl.split("\n").filter((l) => l.trim().length > 0);
+  const baseLines = baseJsonl.split("\n").filter((l) => l.trim().length > 0);
+  const probeLines = probeJsonl.split("\n").filter((l) => l.trim().length > 0);
+  // Drop the identity header from both sides when present (see isSessionHeader).
+  const base = baseLines.length > 0 && isSessionHeader(baseLines[0] as string) ? baseLines.slice(1) : baseLines;
+  const probe = probeLines.length > 0 && isSessionHeader(probeLines[0] as string) ? probeLines.slice(1) : probeLines;
   if (probe.length < base.length) {
     throw new Error("probe session is shorter than the base — not a clean append (a line was removed)");
   }

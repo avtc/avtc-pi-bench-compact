@@ -353,6 +353,7 @@ describe("acceptance — bench mechanism primitives fire (compaction trigger + i
       cmdCtx: {} as unknown as ExtensionCommandContext,
       scenarioRepo: repo,
       sessionsDir: join(repo, "sessions"),
+      wallsPath: join(repo, "phase1-walls.json"),
       date: "2026-08-11",
       id: 1,
       cfgId: "cfg-test1",
