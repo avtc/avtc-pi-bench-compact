@@ -773,12 +773,12 @@ describe("startRun — live-progress widget wiring", () => {
     await startRun(deps);
     expect(stage).toHaveBeenCalledOnce();
     // the widget saw the arm counter + the per-class probe detail + the ctx window + the event stream
-    expect(widget.calls).toContain("setArm:1/2:latent");
+    expect(widget.calls).toContain("setArm:1/2:bare-pi");
     expect(widget.calls).toContain("setDetail:cued 1/3 · uncued 2/3");
     expect(widget.calls).toContain("setCtxWindow:999");
     expect(widget.calls).toContain("onEvent:turn_start");
     // onArm also clears the stale detail before the first probe of the arm
-    const armIdx = widget.calls.indexOf("setArm:1/2:latent");
+    const armIdx = widget.calls.indexOf("setArm:1/2:bare-pi");
     expect(widget.calls[armIdx + 1]).toBe("setDetail:-");
   });
 

@@ -370,8 +370,8 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
           maxTokens: latentAgent.maxTokens,
           timeoutMs: latentAgent.timeoutMs,
           rateLimitOptions: null,
-          onArm: (_arm, index, total): void => {
-            widget?.setArm(index, total, "latent");
+          onArm: (arm, index, total): void => {
+            widget?.setArm(index, total, ARM_DEFS[arm].tool);
             widget?.setDetail(NO_DETAIL);
           },
           onAdd: (counts): void => {
