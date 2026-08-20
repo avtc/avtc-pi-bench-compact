@@ -361,6 +361,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
             runStage: runBenchStage,
             onEvent: latentHooks?.onEvent,
             onModelResolved: latentHooks?.onModelResolved,
+            onDone: latentHooks?.onDone,
           },
           signal,
           thinking: latentAgent.thinking,

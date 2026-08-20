@@ -23,6 +23,8 @@ export interface WidgetPort {
   setDetail(detail: string | null): void;
   /** Set the background agent's context window when it starts (the <w> in `ctx <u>/<w>`). */
   setCtxWindow(ctxWindow: number | null): void;
+  /** Retire the background agent's ctx/tok segments when it finishes (any exit). */
+  clearAgent(): void;
   /** Set the per-judge usage list (score phase — K parallel judges). */
   setJudgeUsages(list: readonly JudgeUsage[] | null): void;
   /** Forward a background-agent event (user-simulator / judge) → two-tier token accumulator. */

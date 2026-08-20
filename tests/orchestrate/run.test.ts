@@ -225,6 +225,7 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     clearArm: () => {
       calls.push("clearArm");
     },
+    clearAgent: () => {},
     setCtxWindow: (w) => {
       calls.push(`setCtxWindow:${w ?? "-"}`);
     },

@@ -21,6 +21,7 @@ function capturingWidget(): WidgetPort & { arms: string[] } {
     clearArm: () => {},
     setDetail: () => {},
     setJudgeUsages: () => {},
+    clearAgent: () => {},
     setCtxWindow: () => {},
     onEvent: () => {},
     hide: () => {},

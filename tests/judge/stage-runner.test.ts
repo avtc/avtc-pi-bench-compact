@@ -246,3 +246,59 @@ describe("buildStageDeps", () => {
     expect(deps.tools).toEqual([terminal]);
   });
 });
+
+describe("runJsonToolStage — agent-done hook", () => {
+  const terminal = (): JsonOutputTool => makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
+
+  it("fires seams.onDone after a successful stage", async () => {
+    const t = terminal();
+    const { seams } = capturingSeams("emit", { value: "x" });
+    const done: number[] = [];
+    const hooked: JsonToolStageSeams = { ...seams, onDone: () => done.push(1) };
+    await runJsonToolStage({
+      seams: hooked,
+      tools: [t] as AgentTool[],
+      systemPrompt: "s",
+      terminalTool: t,
+      label: "t",
+      userMessageContent: "go",
+      maxTokens: 1,
+      reasoning: null,
+      timeoutMs: null,
+      signal: new AbortController().signal,
+    });
+    expect(done).toEqual([1]);
+  });
+
+  it("fires seams.onDone when the stage times out (any exit)", async () => {
+    const t = terminal();
+    const { seams } = capturingSeams("emit", { value: "x" });
+    const timedOutSeams: JsonToolStageSeams = {
+      ...seams,
+      runStage: async () => ({
+        messages: [],
+        timedOut: true,
+        aborted: false,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0, turns: 0, elapsedMs: 0 },
+        outputTokens: 0,
+      }),
+    };
+    const done: number[] = [];
+    const hooked: JsonToolStageSeams = { ...timedOutSeams, onDone: () => done.push(1) };
+    await expect(
+      runJsonToolStage({
+        seams: hooked,
+        tools: [t] as AgentTool[],
+        systemPrompt: "s",
+        terminalTool: t,
+        label: "t",
+        userMessageContent: "go",
+        maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("timed out");
+    expect(done).toEqual([1]);
+  });
+});

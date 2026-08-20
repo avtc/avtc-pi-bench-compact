@@ -12,6 +12,7 @@ import {
   WIDGET_PLACEMENT,
   WidgetController,
   type WidgetDeps,
+  widgetStageHooks,
 } from "../../src/widget/tracker.js";
 
 /** Fixed wide terminal width (no elision → exact line assertions). */
@@ -223,6 +224,44 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     expect(line).toContain("probe 25/26");
     expect(line).not.toContain("ctx");
     expect(line).not.toContain("tok");
+  });
+
+  it("clearAgent retires the segments when the harness reports the agent finished (mid-phase)", () => {
+    const cap = capturingDeps(TERM_WIDE);
+    const c = new WidgetController(cap.deps, {
+      phase: "latent",
+      armIndex: 1,
+      armTotal: 2,
+      tool: "om-full",
+      ctxWindow: 262_144,
+    });
+    c.show();
+    c.onEvent(mk({ type: "message_update" })); // sets tok=0 (renders the ctx segment)
+    c.onEvent(mk({ type: "message_end", message: { usage: { totalTokens: 190_000 } } }));
+    vi.advanceTimersByTime(200);
+    expect(cap.lines.at(-1)).toContain("ctx 190K/262K");
+    // the per-arm authoring agent finished; the NEXT arm's authoring has not
+    // streamed yet — the phase is still "latent", so only clearAgent applies
+    c.clearAgent();
+    vi.advanceTimersByTime(200);
+    const line = cap.lines.at(-1) ?? "";
+    expect(line).toContain("latent"); // phase untouched
+    expect(line).not.toContain("ctx");
+    expect(line).not.toContain("tok");
+  });
+
+  it("widgetStageHooks wires onDone to clearAgent", () => {
+    const calls: string[] = [];
+    const widget = {
+      onEvent: () => calls.push("event"),
+      setCtxWindow: () => calls.push("window"),
+      clearAgent: () => calls.push("clear"),
+    };
+    const hooks = widgetStageHooks(widget);
+    expect(hooks).toBeDefined();
+    hooks?.onDone();
+    expect(calls).toEqual(["clear"]);
+    expect(widgetStageHooks(null)).toBeUndefined();
   });
 
   it("compact phase never shows ctx/tok even when set", () => {

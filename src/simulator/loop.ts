@@ -362,6 +362,9 @@ export interface DriveUntilStopArgs {
   readonly shouldBreak: () => boolean;
   /** Build the error thrown when a cycle signals an error-stop (caller picks the typed error). */
   readonly makeCycleError: (error: string | null) => Error;
+  /** Optional hook fired when the drive finishes — ANY exit (boundary/budget break,
+   *  thrown cycle error). The widget retires the simulator's ctx/tok segments here. */
+  readonly onDone?: () => void;
 }
 
 /** The shared drive loop: kick-off cycle → { check stop → await-settle → check break → cycle }
@@ -385,12 +388,16 @@ export async function driveUntilStop(args: DriveUntilStopArgs): Promise<void> {
       throw args.makeCycleError(args.stop.error);
     }
   };
-  await cycle();
-  while (true) {
-    if (args.stop.stopped) break; // a boundary-stop cycle injected nothing — exit, don't await
-    await args.awaitSettled();
-    if (args.shouldBreak()) break; // budget reached DURING the just-awaited run
+  try {
     await cycle();
+    while (true) {
+      if (args.stop.stopped) break; // a boundary-stop cycle injected nothing — exit, don't await
+      await args.awaitSettled();
+      if (args.shouldBreak()) break; // budget reached DURING the just-awaited run
+      await cycle();
+    }
+  } finally {
+    args.onDone?.();
   }
 }
 

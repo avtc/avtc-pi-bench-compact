@@ -41,6 +41,7 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     clearArm: () => {
       calls.push("clearArm");
     },
+    clearAgent: () => {},
     setCtxWindow: () => {},
     setJudgeUsages: () => {},
     onEvent: () => {},

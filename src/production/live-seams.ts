@@ -187,6 +187,7 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
       runStage,
       onEvent: hooks?.onEvent,
       onModelResolved: hooks?.onModelResolved,
+      onDone: hooks?.onDone,
     };
     const manifest = await runAuthor({
       seams,
@@ -280,21 +281,26 @@ export function buildTailCheckSeam(deps: TailCheckSeamDeps): NonNullable<BuildSe
     const resolved = await resolve(deps.ctxGetter(), deps.tailCheckModel);
     if (!resolved.ok) throw new Error(`tail check model not available: ${resolved.error}`);
     hooks?.onModelResolved(resolved.model);
-    const result = await runStage({
-      systemPrompt: TAIL_CHECK_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: tailText, timestamp: Date.now() }],
-      tools: [],
-      model: resolved.model,
-      apiKey: resolved.apiKey,
-      signal: deps.signal,
-      reasoning: toStageReasoning(deps.thinking),
-      maxTurns: SINGLE_TURN,
-      maxTokens: deps.maxTokens,
-      timeoutMs: deps.timeoutMs,
-      onEvent: hooks?.onEvent ?? NO_EVENT_SINK,
-      onStageEnd: NO_STAGE_END_HOOK,
-      loopFn: NO_LOOP_OVERRIDE,
-    });
+    let result: Awaited<ReturnType<typeof runStage>>;
+    try {
+      result = await runStage({
+        systemPrompt: TAIL_CHECK_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: tailText, timestamp: Date.now() }],
+        tools: [],
+        model: resolved.model,
+        apiKey: resolved.apiKey,
+        signal: deps.signal,
+        reasoning: toStageReasoning(deps.thinking),
+        maxTurns: SINGLE_TURN,
+        maxTokens: deps.maxTokens,
+        timeoutMs: deps.timeoutMs,
+        onEvent: hooks?.onEvent ?? NO_EVENT_SINK,
+        onStageEnd: NO_STAGE_END_HOOK,
+        loopFn: NO_LOOP_OVERRIDE,
+      });
+    } finally {
+      hooks?.onDone();
+    }
     return parseTailCheckResponse(extractAssistantText(result.messages));
   };
 }
@@ -664,6 +670,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
               new Error(
                 `build driveAndCapture(attempt ${attempt}) simulator stopped with an error (${error ?? "unknown"})`,
               ),
+            onDone: () => deps.widget?.clearAgent(),
           });
         } catch (err) {
           // The auto-compaction tripwire aborts via an error-stop — surface the

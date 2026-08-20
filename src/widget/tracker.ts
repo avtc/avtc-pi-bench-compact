@@ -114,14 +114,27 @@ export class WidgetController {
 
   // --- phase progression ---
   startPhase(phase: WidgetPhase, detail: string | null): void {
-    // A phase boundary retires the background-agent segments: ctx/tok belong to
-    // the CURRENT phase's background agent (observer / authoring / simulator /
-    // judge). Without this reset, a finished agent's last request lingers into a
-    // phase that runs no background agent (e.g. probes on the main session).
+    // A phase boundary retires the background-agent segments (see retireAgent).
+    this.retireAgent();
+    this.state = { ...this.state, phase, detail, status: "running" };
+    this.schedule();
+  }
+
+  /** Retire the background agent's ctx/tok segments — the harness calls this when
+   *  a background agent FINISHES (authoring done, simulator drive stopped), so the
+   *  dead agent's last request cannot linger while no agent is streaming. The next
+   *  agent's events repopulate the segments. */
+  clearAgent(): void {
+    this.retireAgent();
+    this.schedule();
+  }
+
+  /** Reset the background-agent segments (ctx/window/tok + the per-request tiers).
+   * Shared by phase transitions (startPhase) + agent completion (clearAgent). */
+  private retireAgent(): void {
     this.primaryTokens = 0;
     this.fallbackTokens = 0;
-    this.state = { ...this.state, phase, detail, status: "running", ctxUsage: null, ctxWindow: null, tok: null };
-    this.schedule();
+    this.state = { ...this.state, ctxUsage: null, ctxWindow: null, tok: null };
   }
 
   setDetail(detail: string | null): void {
@@ -270,24 +283,30 @@ export function makeTuiWidgetDeps(ctx: {
 // --- stage-hook binding (shared by the simulator + judge transports) ------
 
 /** The widget hooks a background-agent stage forwards: the event sink (drives the
- *  two-tier accumulator) + the model-resolved hook (sets the ctx window). */
+ *  two-tier accumulator) + the model-resolved hook (sets the ctx window) + the
+ *  agent-done hook (retires the ctx/tok segments when the agent finishes). */
 export interface WidgetStageHooks {
   readonly onEvent: (event: AgentEvent) => void;
   readonly onModelResolved: (model: Model<Api>) => void;
+  readonly onDone: () => void;
 }
 
-/** Build the widget stage-hook pair bound to `widget`, or `undefined` when the widget
+/** Build the widget stage-hook set bound to `widget`, or `undefined` when the widget
  *  is absent (non-TUI). Shared by the user-simulator factory (resume) + the judge
  *  transport (score) so the `.bind` + `setCtxWindow` plumbing lives in one place.
  *  Callers that must suppress ctx/tok (e.g. K>1 parallel judges whose events would
  *  interleave into the shared accumulator) pass `undefined` instead. */
 export function widgetStageHooks(
-  widget: { onEvent(event: AgentEvent): void; setCtxWindow(ctxWindow: number | null): void } | null | undefined,
+  widget:
+    | { onEvent(event: AgentEvent): void; setCtxWindow(ctxWindow: number | null): void; clearAgent(): void }
+    | null
+    | undefined,
 ): WidgetStageHooks | undefined {
   if (widget === null || widget === undefined) return undefined;
   return {
     onEvent: widget.onEvent.bind(widget),
     onModelResolved: (model) => widget.setCtxWindow(model.contextWindow ?? null),
+    onDone: () => widget.clearAgent(),
   };
 }
 

@@ -225,6 +225,7 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       setArm: vi.fn(),
       setDetail: vi.fn(),
       clearArm: vi.fn(),
+      clearAgent: () => {},
       setCtxWindow: vi.fn(),
       setJudgeUsages: vi.fn(),
       onEvent: vi.fn(),

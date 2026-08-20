@@ -28,6 +28,7 @@ function capturingWidget(): WidgetPort & { phases: string[] } {
     setArm: () => {},
     clearArm: () => {},
     setDetail: () => {},
+    clearAgent: () => {},
     setCtxWindow: () => {},
     setJudgeUsages: () => {},
     onEvent: () => {},

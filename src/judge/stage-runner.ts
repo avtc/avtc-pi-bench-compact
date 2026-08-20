@@ -35,6 +35,10 @@ export interface JsonToolStageSeams {
   readonly onEvent?: (event: AgentEvent) => void;
   /** Optional hook fired after a successful model resolution (the widget sets its ctx window). */
   readonly onModelResolved?: (model: Model<Api>) => void;
+  /** Optional hook fired when the stage's agent finishes — ANY exit (success, timeout,
+   *  abort, thrown error). The widget retires its ctx/tok segments here so a dead
+   * agent's last request cannot linger while nothing is streaming. */
+  readonly onDone?: () => void;
 }
 
 /** The transport fields every stage caller threads straight from its own deps
@@ -136,7 +140,12 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
       loopFn: NO_LOOP_OVERRIDE,
       label: deps.label,
     });
-  const result = await withRateLimit(runStage, deps.rateLimitOptions ?? null);
+  let result: StageRunResult;
+  try {
+    result = await withRateLimit(runStage, deps.rateLimitOptions ?? null);
+  } finally {
+    deps.seams.onDone?.();
+  }
   if (result.timedOut) {
     throw new BenchJudgeError("timeout", `${deps.label} stage timed out before ${deps.terminalTool.name}`);
   }

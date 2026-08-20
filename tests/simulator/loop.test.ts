@@ -491,3 +491,37 @@ describe("SimulatorDriver — firstInstruction (plant-and-continue resume)", () 
     return typeof content === "string" ? content : JSON.stringify(content);
   }
 });
+
+describe("driveUntilStop — agent-done hook", () => {
+  it("fires onDone on a boundary-stop exit", async () => {
+    const { stop, onStop } = makeDriveStop();
+    const { driver } = makeFaithfulDriver(3, () => onStop({ contextTokens: 0, reason: "boundary" }));
+    const done: number[] = [];
+    await driveUntilStop({
+      driver,
+      stop,
+      awaitSettled: async () => {},
+      shouldBreak: () => stop.stopped,
+      makeCycleError: (error) => new Error(`cycle error: ${error ?? "unknown"}`),
+      onDone: () => done.push(1),
+    });
+    expect(done).toEqual([1]);
+  });
+
+  it("fires onDone when a cycle signals an error-stop (thrown path)", async () => {
+    const { stop, onStop } = makeDriveStop();
+    const { driver } = makeFaithfulDriver(1, () => onStop({ contextTokens: 0, reason: "error", error: "boom" }));
+    const done: number[] = [];
+    await expect(
+      driveUntilStop({
+        driver,
+        stop,
+        awaitSettled: async () => {},
+        shouldBreak: () => stop.stopped,
+        makeCycleError: (error) => new Error(`cycle error: ${error ?? "unknown"}`),
+        onDone: () => done.push(1),
+      }),
+    ).rejects.toThrow("cycle error: boom");
+    expect(done).toEqual([1]);
+  });
+});

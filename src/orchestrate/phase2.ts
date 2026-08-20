@@ -405,6 +405,7 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
                 "run-failed",
                 `attempt ${attempt} simulator stopped with an error (${error ?? "unknown"})`,
               ),
+            onDone: () => deps.widget?.clearAgent(),
           });
         } finally {
           monitor.dispose();
