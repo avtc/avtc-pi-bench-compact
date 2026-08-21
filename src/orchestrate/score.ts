@@ -42,10 +42,11 @@ import type { ArmId } from "../config/types.js";
 import { type C2Boundary, findFirstCorrectUse } from "../judge/c2-boundary.js";
 import { majorityVote, rankEnsemble, unionC2Boundaries } from "../judge/ensemble.js";
 import { BenchJudgeError } from "../judge/errors.js";
-import { axisForProbe } from "../judge/probe-axis.js";
+import { axisForProbe, matchedSupersession } from "../judge/probe-axis.js";
 import { type Ranking, rankAxis, type Shuffle } from "../judge/ranking.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type CallJudge, gradeSlice } from "../judge/single-call.js";
+import type { GroundTruthExcerpt } from "../judge/slices.js";
 import {
   buildDoneSnapshot,
   buildProbeAnswerSlice,
@@ -168,6 +169,10 @@ export interface ScoreRunDeps {
   /** Active latent probes keyed "<arm>:<poolId>" (routed by probe class; absent on
    *  off-mode runs — an empty map and absent behave identically). */
   readonly latent?: ReadonlyMap<string, LatentProbe> | null;
+  /** Ground-truth excerpts keyed "<arm>:<probeId>" (1-based positional id for
+   *  manifest probes, pool id for latent ones) — rendered into the probe judge
+   * slices so grading is substance-over-phrasing; absent/null = no blocks. */
+  readonly groundTruth?: ReadonlyMap<string, readonly GroundTruthExcerpt[]> | null;
   /** K judge single-call seams (paired by index with stageSeams; both length K). */
   readonly callJudges: readonly CallJudge[];
   /** K judge stage seams (paired by index with callJudges; both length K). */
@@ -456,6 +461,10 @@ export interface ProbeRoutingDeps {
   readonly manifest: ScenarioManifest;
   /** Active latent probes keyed "<arm>:<poolId>" (axis + accept come from the pool). */
   readonly latent?: ReadonlyMap<string, LatentProbe> | null;
+  /** Ground-truth excerpts keyed "<arm>:<probeId>" (1-based positional id for
+   *  manifest probes, pool id for latent ones) — rendered into the judge slice so
+   *  grading is substance-over-phrasing; absent/null = no reference blocks. */
+  readonly groundTruth?: ReadonlyMap<string, readonly GroundTruthExcerpt[]> | null;
   /** K judge single-call seams (one per configured judge). */
   readonly callJudges: readonly CallJudge[];
   /** Malformed-JSON re-prompt budget for gradeSlice (default 2). */
@@ -514,7 +523,18 @@ export async function gradeProbeAxesForRun(
     deps.onScoreProgress?.(`probe ${out.length + 1}/${run.probes.length} grading`);
     const grades = await Promise.all(
       deps.callJudges.map(async (callJudge) => {
-        const slice = buildProbeAnswerSlice({ probe, answerText: probeTrace.answer }, DEFAULT_SLICE_OPTIONS);
+        const supersession =
+          latentProbe === undefined && axis === "E8" ? matchedSupersession(probe, deps.manifest) : null;
+        const slice = buildProbeAnswerSlice(
+          {
+            probe,
+            answerText: probeTrace.answer,
+            groundTruth: deps.groundTruth?.get(`${run.arm}:${probeTrace.probeId}`) ?? null,
+            supersession:
+              supersession === null ? null : { subject: supersession.subject, latestValue: supersession.latestValue },
+          },
+          DEFAULT_SLICE_OPTIONS,
+        );
         return gradeSlice({ axis, slice, callJudge, maxRetries: deps.maxRetries });
       }),
     );

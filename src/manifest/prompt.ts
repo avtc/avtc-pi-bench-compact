@@ -60,7 +60,7 @@ For each decision/recall-fact, each open-question, AND each reversal, write a PR
 question we will ask the compacted agent to test its memory.
 - For a decision/recall-fact: a question whose correct answer IS that fact/value.
 - For a reversal: write TWO probes — (1) a question whose correct answer IS the LATEST value
-  (the current decision), AND (2) a "stale-value" probe that asserts the OLD value as if it
+  (the current decision) — set its \`supersessionId\` to the reversal's id — AND (2) a "stale-value" probe that asserts the OLD value as if it
   were still current. On the stale-value probe, the correct behavior is for the agent to FLAG
   the old value as outdated rather than confirm it — set \`correctRefusal: true\` with
   \`face: "stale"\` (no accept list) and point its \`targets\` at the reversal's entryIds.
@@ -116,6 +116,7 @@ confirm it from the session (never re-send earlier findings):
   "correctRefusal": true, "entryIds": ["<id>", "..."] }
 - add_probe: { "question": "<the probe question>",
   "accept": ["...", "..."],          // for recall / supersession-latest
+  "supersessionId": "ss1",          // set for a supersession-latest probe (the reversal it tests)
   "correctRefusal": true,            // for abstention + supersession stale-value (omit accept)
   "face": "stale",                   // "stale" = flag old value, "refuse" = never decided (required with correctRefusal)
   "targets": ["<entryId(s) of the fact this probe tests — cite what you know; the harness resolves to the condition id>"] }

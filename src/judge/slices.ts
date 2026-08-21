@@ -97,6 +97,68 @@ export function buildStartSlice(trace: RunTrace, manifest: ScenarioManifest, opt
 export interface ProbeAnswerSliceInput {
   readonly probe: Probe;
   readonly answerText: string;
+  /** Ground-truth excerpts of the pre-compaction transcript entries the probe
+   *  cites (latent entryIds / manifest targets), rendered IN FULL. Shown as a
+   *  reference block so the judge grades substance over accept[] phrasing;
+   *  absent/null = no block (the slice is unchanged). */
+  readonly groundTruth?: readonly GroundTruthExcerpt[] | null;
+  /** The reversal this supersession-latest probe tests — rendered as the
+   *  SUPERSESSION UNDER TEST block (subject + latestValue, the authoritative
+   *  current answer). Absent/null = no block. */
+  readonly supersession?: SupersessionUnderTest | null;
+}
+
+/** The supersession data a supersession-latest probe's judge slice carries. */
+export interface SupersessionUnderTest {
+  readonly subject: string;
+  readonly latestValue: string;
+}
+
+/** One ground-truth excerpt: the message text of one cited transcript entry. */
+export interface GroundTruthExcerpt {
+  /** The cited entry id (rendered as the tag's entry attribute). */
+  readonly id: string;
+  /** Who said it — the tag name (USER/ASSISTANT), mirroring the memory tools'
+   *  role-tagged render so judges see provenance (a user decision vs an agent
+   *  claim grades differently). */
+  readonly role: GroundTruthRole;
+  /** The entry's extracted message text, rendered IN FULL — never truncated: a
+   *  mid-entry character cut drops the very detail the probe asks about (often
+   *  late in the entry) and leaves the judge reading garbage. */
+  readonly text: string;
+}
+
+/** The excerpt tag names (the memory tools' role tags; custom messages and
+ *  branch summaries render as USER — the user-side content convention). */
+export type GroundTruthRole = "USER" | "ASSISTANT";
+
+/** Render the ground-truth block for a probe slice. Returns null when there is
+ *  nothing to show (no excerpts / all empty) so the caller can omit the section
+ *  entirely. Full-length entries, no truncation, each wrapped in a role-tagged
+ *  block with the entry id as the attribute — the same LLM-facing convention the
+ *  memory tools use for verbatim transcript content (`<USER entry=id>`), so
+ *  judges see who said what. Pure. */
+export function renderGroundTruthBlock(excerpts: readonly GroundTruthExcerpt[]): string | null {
+  const blocks: string[] = [];
+  for (const excerpt of excerpts) {
+    const text = excerpt.text.trim();
+    if (text.length === 0) continue;
+    blocks.push(`<${excerpt.role} entry=${excerpt.id}>\n${text}\n</${excerpt.role}>`);
+  }
+  if (blocks.length === 0) return null;
+  return [
+    "GROUND-TRUTH REFERENCE (full excerpts of the pre-compaction transcript entries this probe cites — the source accept[] was derived from; a correct answer may word it differently)",
+    ...blocks,
+  ].join("\n");
+}
+
+/** Render the SUPERSESSION UNDER TEST block (subject + latestValue). */
+function renderSupersessionBlock(s: SupersessionUnderTest): string {
+  return [
+    "SUPERSESSION UNDER TEST (this fact changed during the session — the LATEST value is the correct current answer)",
+    `Subject: ${s.subject}`,
+    `latestValue: ${s.latestValue}`,
+  ].join("\n");
 }
 
 /**
@@ -114,18 +176,23 @@ export function buildProbeAnswerSlice(input: ProbeAnswerSliceInput, options: Sli
     probe.correctRefusal === true
       ? probe.face === "stale"
         ? "CORRECT ANSWER = FLAG THE VALUE AS STALE/OUTDATED (the decision changed after this value was set; a correct agent flags the old value as superseded rather than confirming it)."
-        : "CORRECT ANSWER = REFUSE (no decision/answer on this question has been committed; a correct agent declines rather than fabricates). Grade the refusal itself: accurate supplementary context alongside a correct refusal still passes; only an asserted decision/commitment or a fabricated answer fails."
+        : "CORRECT ANSWER = REFUSE (no decision/answer on this question has been committed; a correct agent declines rather than fabricates). Grade the refusal itself: accurate supplementary context alongside a correct refusal still passes — including the current/default state, the deferral history, or conditions for a future decision; it fails only when the agent asserts a decision/commitment that was never made or answers the open question with a fabricated committed value."
       : `accept[] (a correct answer matches one of): ${(probe.accept ?? []).join(" | ") || "(none)"}`;
-  return [
-    "PROBE QUESTION",
-    probe.question,
-    "",
-    "GRADING CRITERIA",
-    criteria,
+  const groundTruth =
+    input.groundTruth === undefined || input.groundTruth === null ? null : renderGroundTruthBlock(input.groundTruth);
+  const sections = ["PROBE QUESTION", probe.question, "", "GRADING CRITERIA", criteria];
+  if (input.supersession !== undefined && input.supersession !== null) {
+    sections.push("", renderSupersessionBlock(input.supersession));
+  }
+  if (groundTruth !== null) {
+    sections.push("", groundTruth);
+  }
+  sections.push(
     "",
     "AGENT'S ANSWER",
     answerText.length > 0 ? answerText : "(no answer text — tool-call-only or empty response)",
-  ].join("\n");
+  );
+  return sections.join("\n");
 }
 
 /** Inputs to {@link buildDoneSnapshot}. */

@@ -50,6 +50,7 @@ import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { NO_DETAIL, scoreJudgeHooks, widgetStageHooks } from "../widget/tracker.js";
+import { buildProbeGroundTruthMap, groundTruthDigest } from "./ground-truth.js";
 import {
   activeLatentForArm,
   LatentStageStoppedError,
@@ -86,7 +87,7 @@ import {
 } from "./score.js";
 import type { TestSpecOps, TestSpecResult, TestSpecStopReason } from "./testspec.js";
 import { runTestSpec, TestSpecFaultError } from "./testspec.js";
-import { captureTrace, type RunTrace } from "./trace.js";
+import { captureTrace, type RunTrace, readSessionEntries } from "./trace.js";
 
 /** A run-scoped abort controller (owned by startRun; threaded into Phase 2/probes/
  *  score). Phase 1 (compaction) has NO signal seam yet — `ctx.compact()` takes none —
@@ -192,6 +193,9 @@ export interface BuildScoreDepsArgs {
   /** Digest of the run's active latent probes (null when none) — feeds the verdict-journal
    *  fingerprint so a pool change restarts the journal (stale verdicts never replay). */
   latentDigest: string | null;
+  /** Digest of the ground-truth excerpt map rendered into probe slices (null when
+   *  none) — same verdict-journal fingerprint role as latentDigest. */
+  groundTruthDigest: string | null;
   /** Resolved per-judge members (model/thinking fallbacks already applied). */
   judgeMembers: readonly [JudgeAgentSpec, JudgeAgentSpec, JudgeAgentSpec];
   /** Per-call output-token cap for every judge call (resolved — judge setting or background). */
@@ -491,6 +495,16 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       }
     }
     const latentDigest = latentProbesDigest(latentMap);
+    // Ground-truth excerpts for the probe judge slices: read each arm's compacted-base
+    // session once + resolve the cited entries (latent entryIds / manifest targets).
+    // An unreadable session only drops that arm's blocks — never stops the run.
+    const groundTruthMap = buildProbeGroundTruthMap({
+      bases,
+      sessionsDir,
+      manifest: deps.manifest,
+      latent: latentMap,
+      readEntries: readSessionEntries,
+    });
     const judgeAgents = resolveBackgroundAgents(deps.config).judge;
     const scoreDeps = {
       ...buildScoreDeps({
@@ -501,11 +515,13 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         signal,
         modelsPath: deps.modelsPath ?? DEFAULT_MODELS_PATH,
         latentDigest,
+        groundTruthDigest: groundTruthDigest(groundTruthMap),
         judgeMembers: judgeAgents.members,
         judgeMaxTokens: judgeAgents.maxTokens,
         judgeTurnTimeoutMs: judgeAgents.timeoutMs,
       }),
       latent: latentMap,
+      groundTruth: groundTruthMap,
     };
     const { resultJson, markdown } = await score(input, scoreDeps);
 
@@ -756,6 +772,7 @@ export function buildProductionScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps
       probesOnly: args.runConfig.fastEval === "probes-only",
       e2LongThreshold: E2_LONG_RUN_THRESHOLD_ENTRIES,
       latent: args.latentDigest,
+      groundTruth: args.groundTruthDigest,
     }),
     fs: { existsSync, readFileSync: (p) => readFileSync(p, "utf8"), appendFileSync, writeFileSync },
     onRestart: (path) => log.info(`score: verdict journal restarted (scoring conditions changed) — ${path}`),

@@ -109,7 +109,7 @@ const ADD_SUPERSESSION_DESCRIPTION =
 const ADD_ABSTENTION_DESCRIPTION =
   "Record ONE question that was deliberately left OPEN (never decided). Call as soon as you confirm it; call again per question.";
 const ADD_PROBE_DESCRIPTION =
-  "Record ONE direct probe question (accept list for a recallable answer, or correctRefusal with face 'stale'/'refuse' for a stale/open answer). Call as soon as you author it; call again per probe.";
+  "Record ONE direct probe question (accept list for a recallable answer, or correctRefusal with face 'stale'/'refuse' for a stale/open answer). When the probe tests the LATEST value of a reversal you recorded via add_supersession, set supersessionId to that reversal's id. Call as soon as you author it; call again per probe.";
 const ADD_TAIL_CONFLICT_DESCRIPTION =
   "Record ONE conflict between a finding and the kept tail: kind 'answerable' (the tail restates the answer — a probe would pass from raw context) or 'superseded' (the tail changes the fact). Cite the finding's SPAN entryIds. Call once per conflicted finding.";
 const FINALIZE_MANIFEST_DESCRIPTION =

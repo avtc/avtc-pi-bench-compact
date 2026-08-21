@@ -59,7 +59,8 @@ const HEADER_KIND = "bench-compact.verdicts";
  * Compute the scoring fingerprint: verdicts are reusable only when every
  * judged-input dimension is unchanged — the manifest (re-author ⇒ new questions),
  * the judge ensemble (models/thinking levels/count), the per-call token budget,
- * the probes-only gate (changes which lanes run), and the slice-shaping threshold.
+ * the probes-only gate (changes which lanes run), the slice-shaping threshold, the
+ * latent pool, and the ground-truth excerpts rendered into probe slices.
  * Pure.
  */
 export function scoringFingerprint(input: {
@@ -73,6 +74,10 @@ export function scoringFingerprint(input: {
    *  probe ids restart at l1, so old verdicts would otherwise be replayed for
    *  questions that were never asked. */
   readonly latent: string | null;
+  /** Digest of the ground-truth excerpt map fed into probe slices (null when
+   *  none) — a change in the excerpts the judges see must restart the journal,
+   *  else pre-change verdicts replay beside post-change ones. */
+  readonly groundTruth: string | null;
 }): string {
   const canonical = JSON.stringify({
     manifest: input.manifestJson,
@@ -81,6 +86,7 @@ export function scoringFingerprint(input: {
     probesOnly: input.probesOnly,
     e2LongThreshold: input.e2LongThreshold,
     latent: input.latent,
+    groundTruth: input.groundTruth,
   });
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }

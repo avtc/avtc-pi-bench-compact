@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { describe, expect, it } from "vitest";
-import { axisForProbe } from "../../src/judge/probe-axis.js";
+import { axisForProbe, matchedSupersession } from "../../src/judge/probe-axis.js";
 import type { Probe, ScenarioManifest } from "../../src/manifest/schema.js";
 
 /** Build a manifest where each condition id maps to a distinct ENTRY id (`e-<id>`).
@@ -46,7 +46,10 @@ function manifestWith({
 }
 
 /** Build a probe targeting the given ENTRY ids, with accept[] or correctRefusal. */
-function probe(targets: string[], opts: { accept?: string[]; correctRefusal?: true } = {}): Probe {
+function probe(
+  targets: string[],
+  opts: { accept?: string[]; correctRefusal?: true; supersessionId?: string } = {},
+): Probe {
   return { question: "q?", targets, lanes: ["direct-probe"], ...opts };
 }
 
@@ -61,9 +64,9 @@ describe("axisForProbe", () => {
     expect(axisForProbe(probe(["e-ss1"], { correctRefusal: true }), manifest)).toBe("E6");
   });
 
-  it("maps an accept[] probe targeting a supersession to E8 (latest-value)", () => {
+  it("maps a supersession-latest probe (explicit supersessionId) to E8", () => {
     const manifest = manifestWith({ recallFacts: [], supersessions: ["ss1"] });
-    expect(axisForProbe(probe(["e-ss1"], { accept: ["new"] }), manifest)).toBe("E8");
+    expect(axisForProbe(probe(["e-ss1"], { accept: ["new"], supersessionId: "ss1" }), manifest)).toBe("E8");
   });
 
   it("maps an accept[] probe targeting a recallFact to E5.1 (recall-accuracy)", () => {
@@ -71,9 +74,12 @@ describe("axisForProbe", () => {
     expect(axisForProbe(probe(["e-rf1"], { accept: ["yes"] }), manifest)).toBe("E5.1");
   });
 
-  it("maps an accept[] probe with mixed targets to E8 when any target is a supersession", () => {
+  it("maps an accept[] probe citing a supersession's entries WITHOUT the link to E5.1 (no inferred routing)", () => {
+    // probes and supersessions cite the same broad entries for unrelated facts —
+    // entry-id overlap must never imply the supersession axis (the over-match bug).
     const manifest = manifestWith({ recallFacts: ["rf1"], supersessions: ["ss1"] });
-    expect(axisForProbe(probe(["e-rf1", "e-ss1"], { accept: ["x"] }), manifest)).toBe("E8");
+    expect(axisForProbe(probe(["e-rf1", "e-ss1"], { accept: ["x"] }), manifest)).toBe("E5.1");
+    expect(axisForProbe(probe(["e-ss1"], { accept: ["new"] }), manifest)).toBe("E5.1");
   });
 
   it("defaults an accept[] probe with unknown targets to E5.1 (recall-style)", () => {
@@ -97,5 +103,37 @@ describe("axisForProbe", () => {
     // This pins the schema contract (targets = entry ids) the resolver now honors.
     const manifest = manifestWith({ recallFacts: [], supersessions: ["ss1"] });
     expect(axisForProbe(probe(["ss1"], { accept: ["new"] }), manifest)).toBe("E5.1");
+  });
+});
+
+describe("matchedSupersession / supersessionId routing", () => {
+  it("prefers the explicit supersessionId even when targets cite another supersession's entries", () => {
+    // ss1 owns entry e-ss1; ss2 owns e-ss2. The probe cites ss1's entry but NAMES ss2 —
+    // the authored link is the only matcher, and it wins over any target evidence.
+    const manifest = manifestWith({ recallFacts: [], supersessions: ["ss1", "ss2"] });
+    const p = probe(["e-ss1"], { accept: ["new"], supersessionId: "ss2" });
+    expect(matchedSupersession(p, manifest)?.id).toBe("ss2");
+    expect(axisForProbe(p, manifest)).toBe("E8");
+  });
+
+  it("routes to E8 by explicit supersessionId even when targets cite no supersession entry", () => {
+    const manifest = manifestWith({ recallFacts: ["rf1"], supersessions: ["ss1"] });
+    const p = probe(["e-rf1"], { accept: ["new"], supersessionId: "ss1" });
+    expect(matchedSupersession(p, manifest)?.id).toBe("ss1");
+    expect(axisForProbe(p, manifest)).toBe("E8");
+  });
+
+  it("an absent supersessionId matches nothing (no entry-id fallback)", () => {
+    const manifest = manifestWith({ recallFacts: [], supersessions: ["ss1"] });
+    const p = probe(["e-ss1"], { accept: ["new"] });
+    expect(matchedSupersession(p, manifest)).toBeNull();
+    expect(axisForProbe(p, manifest)).toBe("E5.1");
+  });
+
+  it("an unknown supersessionId matches nothing -> recall axis (validateManifest rejects it at load)", () => {
+    const manifest = manifestWith({ recallFacts: [], supersessions: ["ss1"] });
+    const p = probe(["e-ss1"], { accept: ["new"], supersessionId: "ss-nope" });
+    expect(matchedSupersession(p, manifest)).toBeNull();
+    expect(axisForProbe(p, manifest)).toBe("E5.1");
   });
 });

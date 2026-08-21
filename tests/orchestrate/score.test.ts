@@ -8,6 +8,7 @@
 
 import type { CompactionEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { GroundTruthExcerpt } from "../../src/judge/slices.js";
 import type { LatentProbe } from "../../src/manifest/latent.js";
 import type { Pricing } from "../../src/metrics/pricing.js";
 import { computeRunExact } from "../../src/orchestrate/score.js";
@@ -346,6 +347,99 @@ describe("gradeProbeAxesForRun (E5.1/E6/E8 probe binary)", () => {
       { axis: "E5.1", pass: true, probeId: "1" },
       { axis: "E6", pass: false, probeId: "2" },
     ]);
+  });
+
+  it("threads the per-probe ground-truth excerpts into the judge slice", async () => {
+    const trace = traceOf([userEntry("u0", null), assistantEntry("a1", "u0", 10)], []);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [{ arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "yes", kept: true }],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    const slices: string[] = [];
+    const captureJudge: CallJudge = async (_systemPrompt, userContent) => {
+      slices.push(userContent);
+      return JSON.stringify({ pass: true, evidence: "fake" });
+    };
+    const groundTruth: ReadonlyMap<string, readonly GroundTruthExcerpt[]> = new Map([
+      ["A3:1", [{ id: "e1", role: "USER", text: "Revenue is price times units sold." }]],
+      ["A3:9", [{ id: "e-unused", role: "USER", text: "never requested" }]],
+    ]);
+    await gradeProbeAxesForRun(run, {
+      manifest: probeManifest,
+      callJudges: [captureJudge],
+      maxRetries: 2,
+      groundTruth,
+    });
+    expect(slices).toHaveLength(1);
+    expect(slices[0]).toContain("GROUND-TRUTH REFERENCE");
+    expect(slices[0]).toContain("<USER entry=e1>");
+    expect(slices[0]).not.toContain("never requested");
+    // without the map (or without the probe's key) the slice carries no block
+    const plainSlices: string[] = [];
+    const plainJudge: CallJudge = async (_systemPrompt, userContent) => {
+      plainSlices.push(userContent);
+      return JSON.stringify({ pass: true, evidence: "fake" });
+    };
+    await gradeProbeAxesForRun(run, {
+      manifest: probeManifest,
+      callJudges: [plainJudge],
+      maxRetries: 2,
+    });
+    expect(plainSlices[0]).not.toContain("GROUND-TRUTH REFERENCE");
+  });
+
+  it("renders the SUPERSESSION UNDER TEST block for an E8-routed manifest probe", async () => {
+    const manifest: ScenarioManifest = {
+      ...probeManifest,
+      supersessions: [
+        {
+          id: "ss1",
+          subject: "Player starting capital",
+          oldValue: "flat $12B",
+          latestValue: "$15B player, persona-based rivals",
+          entryIds: ["e-ss1"],
+          lanes: ["direct-probe"],
+        },
+      ],
+      probes: [
+        {
+          question: "How much starting capital does the player get?",
+          accept: ["$15B"],
+          supersessionId: "ss1",
+          targets: ["e-ss1"],
+          lanes: ["direct-probe"],
+        },
+      ],
+    };
+    const trace = traceOf([userEntry("u0", null), assistantEntry("a1", "u0", 10)], []);
+    const run: ArmAttemptRun = {
+      arm: "A3",
+      attempt: 1,
+      continuation: trace,
+      probes: [{ arm: "A3", attempt: 1, probeId: "1", branch: "b", answer: "$15B.", kept: true }],
+      repo: "/repo",
+      branch: "arm-x-1",
+    };
+    const slices: string[] = [];
+    const captureJudge: CallJudge = async (_systemPrompt, userContent) => {
+      slices.push(userContent);
+      return JSON.stringify({ pass: true, evidence: "fake" });
+    };
+    const results = await gradeProbeAxesForRun(run, {
+      manifest,
+      callJudges: [captureJudge],
+      maxRetries: 2,
+    });
+    expect(results).toEqual([{ axis: "E8", pass: true, probeId: "1" }]);
+    expect(slices[0]).toContain("SUPERSESSION UNDER TEST");
+    expect(slices[0]).toContain("Subject: Player starting capital");
+    expect(slices[0]).toContain("latestValue: $15B player, persona-based rivals");
+    // latestValue only — the oldValue is NOT rendered (E6's stale face tests it)
+    expect(slices[0]).not.toContain("flat $12B");
   });
 
   it("routes a latent probe trace by its class (cued -> E5.2, uncued -> E5.3) using the pool accept", async () => {

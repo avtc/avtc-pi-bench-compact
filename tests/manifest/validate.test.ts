@@ -59,7 +59,7 @@ function cleanManifest(): ScenarioManifest {
     taskObjective: { description: "build", testSpec: "npm test", lane: "embedded-test" },
     probes: [
       { question: "scores?", accept: ["~/.scores.json"], targets: ["e1"], lanes: ["direct-probe"] },
-      { question: "keys?", accept: ["arrows"], targets: ["e3"], lanes: ["direct-probe"] },
+      { question: "keys?", accept: ["arrows"], supersessionId: "ss1", targets: ["e3"], lanes: ["direct-probe"] },
       {
         question: "we use WASD, right?",
         correctRefusal: true,
@@ -127,7 +127,11 @@ describe("validateManifest — accept", () => {
 
   it("accepts when a non-essential list (supersessions/abstentions) is empty", () => {
     const m = cleanManifest();
-    const r = validateManifest({ ...m, supersessions: [], abstentions: [] }, cleanCtx({}));
+    // dropping the supersessions also drops their probes (incl. the linked supersessionId)
+    const probes = m.probes
+      .filter((p) => p.supersessionId === undefined && !(p.correctRefusal === true && p.face === "stale"))
+      .map((p) => ({ ...p, supersessionId: undefined }));
+    const r = validateManifest({ ...m, supersessions: [], abstentions: [], probes }, cleanCtx({}));
     expect(r.ok).toBe(true);
   });
 });
@@ -326,5 +330,35 @@ describe("validateManifest — content check is lenient (any search-term matches
       entryIds: ["e1"],
     });
     expect(validateManifest(m, cleanCtx({})).ok).toBe(true);
+  });
+});
+
+describe("validateManifest — probe supersessionId checks", () => {
+  it("rejects a supersessionId referencing no supersession", () => {
+    const m = {
+      ...cleanManifest(),
+      probes: [
+        ...cleanManifest().probes.slice(0, 1),
+        { question: "keys?", accept: ["arrows"], supersessionId: "ss-nope", targets: ["e3"], lanes: ["direct-probe"] },
+        ...cleanManifest().probes.slice(2),
+      ] as Probe[],
+    };
+    const r = validateManifest(m, cleanCtx({}));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/supersessionId "ss-nope" references no supersession/);
+  });
+
+  it("rejects an empty-string supersessionId", () => {
+    const m = {
+      ...cleanManifest(),
+      probes: [
+        ...cleanManifest().probes.slice(0, 1),
+        { question: "keys?", accept: ["arrows"], supersessionId: "", targets: ["e3"], lanes: ["direct-probe"] },
+        ...cleanManifest().probes.slice(2),
+      ] as Probe[],
+    };
+    const r = validateManifest(m, cleanCtx({}));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/supersessionId must be a non-empty string/);
   });
 });

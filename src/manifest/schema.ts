@@ -63,6 +63,11 @@ export interface AuthorProbe {
    *  outdated); `refuse` = a never-decided question (correct behavior: decline to
    *  fabricate). Selects the judge's grading criteria — never inferred from targets. */
   readonly face?: AbstentionFace;
+  /** The reversal this probe tests the LATEST value of — present iff the probe is a
+   *  supersession-latest probe (routes it to the supersession axis + gives the judge
+   * the subject/latestValue). Must reference an existing supersessions[].id
+   *  (validateManifest enforces). */
+  readonly supersessionId?: string;
   readonly targets: readonly string[];
 }
 
@@ -126,6 +131,7 @@ export const PROBE_ITEM_SCHEMA: TSchema = Type.Object({
   accept: Type.Optional(NonEmptyStringArray),
   correctRefusal: Type.Optional(Type.Literal(true)),
   face: Type.Optional(Face),
+  supersessionId: Type.Optional(NonEmptyString),
   targets: NonEmptyStringArray,
 });
 /** A tail conflict: the kept tail either RESTATES a finding's answer (the probe
@@ -233,6 +239,10 @@ export interface Probe {
   readonly correctRefusal?: true;
   /** The abstention face — present iff correctRefusal (validateManifest enforces). */
   readonly face?: AbstentionFace;
+  /** The reversal this probe tests the LATEST value of — the explicit probe↔supersession
+   *  link (the ONLY supersession-axis router; never inferred from entry overlap —
+   *  validateManifest enforces it references an existing supersessions[].id). */
+  readonly supersessionId?: string;
   readonly targets: readonly string[];
   readonly lanes: readonly Lane[];
 }

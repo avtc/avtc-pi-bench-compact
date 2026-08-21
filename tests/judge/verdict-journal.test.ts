@@ -89,6 +89,7 @@ describe("scoringFingerprint", () => {
     probesOnly: true,
     e2LongThreshold: 40,
     latent: "abc123" as string | null,
+    groundTruth: "gt123" as string | null,
   };
   it("is deterministic for identical inputs and stable-length", () => {
     expect(scoringFingerprint(base)).toBe(scoringFingerprint(base));
@@ -103,5 +104,7 @@ describe("scoringFingerprint", () => {
     expect(scoringFingerprint({ ...base, e2LongThreshold: 41 })).not.toBe(fp);
     expect(scoringFingerprint({ ...base, latent: "def456" })).not.toBe(fp);
     expect(scoringFingerprint({ ...base, latent: null })).not.toBe(fp);
+    expect(scoringFingerprint({ ...base, groundTruth: "gt456" })).not.toBe(fp);
+    expect(scoringFingerprint({ ...base, groundTruth: null })).not.toBe(fp);
   });
 });

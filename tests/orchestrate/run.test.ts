@@ -857,6 +857,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
         signal: new AbortController().signal,
         modelsPath: join(root, "no-such-models.json"),
         latentDigest: null,
+        groundTruthDigest: null,
         judgeMembers: [
           { model: null, thinking: null },
           { model: null, thinking: null },
@@ -884,6 +885,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
       signal: new AbortController().signal,
       modelsPath: "x",
       latentDigest: null,
+      groundTruthDigest: null,
       judgeMembers: [
         { model: null, thinking: null },
         { model: null, thinking: null },
@@ -938,6 +940,7 @@ describe("startRun — production scoreDeps (buildProductionScoreDeps)", () => {
           artifacts: { judgeDir: join(root, "judge") },
         } as unknown as Parameters<typeof buildProductionScoreDeps>[0]["meta"],
         latentDigest: null,
+        groundTruthDigest: null,
         signal: new AbortController().signal,
         modelsPath,
         judgeMembers: [

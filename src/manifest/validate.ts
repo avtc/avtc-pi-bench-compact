@@ -138,6 +138,21 @@ export function manifestStructureError(manifest: unknown): string | null {
     if (!nonEmptyStringArray(targets)) {
       return `probe "${q}": targets missing or empty`;
     }
+    const supersessionId = (probe as Record<string, unknown>).supersessionId;
+    if (supersessionId !== undefined) {
+      if (typeof supersessionId !== "string" || supersessionId === "") {
+        return `probe "${q}": supersessionId must be a non-empty string`;
+      }
+      const supersessionIds = new Set(
+        (m.supersessions as unknown[]).flatMap((s) => {
+          const fields = fieldsOf(s);
+          return fields !== null && nonEmptyString(fields.id) ? [fields.id as string] : [];
+        }),
+      );
+      if (!supersessionIds.has(supersessionId)) {
+        return `probe "${q}": supersessionId "${supersessionId}" references no supersession`;
+      }
+    }
   }
   return null;
 }
@@ -319,6 +334,16 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
     }
     if (!hasRefusal && p.face !== undefined) {
       reasons.push(`probe "${p.question}": face is only valid with correctRefusal`);
+    }
+    // The explicit probe↔supersession link must resolve: a supersessionId naming
+    // no recorded supersession would route the probe to the supersession axis
+    // with nothing to grade against.
+    if (p.supersessionId !== undefined) {
+      if (p.supersessionId === "") {
+        reasons.push(`probe "${p.question}": supersessionId must be a non-empty string`);
+      } else if (!manifest.supersessions.some((s) => s.id === p.supersessionId)) {
+        reasons.push(`probe "${p.question}": supersessionId "${p.supersessionId}" references no supersession`);
+      }
     }
     for (const target of p.targets) {
       if (!ctx.preSlicedEntryIds.has(target)) {

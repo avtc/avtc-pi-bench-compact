@@ -8,6 +8,7 @@ import {
   buildProbeAnswerSlice,
   buildStartSlice,
   buildTwoCheckpointSlice,
+  renderGroundTruthBlock,
 } from "../../src/judge/slices.js";
 import type { DoneOp, Probe, ScenarioManifest, TaskObjective } from "../../src/manifest/schema.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
@@ -195,5 +196,102 @@ describe("buildTwoCheckpointSlice (E2 redo, short)", () => {
     expect(slice).toContain("Economy loop");
     expect(slice).toContain("reworkable"); // marks which doneOps are exempt
     expect(slice).toContain("Re-implementing the economy loop");
+  });
+});
+
+describe("ground-truth reference block (probe slices)", () => {
+  const probe: Probe = {
+    question: "How is revenue calculated?",
+    accept: ["revenue = price * units sold"],
+    targets: ["rf1"],
+    lanes: ["direct-probe"],
+  };
+
+  it("renderGroundTruthBlock returns null for no/empty excerpts", () => {
+    expect(renderGroundTruthBlock([])).toBeNull();
+    expect(renderGroundTruthBlock([{ id: "e1", role: "USER", text: "   " }])).toBeNull();
+  });
+
+  it("renderGroundTruthBlock keeps entries FULL-LENGTH in role tags — no character truncation", () => {
+    const tail = "the decisive detail sits at the very end of a long entry";
+    const long = `${"x".repeat(5000)} ${tail}`;
+    const block = renderGroundTruthBlock([
+      { id: "e1", role: "USER", text: long },
+      { id: "e2", role: "ASSISTANT", text: long },
+    ]);
+    if (block === null) throw new Error("expected a rendered block");
+    expect(block).not.toContain("…]");
+    expect(block).toContain(tail);
+    expect(block.match(/x{5000}/g)).toHaveLength(2);
+    expect(block).toContain("<USER entry=e1>");
+    expect(block).toContain("</USER>");
+    expect(block).toContain("<ASSISTANT entry=e2>");
+    expect(block).toContain("</ASSISTANT>");
+  });
+
+  it("buildProbeAnswerSlice renders the block between criteria and answer when provided", () => {
+    const slice = buildProbeAnswerSlice(
+      {
+        probe,
+        answerText: "Price times the units sold in the turn.",
+        groundTruth: [{ id: "e9", role: "USER", text: "The revenue of a turn is price * units sold." }],
+      },
+      null,
+    );
+    expect(slice).toContain("GROUND-TRUTH REFERENCE");
+    expect(slice).toContain("<USER entry=e9>");
+    expect(slice).toContain("price * units sold");
+    const gt = slice.indexOf("GROUND-TRUTH REFERENCE");
+    const answer = slice.indexOf("AGENT'S ANSWER");
+    const criteria = slice.indexOf("GRADING CRITERIA");
+    expect(criteria).toBeLessThan(gt);
+    expect(gt).toBeLessThan(answer);
+  });
+
+  it("buildProbeAnswerSlice omits the block when groundTruth is absent, null, or empty", () => {
+    const plain = buildProbeAnswerSlice({ probe, answerText: "a" }, null);
+    expect(plain).not.toContain("GROUND-TRUTH REFERENCE");
+    const nulled = buildProbeAnswerSlice({ probe, answerText: "a", groundTruth: null }, null);
+    expect(nulled).not.toContain("GROUND-TRUTH REFERENCE");
+    const empty = buildProbeAnswerSlice({ probe, answerText: "a", groundTruth: [] }, null);
+    expect(empty).not.toContain("GROUND-TRUTH REFERENCE");
+  });
+});
+
+describe("supersession under test (E8 slice)", () => {
+  const probe: Probe = {
+    question: "How much starting capital does the player get?",
+    accept: ["$15B"],
+    targets: ["e1"],
+    lanes: ["direct-probe"],
+  };
+
+  it("renders the subject + latestValue between criteria and the ground-truth block", () => {
+    const slice = buildProbeAnswerSlice(
+      {
+        probe,
+        answerText: "$15B.",
+        supersession: { subject: "Player starting capital", latestValue: "$15B (persona-based rivals)" },
+        groundTruth: [{ id: "e1", role: "USER", text: "Player starts with $15B." }],
+      },
+      null,
+    );
+    expect(slice).toContain("SUPERSESSION UNDER TEST");
+    expect(slice).toContain("Subject: Player starting capital");
+    expect(slice).toContain("latestValue: $15B (persona-based rivals)");
+    const criteria = slice.indexOf("GRADING CRITERIA");
+    const sup = slice.indexOf("SUPERSESSION UNDER TEST");
+    const gt = slice.indexOf("GROUND-TRUTH REFERENCE");
+    const answer = slice.indexOf("AGENT'S ANSWER");
+    expect(criteria).toBeLessThan(sup);
+    expect(sup).toBeLessThan(gt);
+    expect(gt).toBeLessThan(answer);
+  });
+
+  it("omits the block when supersession is absent or null", () => {
+    const plain = buildProbeAnswerSlice({ probe, answerText: "$15B." }, null);
+    expect(plain).not.toContain("SUPERSESSION UNDER TEST");
+    const nulled = buildProbeAnswerSlice({ probe, answerText: "$15B.", supersession: null }, null);
+    expect(nulled).not.toContain("SUPERSESSION UNDER TEST");
   });
 });
