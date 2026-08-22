@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import type { AgentEvent, AgentLoopConfig, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { _setBaseLoggerForTest } from "../../src/log.js";
@@ -11,6 +11,7 @@ import {
   NO_LOOP_OVERRIDE,
   NO_REASONING,
   NO_STAGE_END_HOOK,
+  NO_STREAM_FN,
   NO_TURN_LIMIT,
   runBenchStage,
   StageRunError,
@@ -88,6 +89,7 @@ function baseInput(over: Partial<StageRunInput>): StageRunInput {
     onEvent: NO_EVENT_SINK,
     onStageEnd: NO_STAGE_END_HOOK,
     loopFn: NO_LOOP_OVERRIDE,
+    streamFn: NO_STREAM_FN,
     ...over,
   };
 }
@@ -390,5 +392,40 @@ describe('runBenchStage — model-request errors surface (pi ends the turn with 
     } as unknown as AgentMessage;
     const r = await runBenchStage(baseInput({ loopFn: fakeLoop([msgEnd({})], [ok]) }));
     expect(r.messages).toHaveLength(1);
+  });
+});
+
+describe("runBenchStage — streamFn (provider retries for background stages)", () => {
+  it("passes the retrying streamFn by default (not the undefined global fallback)", async () => {
+    const seen: unknown[] = [];
+    const captureLoop = ((
+      messages: AgentMessage[],
+      ctx: AgentContext,
+      config: AgentLoopConfig,
+      signal: AbortSignal,
+      stream: unknown,
+    ) => {
+      seen.push(stream);
+      return fakeLoop([], [])(messages, ctx, config, signal, stream as unknown as StreamFn);
+    }) as unknown as StageRunInput["loopFn"];
+    await runBenchStage(baseInput({ loopFn: captureLoop }));
+    expect(seen[0]).toBeInstanceOf(Function);
+  });
+
+  it("passes an explicit streamFn seam through untouched", async () => {
+    const mine: StreamFn = async () => "mine" as unknown as ReturnType<StreamFn>;
+    let seen: unknown = "unset";
+    const captureLoop = ((
+      messages: AgentMessage[],
+      ctx: AgentContext,
+      config: AgentLoopConfig,
+      signal: AbortSignal,
+      stream: unknown,
+    ) => {
+      seen = stream;
+      return fakeLoop([], [])(messages, ctx, config, signal, stream as unknown as StreamFn);
+    }) as unknown as StageRunInput["loopFn"];
+    await runBenchStage(baseInput({ loopFn: captureLoop, streamFn: mine }));
+    expect(seen).toBe(mine);
   });
 });

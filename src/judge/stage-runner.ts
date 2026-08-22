@@ -17,6 +17,7 @@ import {
   NO_LOOP_OVERRIDE,
   NO_REASONING,
   NO_STAGE_END_HOOK,
+  NO_STREAM_FN,
   NO_TURN_LIMIT,
   type StageRunInput,
   type StageRunResult,
@@ -138,6 +139,7 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
       onEvent: deps.seams.onEvent ?? NO_EVENT_SINK,
       onStageEnd: NO_STAGE_END_HOOK,
       loopFn: NO_LOOP_OVERRIDE,
+      streamFn: NO_STREAM_FN,
       label: deps.label,
     });
   let result: StageRunResult;

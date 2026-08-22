@@ -37,6 +37,7 @@ import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
   NO_STAGE_END_HOOK,
+  NO_STREAM_FN,
   runBenchStage,
   toStageReasoning,
 } from "../runtime/agent-loop.js";
@@ -297,6 +298,7 @@ export function buildTailCheckSeam(deps: TailCheckSeamDeps): NonNullable<BuildSe
         onEvent: hooks?.onEvent ?? NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
+        streamFn: NO_STREAM_FN,
       });
     } finally {
       hooks?.onDone();

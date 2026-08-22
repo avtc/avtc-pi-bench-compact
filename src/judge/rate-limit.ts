@@ -23,10 +23,29 @@ interface ErrorWithStatus {
 
 /**
  * Detect a rate-limit error: HTTP 429 status OR rate-limit phrasing in the
- * message. Conservative — a 500 or a network fault is NOT a rate limit. Never
+ * message — EXCEPT subscription/account limit errors (usage caps, quota,
+ * billing), which carry 429 too but never reset within a pause window. Those
+ * follow pi's own precedence (its turn-retry classifier checks the
+ * non-retryable limit patterns BEFORE the retryable 429/rate-limit ones) and
+ * fail fast for the operator to decide — waiting on them is futile. The
+ * pattern mirrors pi-ai's NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN. Never
  * throws on non-error inputs.
  */
+const PROVIDER_LIMIT_ERROR_PATTERN =
+  /GoUsageLimitError|FreeUsageLimitError|usage.?limit|monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i;
+
+/** A subscription/account limit error (usage caps, quota, billing exhaustion) —
+ *  429-carrying but not a transient throttle; must surface, not pause. */
+export function isProviderLimitError(error: unknown): boolean {
+  const message =
+    error instanceof Error || typeof error === "string"
+      ? String(typeof error === "string" ? error : error.message)
+      : "";
+  return message.length > 0 && PROVIDER_LIMIT_ERROR_PATTERN.test(message);
+}
+
 export function isRateLimitError(error: unknown): boolean {
+  if (isProviderLimitError(error)) return false;
   if (error === null || typeof error !== "object") {
     if (typeof error === "string") return /rate.?limit|429|too many requests/i.test(error);
     return false;

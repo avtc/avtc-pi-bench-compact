@@ -33,6 +33,7 @@ function config(judgesNumber: 1 | 3): BenchConfig {
     backgroundThinkingLevel: null,
     backgroundMaxTokens: 32768,
     backgroundTimeoutMs: 1200000,
+    stageProviderMaxRetries: null,
     authorModel: null,
     authorThinkingLevel: null,
     authorMaxTokens: null,

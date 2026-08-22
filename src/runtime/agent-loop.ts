@@ -28,16 +28,18 @@ import type {
 import { agentLoop } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { log } from "../log.js";
+import { defaultRetryingStreamFn } from "./stage-retry.js";
 import { deltaTextOf, deltaTokens, messageEndUsage } from "./streaming-tokens.js";
 
 // --- named sentinels (no bare literals at call sites) ----------------------
 
-/** `maxTurns` / `reasoning` / `onEvent` / `onStageEnd` / `loopFn` "not set" value. */
+/** `maxTurns` / `reasoning` / `onEvent` / `onStageEnd` / `loopFn` / `streamFn` "not set" value. */
 export const NO_TURN_LIMIT = null;
 export const NO_REASONING = null;
 export const NO_EVENT_SINK = null;
 export const NO_STAGE_END_HOOK = null;
 export const NO_LOOP_OVERRIDE = null;
+export const NO_STREAM_FN = null;
 
 /** Config thinking level (pi-agent-core — includes "off") → stage-input reasoning
  *  (pi-ai — excludes it; null = no reasoning). "off" and an absent level both omit
@@ -112,6 +114,11 @@ export interface StageRunInput {
   onStageEnd: ((usage: StageUsage) => void) | null;
   /** Test seam — fake loop override, or `NO_LOOP_OVERRIDE` for the real `agentLoop`. */
   loopFn: typeof agentLoop | null;
+  /** StreamFn override seam, or `NO_STREAM_FN` for the default: pi-ai's
+   *  `streamSimple` wrapped with the stage retry policy (provider-level retries
+   *  on transient 5xx/429/408/409 — pi's session-owned retries never apply to
+   *  these out-of-session stages, and the bare global default retries nothing). */
+  streamFn: StreamFn | null;
 }
 
 /** A stage run failure. The `onStageEnd` hook fires in `runBenchStage`'s finally
@@ -250,13 +257,13 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
 
     const loop = input.loopFn ?? agentLoop;
     log.debug("runBenchStage: starting agentLoop stream");
-    // pi 0.84.1 made `streamFn` a required `agentLoop` arg. Pass `undefined` (cast to the
-    // required type) so pi-agent-core falls back to its process-global default streamFn,
-    // which pi-coding-agent installs at startup — that default dispatches through the
-    // coding-agent model runtime, preserving resolved auth and custom providers. A test
-    // overrides `loopFn` instead.
+    // streamFn: the default wraps pi-ai's `streamSimple` (the function pi installs
+    // as the process-global default, so auth + custom providers dispatch the same
+    // way) with the stage retry policy — pi's per-session retry wrapper never
+    // applies to these out-of-session stages, and the bare global default passes
+    // `maxRetries ?? 0` (no retries: one transient 5xx kills the stage).
     const signalForLoop = input.timeoutMs === null ? input.signal : turnTimeout.signal;
-    const stream = loop(input.messages, context, config, signalForLoop, undefined as unknown as StreamFn);
+    const stream = loop(input.messages, context, config, signalForLoop, input.streamFn ?? defaultRetryingStreamFn());
     armTurnTimeout(); // arm for the first turn (transformContext arms subsequent ones)
 
     try {

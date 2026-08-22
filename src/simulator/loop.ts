@@ -27,6 +27,7 @@ import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
   NO_STAGE_END_HOOK,
+  NO_STREAM_FN,
   runBenchStage,
   type StageRunInput,
   type StageRunResult,
@@ -241,6 +242,7 @@ export class SimulatorDriver {
         onEvent: this.deps.onEvent ?? NO_EVENT_SINK,
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
+        streamFn: NO_STREAM_FN,
       });
 
       // 6. aborted (run/compaction signal OR per-turn timeout) → stop+surface

@@ -23,6 +23,7 @@ import {
   NO_EVENT_SINK,
   NO_LOOP_OVERRIDE,
   NO_STAGE_END_HOOK,
+  NO_STREAM_FN,
   runBenchStage,
   type StageRunInput,
   type StageRunResult,
@@ -131,6 +132,7 @@ export function buildCallJudge(spec: JudgeSpec, transport: JudgeTransport, judge
         onEvent: transport.onEvent === undefined ? NO_EVENT_SINK : (event) => transport.onEvent?.(event, judgeIndex),
         onStageEnd: NO_STAGE_END_HOOK,
         loopFn: NO_LOOP_OVERRIDE,
+        streamFn: NO_STREAM_FN,
       });
     const result = await withRateLimit(run, transport.rateLimitOptions ?? null);
     if (result.timedOut) {

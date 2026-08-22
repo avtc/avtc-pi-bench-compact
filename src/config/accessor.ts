@@ -111,6 +111,7 @@ export function getBenchConfig(): BenchConfig {
     backgroundThinkingLevel: asThinkingLevelOrNull(raw, "backgroundThinkingLevel", DEFAULTS.backgroundThinkingLevel),
     backgroundMaxTokens: asNumber(raw, "backgroundMaxTokens", DEFAULTS.backgroundMaxTokens),
     backgroundTimeoutMs: asNumber(raw, "backgroundTimeoutMs", DEFAULTS.backgroundTimeoutMs),
+    stageProviderMaxRetries: asNumberOrNull(raw, "stageProviderMaxRetries", DEFAULTS.stageProviderMaxRetries),
     authorModel: asStringOrNull(raw, "authorModel", DEFAULTS.authorModel),
     authorThinkingLevel: asThinkingLevelOrNull(raw, "authorThinkingLevel", DEFAULTS.authorThinkingLevel),
     authorMaxTokens: asNumberOrNull(raw, "authorMaxTokens", DEFAULTS.authorMaxTokens),

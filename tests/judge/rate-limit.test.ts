@@ -88,3 +88,32 @@ describe("isRateLimitError", () => {
     expect(isRateLimitError(undefined)).toBe(false);
   });
 });
+
+describe("isRateLimitError — subscription/account limits (pi precedence)", () => {
+  it("a 429 usage/quota/billing limit is NOT a pausable rate limit (surfaces immediately, like pi)", () => {
+    const cases: unknown[] = [
+      Object.assign(new Error("usage_limit_reached: 5-hour limit hit, resets at 12:00 UTC"), { status: 429 }),
+      Object.assign(new Error("insufficient_quota: monthly quota exceeded"), { status: 429 }),
+      Object.assign(new Error("Monthly usage limit reached"), { status: 429 }),
+      Object.assign(new Error("GoUsageLimitError: weekly cap")),
+      Object.assign(new Error("quota exceeded for this account"), { status: 429 }),
+      "429 too many requests — usage limit reached",
+    ];
+    for (const c of cases) expect(isRateLimitError(c)).toBe(false);
+  });
+
+  it("a transient 429 throttle IS still pausable", () => {
+    expect(isRateLimitError(Object.assign(new Error("rate limit hit"), { status: 429 }))).toBe(true);
+    expect(isRateLimitError(Object.assign(new Error("too many requests"), { status: 429 }))).toBe(true);
+    expect(isRateLimitError("429 rate limit")).toBe(true);
+  });
+
+  it("withRateLimit rethrows a 429 usage-limit error immediately (no pause loop)", async () => {
+    const { call, state } = callSequence(
+      [Object.assign(new Error("usage_limit_reached: weekly limit"), { status: 429 })],
+      "never",
+    );
+    await expect(withRateLimit(call, opts({}))).rejects.toThrow(/usage_limit_reached/);
+    expect(state.calls).toBe(1);
+  });
+});

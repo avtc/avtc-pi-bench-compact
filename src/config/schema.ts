@@ -49,6 +49,7 @@ export const DEFAULTS = {
   backgroundThinkingLevel: "xhigh" as ThinkingLevel | null,
   backgroundMaxTokens: 65536,
   backgroundTimeoutMs: 1200000,
+  stageProviderMaxRetries: null as number | null,
   authorModel: NO_MODEL,
   authorThinkingLevel: null as ThinkingLevel | null,
   authorMaxTokens: null as number | null,
@@ -293,6 +294,15 @@ const SETTINGS: readonly SettingSchema[] = [
     max: 7200000,
     presets: BACKGROUND_TIMEOUT_PRESETS,
   }),
+  setting("stageProviderMaxRetries", {
+    label: "Stage provider retries",
+    description:
+      "Provider-level retry attempts per background-stage LLM call (judge / manifest author / latent author / user-simulator) on transient 5xx/429/408/409 responses. pi's session-owned retries never apply to bench stages. default = 3.",
+    type: "number",
+    defaultValue: DEFAULTS.stageProviderMaxRetries,
+    min: 0,
+    max: 20,
+  }),
   setting("authorModel", {
     label: "Manifest author model",
     description:
@@ -478,6 +488,7 @@ const TABS: readonly SettingsTabSchema[] = [
       "backgroundThinkingLevel",
       "backgroundMaxTokens",
       "backgroundTimeoutMs",
+      "stageProviderMaxRetries",
     ],
   },
   {
