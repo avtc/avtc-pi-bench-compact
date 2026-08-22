@@ -10,17 +10,12 @@
 // scenario's taskObjective + compactionBoundary).
 
 import { readFileSync } from "node:fs";
-import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { Value } from "typebox/value";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
 import { log } from "../log.js";
-import {
-  benchAuthoringTools,
-  type JsonOutputTool,
-  makeAccumulatingTool,
-  makeJsonOutputTool,
-  NO_CAPTURE,
-} from "../runtime/tools.js";
+import { benchAuthoringTools, type JsonOutputTool, makeAccumulatingTool } from "../runtime/tools.js";
 import { AUTHORING_SYSTEM_PROMPT } from "./prompt.js";
 import {
   ABSTENTION_ITEM_SCHEMA,
@@ -105,7 +100,7 @@ const ADD_RECALL_FACT_DESCRIPTION =
 const ADD_DONE_OP_DESCRIPTION =
   "Record ONE completed piece of work (a system, feature, or fix that is done). Call as soon as you confirm it; call again per item.";
 const ADD_SUPERSESSION_DESCRIPTION =
-  "Record ONE reversed decision: the subject, the OLD value, and the LATEST value. Call as soon as you confirm it; call again per reversal.";
+  "Record ONE reversed decision: the subject, the OLD value, and the LATEST value. The tool replies with the assigned id (ss1, ss2, …) — set it as supersessionId on the reversal's latest-value probe. Call as soon as you confirm it; call again per reversal.";
 const ADD_ABSTENTION_DESCRIPTION =
   "Record ONE question that was deliberately left OPEN (never decided). Call as soon as you confirm it; call again per question.";
 const ADD_PROBE_DESCRIPTION =
@@ -267,14 +262,17 @@ export function postProcessManifest(author: AuthorOutput, ctx: ScenarioContext):
       lanes: deriveLanes(entryIds, laneCtx),
     }),
   );
-  const supersessions: Supersession[] = assignIds<AuthorSupersession>(author.supersessions, "ss").map(
-    ({ id, subject, oldValue, latestValue, entryIds }): Supersession => ({
-      id,
-      subject,
-      oldValue,
-      latestValue,
-      entryIds,
-      lanes: deriveLanes(entryIds, laneCtx),
+  // Supersessions keep their RECORD-time ids (assigned by add_supersession + echoed
+  // to the agent — the id its latest-value probe links via supersessionId); the
+  // sequential assignment covers only id-less direct-construction items.
+  const supersessions: Supersession[] = author.supersessions.map(
+    (s, i): Supersession => ({
+      id: s.id ?? `ss${i + 1}`,
+      subject: s.subject,
+      oldValue: s.oldValue,
+      latestValue: s.latestValue,
+      entryIds: s.entryIds,
+      lanes: deriveLanes(s.entryIds, laneCtx),
     }),
   );
   const abstentions: Abstention[] = assignIds<AuthorAbstention>(author.abstentions, "ab").map(
@@ -388,12 +386,77 @@ export function buildAuthoringTools(
       list.push(item as unknown as T);
       notify();
     };
-  const finalizeManifest = makeJsonOutputTool(
-    "finalize_manifest",
-    FINALIZE_MANIFEST_DESCRIPTION,
-    TASK_OBJECTIVE_SCHEMA,
-    NO_CAPTURE,
-  );
+  // --- supersessionId guards (in-run self-correction, latent-tool style) --------
+  // The link is the ONLY supersession-axis router, so it must exist by finalize —
+  // these guards make the authoring agent fill it in the SAME pass instead of
+  // failing post-run validation: add-time rejections catch bad links the moment
+  // they're emitted; the finalize guard refuses to end the stage while a recorded
+  // reversal is missing either face (latest-link / stale-value probe).
+  const rejection = (message: string): AgentToolResult<{ accepted: number; rejected: number }> => ({
+    content: [{ type: "text", text: message }],
+    details: { accepted: 0, rejected: 1 },
+  });
+  const addSupersession: AgentTool = {
+    name: "add_supersession",
+    label: "add_supersession",
+    description: ADD_SUPERSESSION_DESCRIPTION,
+    parameters: SUPERSESSION_ITEM_SCHEMA,
+    async execute(
+      _toolCallId: string,
+      params: unknown,
+    ): Promise<AgentToolResult<{ accepted: number; rejected: number }>> {
+      if (!Value.Check(SUPERSESSION_ITEM_SCHEMA, params)) {
+        return rejection(
+          "rejected: arguments did not match the add_supersession schema; fix and call add_supersession again",
+        );
+      }
+      const id = `ss${acc.supersessions.length + 1}`;
+      acc.supersessions.push({ ...(params as AuthorSupersession), id });
+      notify();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `recorded add_supersession as ${id} — set supersessionId "${id}" on its latest-value probe; keep going`,
+          },
+        ],
+        details: { accepted: 1, rejected: 0 },
+      };
+    },
+  };
+  const addProbe: AgentTool = {
+    name: "add_probe",
+    label: "add_probe",
+    description: ADD_PROBE_DESCRIPTION,
+    parameters: PROBE_ITEM_SCHEMA,
+    async execute(
+      _toolCallId: string,
+      params: unknown,
+    ): Promise<AgentToolResult<{ accepted: number; rejected: number }>> {
+      if (!Value.Check(PROBE_ITEM_SCHEMA, params)) {
+        return rejection("rejected: arguments did not match the add_probe schema; fix and call add_probe again");
+      }
+      const item = params as AuthorProbe;
+      if (item.supersessionId !== undefined) {
+        if (item.correctRefusal === true) {
+          return rejection(
+            'rejected: supersessionId belongs on a latest-value accept probe — a stale-value probe uses face "stale" without supersessionId; fix and call add_probe again',
+          );
+        }
+        if (!acc.supersessions.some((s) => s.id === item.supersessionId)) {
+          return rejection(
+            `rejected: supersessionId "${item.supersessionId}" matches no recorded reversal — record it via add_supersession first, then link the probe; fix and call add_probe again`,
+          );
+        }
+      }
+      sink(acc.probes)(params as Record<string, unknown>);
+      return {
+        content: [{ type: "text", text: "recorded add_probe; keep going" }],
+        details: { accepted: 1, rejected: 0 },
+      };
+    },
+  };
+  const finalizeManifest = makeGuardedFinalizeManifest(acc);
   const tools: AgentTool[] = [
     ...benchAuthoringTools(cwd),
     makeAccumulatingTool(
@@ -403,14 +466,9 @@ export function buildAuthoringTools(
       sink(acc.recallFacts),
     ),
     makeAccumulatingTool("add_done_op", ADD_DONE_OP_DESCRIPTION, DONE_OP_ITEM_SCHEMA, sink(acc.doneOps)),
-    makeAccumulatingTool(
-      "add_supersession",
-      ADD_SUPERSESSION_DESCRIPTION,
-      SUPERSESSION_ITEM_SCHEMA,
-      sink(acc.supersessions),
-    ),
+    addSupersession,
     makeAccumulatingTool("add_abstention", ADD_ABSTENTION_DESCRIPTION, ABSTENTION_ITEM_SCHEMA, sink(acc.abstentions)),
-    makeAccumulatingTool("add_probe", ADD_PROBE_DESCRIPTION, PROBE_ITEM_SCHEMA, sink(acc.probes)),
+    addProbe,
     makeAccumulatingTool(
       "add_tail_conflict",
       ADD_TAIL_CONFLICT_DESCRIPTION,
@@ -420,6 +478,75 @@ export function buildAuthoringTools(
     finalizeManifest,
   ];
   return { tools, finalizeManifest, acc };
+}
+
+/** Build the guarded finalize_manifest terminal tool: the plain JSON terminal PLUS
+ *  the both-faces completeness check — every recorded reversal must have its
+ *  linked latest-value probe (supersessionId) AND a stale-value probe (face
+ *  "stale" targeting its entries). A rejection leaves the capture empty and the
+ *  stage running, so the agent repairs within the same pass (the latent stage's
+ *  finalize-minimum pattern). */
+function makeGuardedFinalizeManifest(acc: AuthorAccumulators): JsonOutputTool {
+  const captured: unknown[] = [];
+  const tool: JsonOutputTool = {
+    name: "finalize_manifest",
+    label: "finalize_manifest",
+    description: FINALIZE_MANIFEST_DESCRIPTION,
+    parameters: TASK_OBJECTIVE_SCHEMA,
+    async execute(
+      _toolCallId: string,
+      params: unknown,
+    ): Promise<AgentToolResult<{ accepted: number; rejected: number }>> {
+      if (!Value.Check(TASK_OBJECTIVE_SCHEMA, params)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "rejected: arguments did not match the finalize_manifest schema; fix and call finalize_manifest again",
+            },
+          ],
+          details: { accepted: 0, rejected: 1 },
+        };
+      }
+      for (const s of acc.supersessions) {
+        const id = s.id ?? "ss?";
+        const hasLatest = acc.probes.some((p) => p.supersessionId === id);
+        const hasStale = acc.probes.some((p) => p.face === "stale" && p.targets.some((t) => s.entryIds.includes(t)));
+        if (!hasLatest) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `rejected: reversal ${id} (${s.subject}) is missing a latest-value probe carrying its supersessionId link — add an add_probe with supersessionId "${id}" and accept = the latest value, then call finalize_manifest again`,
+              },
+            ],
+            details: { accepted: 0, rejected: 1 },
+          };
+        }
+        if (!hasStale) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `rejected: reversal ${id} (${s.subject}) is missing a stale-value probe — add an add_probe with correctRefusal true and face "stale" targeting its entries, then call finalize_manifest again`,
+              },
+            ],
+            details: { accepted: 0, rejected: 1 },
+          };
+        }
+      }
+      captured.push(params);
+      return {
+        content: [{ type: "text", text: "recorded finalize_manifest; stop calling tools and reply Done" }],
+        details: { accepted: 1, rejected: 0 },
+        terminate: true,
+      };
+    },
+    get _captured(): unknown[] {
+      return captured.slice();
+    },
+  };
+  return tool;
 }
 
 /**

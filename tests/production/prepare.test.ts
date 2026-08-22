@@ -33,7 +33,7 @@ function cannedManifest(rfId: string, doId: string, ssId: string, abId: string):
     taskObjective: { description: "b", testSpec: "npm test", lane: "embedded-test" },
     probes: [
       { question: "what decision?", accept: ["decision"], targets: [rfId], lanes: [] },
-      { question: "current value?", accept: ["b"], targets: [ssId], lanes: [] },
+      { question: "current value?", accept: ["b"], supersessionId: "ss1", targets: [ssId], lanes: [] },
       { question: "old value?", correctRefusal: true, face: "stale", targets: [ssId], lanes: [] },
       { question: "answer?", correctRefusal: true, face: "refuse", targets: [abId], lanes: [] },
     ],

@@ -42,6 +42,10 @@ export interface AuthorDoneOp {
   readonly entryIds: readonly string[];
 }
 export interface AuthorSupersession {
+  /** Assigned at RECORD time by add_supersession (ss1, ss2, …) and echoed back to
+   *  the agent — the id its latest-value probe links via supersessionId. Optional
+   *  only for direct-construction paths; postProcessManifest assigns when absent. */
+  readonly id?: string;
   readonly subject: string;
   readonly oldValue: string;
   readonly latestValue: string;

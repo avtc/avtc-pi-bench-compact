@@ -206,9 +206,10 @@ describe("validateManifest — probe checks", () => {
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/exactly one/i);
   });
 
-  it("rejects a supersession targeted by only ONE probe (missing latest-value OR stale-value face)", () => {
-    // ss1 (entryIds ["e3"]) needs BOTH a latest-value accept-probe (E8) AND a stale-value
-    // correctRefusal probe (E6 stale face). Drop the stale probe → reject.
+  it("rejects a supersession whose latest-value probe lacks the supersessionId link (entry overlap does not count)", () => {
+    // ss1 (entryIds ["e3"]) has an entry-matching latest-value probe (keys?) WITHOUT
+    // the link and NO stale probe. A linkless latest probe does not count → the
+    // latest face is what's reported missing.
     const m = {
       ...cleanManifest(),
       probes: [
@@ -219,7 +220,10 @@ describe("validateManifest — probe checks", () => {
     };
     const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/stale-value correctRefusal/i);
+    if (!r.ok) {
+      expect(r.reasons.join("\n")).toMatch(/latest-value accept/i);
+      expect(r.reasons.join("\n")).toMatch(/supersessionId "ss1"/);
+    }
   });
 
   it("rejects a manifest with conditions but NO probes", () => {
@@ -360,5 +364,20 @@ describe("validateManifest — probe supersessionId checks", () => {
     const r = validateManifest(m, cleanCtx({}));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join("\n")).toMatch(/supersessionId must be a non-empty string/);
+  });
+});
+
+describe("validateManifest — reversal both-faces (link-matched latest)", () => {
+  it("rejects when the stale-value probe is missing but the link is present", () => {
+    const m = {
+      ...cleanManifest(),
+      probes: [
+        ...cleanManifest().probes.slice(0, 2), // scores? + keys? (linked latest)
+        ...cleanManifest().probes.slice(3), // renderer? (drops the stale probe)
+      ] as Probe[],
+    };
+    const r = validateManifest(m, cleanCtx({}));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join("\n")).toMatch(/stale-value correctRefusal/i);
   });
 });

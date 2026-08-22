@@ -373,17 +373,19 @@ export function validateManifest(manifest: ScenarioManifest, ctx: ManifestValida
       reasons.push(`${c.id} is not targeted by any probe — a probe is required per condition`);
     }
 
-    // Each reversal (supersession) needs TWO probes: a latest-value accept-probe (the
-    // supersession axis) AND a stale-value correctRefusal probe (the abstention stale
-    // face). A single-probe supersession leaves one face silently untested, skewing its
+    // Each reversal (supersession) needs TWO probes: a latest-value accept-probe
+    // CARRYING THE LINK (the supersession axis routes only by supersessionId) AND
+    // a stale-value correctRefusal probe (the abstention stale face). A
+    // single-probe supersession leaves one face silently untested, skewing its
     // sample count.
     for (const s of manifest.supersessions) {
-      const targeting = manifest.probes.filter((p) => p.targets.some((id) => s.entryIds.includes(id)));
-      const hasLatest = targeting.some((p) => p.correctRefusal !== true && (p.accept?.length ?? 0) > 0);
-      const hasStale = targeting.some((p) => p.face === "stale");
+      const hasLatest = manifest.probes.some(
+        (p) => p.supersessionId === s.id && p.correctRefusal !== true && (p.accept?.length ?? 0) > 0,
+      );
+      const hasStale = manifest.probes.some((p) => p.face === "stale" && p.targets.some((t) => s.entryIds.includes(t)));
       if (!hasLatest || !hasStale) {
         reasons.push(
-          `${s.id} (reversal) is missing a ${!hasLatest ? "latest-value accept" : "stale-value correctRefusal"} probe — each reversal needs both (latest → supersession axis, stale → abstention stale face)`,
+          `${s.id} (reversal) is missing a ${!hasLatest ? "latest-value accept" : "stale-value correctRefusal"} probe — each reversal needs both (the latest-value probe must carry supersessionId "${s.id}"; the stale probe uses face "stale")`,
         );
       }
     }

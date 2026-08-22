@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { RateLimitOptions } from "../../src/judge/rate-limit.js";
@@ -608,5 +609,133 @@ describe("dropConflictedFindings (tail-conflict filtering, not auto-continue)", 
   it("is a no-op (same reference) when no conflicts were reported", () => {
     const m = postProcessManifest(cannedAuthor, scenarioCtx);
     expect(dropConflictedFindings(m)).toBe(m);
+  });
+});
+
+describe("buildAuthoringTools — supersessionId guards (add-time + finalize)", () => {
+  const toolsOf = () => buildAuthoringTools(process.cwd(), () => {});
+  const byName = (ts: readonly { name: string }[], n: string) => {
+    const t = ts.find((x) => x.name === n);
+    if (!t) throw new Error(`${n} tool not composed`);
+    return t as AgentTool;
+  };
+  const ssItem = (subject: string) => ({
+    subject,
+    oldValue: "WASD",
+    latestValue: "arrows",
+    entryIds: ["e3"],
+  });
+  const text = (r: unknown): string => JSON.stringify(r);
+
+  it("add_supersession assigns + echoes sequential ids (ss1, ss2)", async () => {
+    const { tools, acc } = toolsOf();
+    const r1 = await byName(tools, "add_supersession").execute("c1", ssItem("movement keys"));
+    expect(text(r1?.content)).toContain("recorded add_supersession as ss1");
+    const r2 = await byName(tools, "add_supersession").execute("c2", ssItem("player capital"));
+    expect(text(r2?.content)).toContain("recorded add_supersession as ss2");
+    expect(acc.supersessions.map((s) => s.id)).toEqual(["ss1", "ss2"]);
+  });
+
+  it("add_probe accepts a supersessionId referencing a recorded reversal", async () => {
+    const { tools, acc } = toolsOf();
+    await byName(tools, "add_supersession").execute("c1", ssItem("movement keys"));
+    const r = await byName(tools, "add_probe").execute("c2", {
+      question: "which keys move the player?",
+      accept: ["arrow keys"],
+      supersessionId: "ss1",
+      targets: ["e3"],
+    });
+    expect(text(r?.content)).toContain("recorded add_probe");
+    expect(acc.probes).toHaveLength(1);
+  });
+
+  it("add_probe rejects a dangling supersessionId with record-first guidance", async () => {
+    const { tools, acc } = toolsOf();
+    const r = await byName(tools, "add_probe").execute("c1", {
+      question: "which keys move the player?",
+      accept: ["arrow keys"],
+      supersessionId: "ss9",
+      targets: ["e3"],
+    });
+    expect(text(r?.content)).toContain("matches no recorded reversal");
+    expect(acc.probes).toHaveLength(0);
+  });
+
+  it("add_probe rejects supersessionId on a correctRefusal probe", async () => {
+    const { tools, acc } = toolsOf();
+    await byName(tools, "add_supersession").execute("c1", ssItem("movement keys"));
+    const r = await byName(tools, "add_probe").execute("c2", {
+      question: "we use WASD, right?",
+      correctRefusal: true,
+      face: "stale",
+      supersessionId: "ss1",
+      targets: ["e3"],
+    });
+    expect(text(r?.content)).toContain("belongs on a latest-value accept probe");
+    expect(acc.probes).toHaveLength(0);
+  });
+
+  it("finalize_manifest rejects a reversal missing its linked latest-value probe", async () => {
+    const { tools, finalizeManifest } = toolsOf();
+    await byName(tools, "add_supersession").execute("c1", ssItem("movement keys"));
+    await byName(tools, "add_probe").execute("c2", {
+      question: "we use WASD, right?",
+      correctRefusal: true,
+      face: "stale",
+      targets: ["e3"],
+    });
+    const r = await finalizeManifest.execute("c3", { description: "build", testSpec: "npm test" });
+    expect(text(r?.content)).toContain(
+      "reversal ss1 (movement keys) is missing a latest-value probe carrying its supersessionId link",
+    );
+    expect(finalizeManifest._captured).toHaveLength(0);
+  });
+
+  it("finalize_manifest rejects a reversal missing the stale-value probe", async () => {
+    const { tools, finalizeManifest } = toolsOf();
+    await byName(tools, "add_supersession").execute("c1", ssItem("movement keys"));
+    await byName(tools, "add_probe").execute("c2", {
+      question: "which keys move the player?",
+      accept: ["arrow keys"],
+      supersessionId: "ss1",
+      targets: ["e3"],
+    });
+    const r = await finalizeManifest.execute("c3", { description: "build", testSpec: "npm test" });
+    expect(text(r?.content)).toContain("reversal ss1 (movement keys) is missing a stale-value probe");
+    expect(finalizeManifest._captured).toHaveLength(0);
+  });
+
+  it("finalize_manifest accepts when both faces are present (captures + terminates)", async () => {
+    const { tools, finalizeManifest } = toolsOf();
+    await byName(tools, "add_supersession").execute("c1", ssItem("movement keys"));
+    await byName(tools, "add_probe").execute("c2", {
+      question: "which keys move the player?",
+      accept: ["arrow keys"],
+      supersessionId: "ss1",
+      targets: ["e3"],
+    });
+    await byName(tools, "add_probe").execute("c3", {
+      question: "we use WASD, right?",
+      correctRefusal: true,
+      face: "stale",
+      targets: ["e3"],
+    });
+    const r = await finalizeManifest.execute("c4", { description: "build", testSpec: "npm test" });
+    expect(text(r?.content)).toContain("recorded finalize_manifest");
+    expect(finalizeManifest._captured).toHaveLength(1);
+  });
+});
+
+describe("postProcessManifest — supersession ids", () => {
+  it("preserves tool-assigned ids; assigns sequentially for id-less items", () => {
+    const author = {
+      ...cannedAuthor,
+      supersessions: [
+        { id: "ss1", subject: "movement keys", oldValue: "WASD", latestValue: "arrows", entryIds: ["e3"] },
+        { subject: "player capital", oldValue: "$12B", latestValue: "$15B", entryIds: ["e4"] },
+      ],
+    };
+    const m = postProcessManifest(author, scenarioCtx);
+    expect(m.supersessions.map((s) => s.id)).toEqual(["ss1", "ss2"]);
   });
 });
