@@ -13,6 +13,7 @@ import {
   WidgetController,
   type WidgetDeps,
   widgetStageHooks,
+  widgetValidatorHooks,
 } from "../../src/widget/tracker.js";
 
 /** Fixed wide terminal width (no elision → exact line assertions). */
@@ -248,6 +249,51 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
     expect(line).toContain("latent"); // phase untouched
     expect(line).not.toContain("ctx");
     expect(line).not.toContain("tok");
+  });
+
+  it("onValidatorEvent feeds the second slot without touching the author slot; clearValidator hides the segment", () => {
+    const cap = capturingDeps(TERM_WIDE);
+    const c = new WidgetController(cap.deps, { phase: "latent", ctxUsage: 183_000, ctxWindow: 262_000, tok: 3300 });
+    c.show();
+    // validation request starts: window resolved, message_start → tok 0
+    c.setValidatorCtxWindow(262_000);
+    c.onValidatorEvent(mk({ type: "message_start" }));
+    // 5.2k of text delta → 1300 tokens while streaming (ctx not yet ended → 0)
+    c.onValidatorEvent(
+      mk({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "a".repeat(5200) },
+      }),
+    );
+    vi.advanceTimersByTime(200);
+    const line = cap.lines.at(-1) ?? "";
+    expect(line).toContain("validating probe · ctx 0/262k · 1.3k tok");
+    expect(line).toContain("ctx 183k/262k · 3.3k tok"); // the author's frozen segments stay
+    // the validator's request ends → ctx fills; then the validation finishes → segment hides
+    c.onValidatorEvent(mk({ type: "message_end", message: { usage: { totalTokens: 5_100 } } }));
+    c.clearValidator();
+    vi.advanceTimersByTime(200);
+    const done = cap.lines.at(-1) ?? "";
+    expect(done).not.toContain("validating");
+    expect(done).toContain("ctx 183k/262k"); // the author slot survives
+  });
+
+  it("widgetValidatorHooks wires onEvent→onValidatorEvent, onModelResolved→setValidatorCtxWindow, onDone→clearValidator", () => {
+    const calls: string[] = [];
+    const widget = {
+      onValidatorEvent: () => calls.push("event"),
+      setValidatorCtxWindow: () => calls.push("window"),
+      clearValidator: () => calls.push("clear"),
+    };
+    const hooks = widgetValidatorHooks(widget);
+    expect(hooks).toBeDefined();
+    hooks?.onEvent(mk({ type: "message_start" }));
+    hooks?.onModelResolved({ contextWindow: 262_000 } as unknown as Parameters<
+      NonNullable<typeof hooks.onModelResolved>
+    >[0]);
+    hooks?.onDone();
+    expect(calls).toEqual(["event", "window", "clear"]);
+    expect(widgetValidatorHooks(null)).toBeNull();
   });
 
   it("widgetStageHooks wires onDone to clearAgent", () => {

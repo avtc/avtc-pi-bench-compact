@@ -34,7 +34,11 @@ import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { runBenchStage } from "../runtime/agent-loop.js";
 import { resolveBenchModel } from "../runtime/model.js";
-import { DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS, setStageRetryPolicy } from "../runtime/stage-retry.js";
+import {
+  DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS,
+  NO_STAGE_RETRY_POLICY,
+  setStageRetryPolicy,
+} from "../runtime/stage-retry.js";
 import { pinsFromSettings } from "../session/fork.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
@@ -392,6 +396,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
             },
             resolveModel: () => resolveBenchModel(ctxAfterPhase1, probeValidateAgent.model),
           },
+          widget,
           onArm: (arm, index, total): void => {
             widget?.setArm(index, total, ARM_DEFS[arm].tool);
             widget?.setDetail(NO_DETAIL);
@@ -568,6 +573,9 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // (also covers the abort-fired case — the controller was already fired + cleared by
     // abortActiveRun, this is a defensive no-op then).
     setActiveRunAbort(NO_RUN_ABORT);
+    // Restore the built-in stage retry policy — the run-config policy must not
+    // leak into the next run (or the test suite) once this run ends.
+    setStageRetryPolicy(NO_STAGE_RETRY_POLICY);
   }
 }
 

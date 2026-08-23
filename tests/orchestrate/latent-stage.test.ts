@@ -86,9 +86,80 @@ function baseDeps(dir: string, over: Partial<LatentStageDeps> | null): LatentSta
     timeoutMs: 120000,
     rateLimitOptions: null,
     probeValidate: null,
+    widget: null,
     ...(over ?? {}),
   };
 }
+
+describe("runLatentStagePerArm — validator widget wiring", () => {
+  it("deps.widget feeds the probe validator's live-progress hooks (second slot)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const validatorEvents: string[] = [];
+    const widget = {
+      onValidatorEvent: (e: { type: string }): void => {
+        validatorEvents.push(e.type);
+      },
+      setValidatorCtxWindow: (): void => {
+        validatorEvents.push("window");
+      },
+      clearValidator: (): void => {
+        validatorEvents.push("clear");
+      },
+    };
+    let stageOnEvent: ((e: { type: string }) => void) | null | undefined;
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async (a) => {
+      calls.n += 1;
+      const validate = a.validate ?? null;
+      if (validate !== null) {
+        await validate({
+          probeClass: "cued",
+          question: "what fee applied before the change?",
+          accept: ["the fee was 12 percent"],
+          entryIds: ["e1"],
+          note: "the fee drives every cost estimate later",
+        });
+      }
+      return { kind: "completed", pool: [] };
+    };
+    const fakeSeams = {
+      ...NO_SEAMS,
+      runStage: (async (input: import("../../src/runtime/agent-loop.js").StageRunInput) => {
+        stageOnEvent = input.onEvent as unknown as typeof stageOnEvent;
+        input.onEvent?.({ type: "message_start" } as unknown as Parameters<NonNullable<typeof input.onEvent>>[0]);
+        const tool = input.tools.find((t) => t.name === "report_verdict");
+        if (!tool) throw new Error("report_verdict missing");
+        await tool.execute("c1", { ok: true, problems: [] });
+        return {
+          aborted: false,
+          timedOut: false,
+          messages: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
+          outputTokens: 0,
+        };
+      }) as unknown as typeof NO_SEAMS.runStage,
+    } as typeof NO_SEAMS;
+    const deps = baseDeps(dir, {
+      author,
+      widget: widget as unknown as import("../../src/widget/active-widget.js").WidgetPort,
+      seams: fakeSeams,
+      probeValidate: {
+        budget: { thinking: null, maxTokens: 1024, timeoutMs: 60000 },
+        resolveModel: async () =>
+          ({
+            ok: true as const,
+            model: { id: "validator-model", contextWindow: 262144 },
+            apiKey: "k",
+          }) as unknown as import("../../src/runtime/model.js").ResolvedBenchModel,
+      },
+    });
+    await runLatentStagePerArm(deps);
+    expect(calls.n).toBeGreaterThan(0);
+    // two arms in the fixture → the validator fires once per arm
+    expect(validatorEvents).toEqual(["window", "message_start", "clear", "window", "message_start", "clear"]);
+    expect(stageOnEvent).toBeDefined();
+  });
+});
 
 describe("runLatentStagePerArm", () => {
   it("fires onArm per arm (1-based index + total) and forwards onAdd to the authoring agent", async () => {
@@ -457,7 +528,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
     expect(seenSeeds[0]).toHaveLength(3);
     expect(seenSeeds[1]).toBeUndefined();
     // the seeded arm counts as re-authored (its pool ids may shift — stale probe
-    // branches must be purged); A3 was never authored before, so nothing to purge
+    // branches must be purged); A3 was unknown as Parameters<NonNullable<typeof input.onEvent>>[0] authored before, so nothing to purge
     expect(r.reAuthored).toContain("A1");
     expect(r.reAuthored).not.toContain("A3");
   });

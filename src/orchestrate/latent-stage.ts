@@ -40,6 +40,8 @@ import { readLatentPool, staleVerdictArms, summaryDigest, writeLatentPool } from
 import { branchSessionFile } from "../storage/paths.js";
 import { listBranches, resetBranch } from "../storage/repo.js";
 import type { AskUi } from "../ui/ask.js";
+import type { WidgetPort } from "../widget/active-widget.js";
+import { widgetValidatorHooks } from "../widget/tracker.js";
 
 /** One arm's post-compaction input. */
 export interface LatentArmInput {
@@ -56,6 +58,8 @@ export interface LatentStageDeps {
   /** Tools cwd (the scenario repo). */
   readonly cwd: string;
   readonly ui: AskUi | null;
+  /** The live-progress widget (the validator's segment); null = no widget. */
+  readonly widget: WidgetPort | null;
   readonly seams: JsonToolStageSeams;
   readonly signal: AbortSignal;
   /** The authoring agent's thinking level (null = omit the reasoning field). */
@@ -143,7 +147,7 @@ function validateOf(
     tail: readKeptTailText(sessionPath, anchor),
     repoCwd: deps.cwd,
     spanPath: sessionPath,
-    seams: { resolveModel: pv.resolveModel, runStage: deps.seams.runStage },
+    seams: { resolveModel: pv.resolveModel, runStage: deps.seams.runStage, hooks: widgetValidatorHooks(deps.widget) },
     budget: pv.budget,
     signal: deps.signal,
   });

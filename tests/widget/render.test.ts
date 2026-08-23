@@ -23,6 +23,7 @@ function running(phase: WidgetState["phase"], over: Partial<WidgetState>): Widge
     ctxWindow: 200_000,
     tok: 300,
     judgeUsages: null,
+    validator: null,
     hint: null,
     ...over,
   };
@@ -47,6 +48,7 @@ describe("renderLine — phase-bar + phase name", () => {
       ctxWindow: 200_000,
       tok: 1100,
       judgeUsages: null,
+      validator: null,
       hint: null,
     });
     expect(md).toBe("🅑 ◧□□□□□□ build · ctx 142k/200k · 1.1k tok");
@@ -64,6 +66,7 @@ describe("renderLine — phase-bar + phase name", () => {
       ctxWindow: 200_000,
       tok: 500,
       judgeUsages: null,
+      validator: null,
       hint: null,
     });
     expect(md).toBe("🅑 ■◧□□□□□ extract · ctx 30k/200k · 500 tok");
@@ -118,6 +121,7 @@ describe("renderLine — phase-bar + phase name", () => {
           { ctxUsage: 32_000, ctxWindow: 200_000, tok: 1300 },
           { ctxUsage: 200_000, ctxWindow: 1_000_000, tok: 10_100 },
         ],
+        validator: null,
       }),
     );
     expect(md).toBe(
@@ -199,6 +203,7 @@ describe("renderLine — terminal states (stay visible)", () => {
       ctxWindow: null,
       tok: null,
       judgeUsages: null,
+      validator: null,
       hint: "/bench-compact:run-scenario /tmp/scenario",
     });
     expect(md).toBe("🅑 ■■□□□□□ prepared · /bench-compact:run-scenario /tmp/scenario");
@@ -212,6 +217,7 @@ describe("renderLine — terminal states (stay visible)", () => {
         tool: "memkeeper-selector",
         detail: "3/10",
         judgeUsages: null,
+        validator: null,
         hint: "/bench-compact:resume",
       }),
     );
@@ -239,6 +245,43 @@ const MARKUP_THEME = { fg: (c: string, t: string) => `<${c}>${t}</${c}>` } as un
   typeof fitThemedRenderedLine
 >[1];
 
+describe("renderLine — probe-validator segment (second background agent)", () => {
+  const VALIDATING: WidgetState["validator"] = { ctxUsage: 5_100, ctxWindow: 262_000, tok: 1_300 };
+
+  it("appends the validator segment after the author agent's ctx/tok while validating", () => {
+    const line = renderLine(running("latent", { detail: "cued 2/3 · uncued 0/3", validator: VALIDATING }));
+    expect(line).toBe(
+      "🅑 1/5 memkeeper-builder · ■■■◧□□□ latent · cued 2/3 · uncued 0/3 · ctx 12k/200k · 300 tok · validating probe · ctx 5.1k/262k · 1.3k tok",
+    );
+  });
+
+  it("null validator omits the segment (validation finished — it hides)", () => {
+    const line = renderLine(running("latent", { detail: "cued 2/3", validator: null }));
+    expect(line).not.toContain("validating");
+  });
+
+  it("live at message_start: ctx renders 0 until the first message_end fills it, window may be unresolved", () => {
+    const line = renderLine(running("latent", { validator: { ctxUsage: null, ctxWindow: null, tok: 0 } }));
+    expect(line).toContain("validating probe · ctx 0/? · 0 tok");
+  });
+
+  it("a stopped run hides the validator segment", () => {
+    const line = renderLine(running("latent", { status: "stopped", validator: VALIDATING }));
+    expect(line).not.toContain("validating");
+  });
+
+  it("the score-phase judge list replaces BOTH agent segments", () => {
+    const line = renderLine(
+      running("score", {
+        judgeUsages: [{ ctxUsage: 1_000, ctxWindow: 200_000, tok: 5 }],
+        validator: VALIDATING,
+      }),
+    );
+    expect(line).not.toContain("validating");
+    expect(line).toContain("ctx 1.0k/200k");
+  });
+});
+
 describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
   it("running: glyph+bar-active+label accent, done cells success, pending dim, tool muted, counters dim", () => {
     const themed = fitThemedRenderedLine(
@@ -253,6 +296,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
         ctxWindow: 200000,
         tok: 300,
         judgeUsages: null,
+        validator: null,
         hint: null,
       },
       MARKUP_THEME,
@@ -282,6 +326,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
         ctxWindow: null,
         tok: null,
         judgeUsages: null,
+        validator: null,
         hint: "/bench-compact:resume",
       },
       MARKUP_THEME,
@@ -304,6 +349,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
         ctxWindow: null,
         tok: null,
         judgeUsages: null,
+        validator: null,
         hint: "/bench-compact:results",
       },
       MARKUP_THEME,
@@ -331,6 +377,7 @@ describe("fitThemedRenderedLine — sibling-widget color scheme", () => {
       ctxWindow: 200000,
       tok: 1100,
       judgeUsages: null,
+      validator: null,
       hint: null,
     } as const;
     const strip = (t: string): string => t.replace(/<[^>]+>/g, "");

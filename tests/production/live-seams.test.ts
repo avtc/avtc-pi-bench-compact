@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -32,6 +32,9 @@ function capturingWidget(): WidgetPort & { phases: string[] } {
     setCtxWindow: () => {},
     setJudgeUsages: () => {},
     onEvent: () => {},
+    onValidatorEvent: () => {},
+    setValidatorCtxWindow: () => {},
+    clearValidator: () => {},
     hide: () => {},
   };
 }
@@ -1197,5 +1200,99 @@ describe("extractDetailFromCounts (extract-phase widget coverage)", () => {
     });
     await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1", "trial summary");
     expect(details).toEqual(["topics 1/4 · 1 pts", "topics 4/4 · 5 pts"]);
+  });
+});
+
+describe("buildAuthorSeam — probe-validator widget wiring", () => {
+  it("threads deps.widget into the validator hooks (window → validator segment)", async () => {
+    const validatorCalls: string[] = [];
+    const widget = {
+      phases: [] as string[],
+      show: () => {},
+      startPhase: () => {},
+      setStatus: () => {},
+      setArm: () => {},
+      clearArm: () => {},
+      setDetail: () => {},
+      setCtxWindow: () => {},
+      clearAgent: () => {},
+      setJudgeUsages: () => {},
+      onEvent: () => {},
+      hide: () => {},
+      onValidatorEvent: (): void => {
+        validatorCalls.push("event");
+      },
+      setValidatorCtxWindow: (): void => {
+        validatorCalls.push("window");
+      },
+      clearValidator: (): void => {
+        validatorCalls.push("clear");
+      },
+    } as unknown as import("../../src/widget/active-widget.js").WidgetPort;
+    const manifest = {
+      recallFacts: [],
+      doneOps: [],
+      supersessions: [],
+      abstentions: [],
+      probes: [],
+    } as unknown as ScenarioManifest;
+    const captured: { fn: import("../../src/manifest/author.js").ManifestProbeValidateFn | null } = { fn: null };
+    const author = buildAuthorSeam({
+      ctxGetter: () => ({}) as unknown as ExtensionContext,
+      authorModel: null,
+      thinking: null,
+      timeoutMs: 60000,
+      scenarioCtx: {
+        id: "sc1",
+        description: "build a game",
+        compactionBoundary: { phaseATokenBudget: 140000, plan: "build" },
+      },
+      signal: new AbortController().signal,
+      maxTokens: 1024,
+      repoCwd: process.cwd(),
+      probeValidateModel: null,
+      probeValidateBudget: { thinking: null, maxTokens: 512, timeoutMs: 60000 },
+      widget,
+      resolveModel: (async () => ({
+        ok: true,
+        model: { id: "m", contextWindow: 262144 },
+        apiKey: "k",
+      })) as unknown as ResolveModel,
+      runStage: (async (input: {
+        onEvent: ((e: unknown) => void) | null;
+        tools: { name: string; execute?: (c: string, p: unknown) => Promise<unknown> }[];
+      }) => {
+        input.onEvent?.({ type: "message_start" });
+        const tool = input.tools.find((t) => t.name === "report_verdict");
+        if (!tool?.execute) throw new Error("report_verdict missing");
+        await tool.execute("c1", { ok: true, problems: [] });
+        return { aborted: false, timedOut: false, messages: [] };
+      }) as unknown as RunStage,
+      runAuthor: async (deps) => {
+        captured.fn = deps.validate ?? null;
+        return manifest;
+      },
+    });
+    const dir = mkdtempSync(join(tmpdir(), "author-validator-"));
+    const backup = join(dir, "backup.jsonl");
+    writeFileSync(
+      backup,
+      [
+        { id: "e1", type: "message", content: "span content" },
+        { id: "cut-1", type: "message", content: "tail" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n"),
+    );
+    await author(join(dir, "sliced.jsonl"), backup, "cut-1", "trial summary");
+    expect(captured.fn).not.toBeNull();
+    const fn = captured.fn;
+    if (fn === null) throw new Error("validate not wired");
+    // empty-accept probes bypass validation; an accept-carrying probe exercises
+    // the lazy closure: model resolved → window, stage onEvent → segment, finally → clear
+    expect(await fn({ question: "q?", accept: [], citedEntryIds: [] })).toEqual({ ok: true });
+    expect(validatorCalls).toEqual([]);
+    await fn({ question: "q?", accept: ["a"], citedEntryIds: ["e1"] });
+    expect(validatorCalls).toEqual(["window", "event", "clear"]);
   });
 });

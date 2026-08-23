@@ -8,7 +8,8 @@
 // terminal); every other segment is fixed.
 //
 // Layout: `🅑 [<armN>/<total> <tool> ·] <phase-bar> <phase>[ <detail>]
-//         [ · ctx <u>/<w> · <tok> tok][ · <status> · <hint>]`
+//         [ · ctx <u>/<w> · <tok> tok][ · validating probe · ctx <u>/<w> · <tok> tok]
+//         [ · <status> · <hint>]`
 //
 // The widget shows the BACKGROUND agent (user-simulator build/resume, judge
 // score) — NOT the main eval agent (already visible in pi's TUI). compact
@@ -65,6 +66,15 @@ export interface WidgetState {
    *  When present this REPLACES the single-agent ctx/tok segments (the score
    *  phase drives no single background agent). */
   readonly judgeUsages: readonly JudgeUsage[] | null;
+  /** The probe-validator agent's live usage (the second background agent —
+   *  add-time probe validation interleaves with the authoring agent's tool
+   *  calls). Null = not validating (segment hidden); a non-null slot with
+   *  ctxUsage still null = request started, no message_end yet (ctx renders 0). */
+  readonly validator: {
+    readonly ctxUsage: number | null;
+    readonly ctxWindow: number | null;
+    readonly tok: number | null;
+  } | null;
   /** Trailing hint (e.g. "/bench-compact:results" on done). */
   readonly hint: string | null;
 }
@@ -95,6 +105,17 @@ function showJudgeCtxTok(state: WidgetState): boolean {
   return (
     state.status === "running" && state.phase === "score" && state.judgeUsages !== null && state.judgeUsages.length > 0
   );
+}
+
+/** True when the probe-validator segment should display: the validator agent
+ *  has a live request (tok set at message_start — the ctx fills at its first
+ *  message_end) and no judge list replaces the agent segments. Mirrors the
+ *  author segment's cluster but goes live at request START: the validator runs
+ *  one request per validated probe and is cleared per validation, so waiting
+ *  for a message_end would flash it for a single throttled tick. */
+function showValidatorSegment(state: WidgetState): boolean {
+  if (state.status !== "running" || showJudgeCtxTok(state)) return false;
+  return state.validator !== null && state.validator.tok !== null;
 }
 
 /** One phase-bar cell with its theme color (success = done, accent = active,
@@ -252,6 +273,21 @@ function renderParts(state: WidgetState): Part[] {
       color: COLOR_COUNTER,
     });
     parts.push({ kind: "fixed", text: `${formatTokens(state.tok as number)} tok`, color: COLOR_COUNTER });
+  }
+
+  // Probe-validator segment (add-time validation interleaved with the authoring
+  // agent's tool calls): accent label + the same dim counter format, appended
+  // after the author's (frozen while validating) segments. Hidden when the
+  // validation finishes (slot cleared) or a judge list takes over.
+  if (showValidatorSegment(state)) {
+    const v = state.validator as { ctxUsage: number | null; ctxWindow: number | null; tok: number | null };
+    parts.push({ kind: "fixed", text: "validating probe", color: COLOR_PHASE });
+    parts.push({
+      kind: "fixed",
+      text: `ctx ${formatTokens(v.ctxUsage ?? 0)}/${formatCtxWindow(v.ctxWindow)}`,
+      color: COLOR_COUNTER,
+    });
+    parts.push({ kind: "fixed", text: `${formatTokens(v.tok as number)} tok`, color: COLOR_COUNTER });
   }
 
   // Status word (stopped only; running has none; done is folded into the label).

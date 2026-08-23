@@ -35,6 +35,9 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     onEvent: (event) => {
       calls.push(`onEvent:${event.type}`);
     },
+    onValidatorEvent: () => {},
+    setValidatorCtxWindow: () => {},
+    clearValidator: () => {},
     hide: () => {
       calls.push("hide");
     },

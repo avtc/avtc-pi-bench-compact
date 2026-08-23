@@ -63,7 +63,7 @@ import {
 } from "../simulator/loop.js";
 import { ANTI_PEEK_PROMPT } from "../storage/anti-peek.js";
 import type { WidgetPort } from "../widget/active-widget.js";
-import { NO_DETAIL, widgetStageHooks } from "../widget/tracker.js";
+import { NO_DETAIL, widgetStageHooks, widgetValidatorHooks } from "../widget/tracker.js";
 import type { BuildResume, BuildSeams } from "./build.js";
 import { parseTailCheckResponse, renderTailText, TAIL_CHECK_SYSTEM_PROMPT } from "./tail-check.js";
 import type { TrialCut } from "./trial-compaction.js";
@@ -213,7 +213,11 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
         tail: readKeptTailText(backupPath, firstKeptEntryId),
         repoCwd: deps.repoCwd,
         spanPath: preSlicedJsonlPath,
-        seams: { resolveModel: () => resolve(deps.ctxGetter(), deps.probeValidateModel), runStage },
+        seams: {
+          resolveModel: () => resolve(deps.ctxGetter(), deps.probeValidateModel),
+          runStage,
+          hooks: widgetValidatorHooks(deps.widget),
+        },
         budget: deps.probeValidateBudget,
         signal: deps.signal,
       });

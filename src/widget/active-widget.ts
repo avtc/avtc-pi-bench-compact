@@ -29,6 +29,12 @@ export interface WidgetPort {
   setJudgeUsages(list: readonly JudgeUsage[] | null): void;
   /** Forward a background-agent event (user-simulator / judge) → two-tier token accumulator. */
   onEvent(event: AgentEvent): void;
+  /** Forward a probe-validator agent event → the SECOND slot's accumulator. */
+  onValidatorEvent(event: AgentEvent): void;
+  /** Set the probe-validator's context window when its model resolves. */
+  setValidatorCtxWindow(ctxWindow: number | null): void;
+  /** Retire the probe-validator segment (per validation, incl. failures). */
+  clearValidator(): void;
   hide(): void;
 }
 

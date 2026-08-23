@@ -24,6 +24,9 @@ function capturingWidget(): WidgetPort & { arms: string[] } {
     clearAgent: () => {},
     setCtxWindow: () => {},
     onEvent: () => {},
+    onValidatorEvent: () => {},
+    setValidatorCtxWindow: () => {},
+    clearValidator: () => {},
     hide: () => {},
   };
 }

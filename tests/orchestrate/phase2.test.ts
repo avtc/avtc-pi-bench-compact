@@ -45,6 +45,9 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     setCtxWindow: () => {},
     setJudgeUsages: () => {},
     onEvent: () => {},
+    onValidatorEvent: () => {},
+    setValidatorCtxWindow: () => {},
+    clearValidator: () => {},
     hide: () => {},
   };
 }

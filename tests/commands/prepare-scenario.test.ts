@@ -84,6 +84,9 @@ describe("makePrepareScenarioHandler", () => {
         setDetail: () => {},
         setCtxWindow: () => {},
         onEvent: () => {},
+        onValidatorEvent: () => {},
+        setValidatorCtxWindow: () => {},
+        clearValidator: () => {},
         hide: () => {},
       }) as unknown as import("../../src/widget/active-widget.js").WidgetPort;
     const ctx = { ui: { notify: () => {} } };

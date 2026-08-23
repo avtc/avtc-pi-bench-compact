@@ -16,7 +16,7 @@
 // ProbeValidationStoppedError — the stage stops and surfaces with operator
 // attention. A broken validator must never silently pass broken probes.
 
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
@@ -152,6 +152,8 @@ export interface ProbeValidatorInput {
   readonly spanPath: string;
   readonly agent: ProbeValidatorAgent;
   readonly runStage: typeof runBenchStage;
+  /** Live-progress sink (the validator's segment on the run widget); null = none. */
+  readonly onEvent: ((event: AgentEvent) => void) | null;
   readonly signal: AbortSignal;
 }
 
@@ -205,7 +207,7 @@ export async function runProbeValidator(input: ProbeValidatorInput): Promise<Pro
       maxTurns: VALIDATOR_MAX_TURNS,
       maxTokens: input.agent.maxTokens,
       timeoutMs: input.agent.timeoutMs,
-      onEvent: NO_EVENT_SINK,
+      onEvent: input.onEvent ?? NO_EVENT_SINK,
       onStageEnd: NO_STAGE_END_HOOK,
       loopFn: null,
       streamFn: NO_STREAM_FN,
@@ -230,11 +232,21 @@ import type { ResolvedBenchModel } from "../runtime/model.js";
 import { messageText } from "../session/message-text.js";
 import { mechanicalLeak } from "./probe-leak-gate.js";
 
+/** Live-progress hooks for the validator agent (structural — matches
+ *  widgetStageHooks/widgetValidatorHooks output; no widget import here). */
+export interface ValidatorHooks {
+  readonly onEvent: ((event: AgentEvent) => void) | null;
+  readonly onModelResolved: ((model: Model<Api>) => void) | null;
+  readonly onDone: (() => void) | null;
+}
+
 /** The model-resolution + stage seams the add-time closure needs (the same
  *  shapes the authoring stages use). */
 export interface ValidatorSeams {
   readonly resolveModel: () => Promise<ResolvedBenchModel>;
   readonly runStage: typeof runBenchStage;
+  /** Live-progress hooks (widgetValidatorHooks output); null = no widget. */
+  readonly hooks: ValidatorHooks | null;
 }
 
 /** The validator agent's non-model parameters (model resolved per call). */
@@ -275,23 +287,29 @@ export function makeAddTimeValidator(args: {
     if (gate !== null) return { ok: false, problems: [{ check: "mechanical", what: gate }] };
     const resolved = await args.seams.resolveModel();
     if (!resolved.ok) throw new ProbeValidationStoppedError(`validator model resolution failed: ${resolved.error}`);
-    const verdict = await runProbeValidator({
-      target: {
-        kind: args.kind,
-        question: probe.question,
-        accept: [...probe.accept],
-        citedEntryIds: [...probe.citedEntryIds],
-        ...(probe.claimedClass === undefined ? {} : { claimedClass: probe.claimedClass }),
-      },
-      summary: args.summary,
-      tail: args.tail,
-      repoCwd: args.repoCwd,
-      spanPath: args.spanPath,
-      agent: { model: resolved.model, apiKey: resolved.apiKey ?? "", ...args.budget },
-      runStage: args.seams.runStage,
-      signal: args.signal,
-    });
-    return verdict;
+    args.seams.hooks?.onModelResolved?.(resolved.model);
+    try {
+      const verdict = await runProbeValidator({
+        target: {
+          kind: args.kind,
+          question: probe.question,
+          accept: [...probe.accept],
+          citedEntryIds: [...probe.citedEntryIds],
+          ...(probe.claimedClass === undefined ? {} : { claimedClass: probe.claimedClass }),
+        },
+        summary: args.summary,
+        tail: args.tail,
+        repoCwd: args.repoCwd,
+        spanPath: args.spanPath,
+        agent: { model: resolved.model, apiKey: resolved.apiKey ?? "", ...args.budget },
+        runStage: args.seams.runStage,
+        signal: args.signal,
+        onEvent: args.seams.hooks?.onEvent ?? null,
+      });
+      return verdict;
+    } finally {
+      args.seams.hooks?.onDone?.();
+    }
   };
 }
 

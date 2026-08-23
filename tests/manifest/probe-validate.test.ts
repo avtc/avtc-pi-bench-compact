@@ -5,6 +5,7 @@ import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
+  makeAddTimeValidator,
   ProbeValidationStoppedError,
   type ProbeValidationTarget,
   type ProbeValidatorAgent,
@@ -150,3 +151,63 @@ function baseInput(run: Parameters<typeof runProbeValidator>[0]["runStage"]): Pa
 function messagesText(messages: readonly AgentMessage[]): string {
   return JSON.stringify(messages);
 }
+
+describe("makeAddTimeValidator — live-progress hooks", () => {
+  const GOOD_VERDICT = { ok: true, problems: [] };
+
+  function hookSet(): {
+    hooks: import("../../src/manifest/probe-validate.js").ValidatorHooks;
+    calls: string[];
+  } {
+    const calls: string[] = [];
+    return {
+      calls,
+      hooks: {
+        onEvent: () => calls.push("event"),
+        onModelResolved: () => calls.push("window"),
+        onDone: () => calls.push("done"),
+      },
+    };
+  }
+
+  async function runOnce(
+    hooks: import("../../src/manifest/probe-validate.js").ValidatorHooks,
+    stageScript: readonly unknown[],
+  ): Promise<{ calls: string[]; stageCalls: CallRecord[] }> {
+    const { run, calls: stageCalls } = fakeStage(stageScript);
+    const validate = makeAddTimeValidator({
+      kind: "latent",
+      summary: "a summary",
+      tail: "a tail",
+      repoCwd: process.cwd(),
+      spanPath: "/tmp/span.jsonl",
+      seams: {
+        resolveModel: async () => ({ ok: true as const, model: STUB_MODEL, apiKey: "key" }),
+        runStage: run,
+        hooks,
+      },
+      budget: { thinking: null, maxTokens: 4096, timeoutMs: 120000 },
+      signal: new AbortController().signal,
+    });
+    await validate({ question: TARGET.question, accept: TARGET.accept, citedEntryIds: ["e12"] });
+    return { calls: [], stageCalls };
+  }
+
+  it("forwards onEvent into the stage input and fires onModelResolved + onDone (verdict ok)", async () => {
+    const h = hookSet();
+    const { stageCalls } = await runOnce(h.hooks, [GOOD_VERDICT]);
+    expect(h.calls).toEqual(["window", "done"]);
+    expect(stageCalls[0]?.input.onEvent).toBe(h.hooks.onEvent);
+  });
+
+  it("onDone fires even when the validator throws (stop-and-surface path)", async () => {
+    const h = hookSet();
+    await expect(runOnce(h.hooks, [])).rejects.toThrow();
+    expect(h.calls).toEqual(["window", "done"]);
+  });
+
+  it("null hooks (no widget) never throw", async () => {
+    const { stageCalls } = await runOnce({ onEvent: null, onModelResolved: null, onDone: null }, [GOOD_VERDICT]);
+    expect(stageCalls[0]?.input.onEvent).toBeNull();
+  });
+});

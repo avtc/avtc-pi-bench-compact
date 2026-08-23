@@ -22,6 +22,12 @@ import { type BuildScoreDepsArgs, type StartRunDeps, startRun } from "../../src/
 import { clearRunState, getRunState } from "../../src/orchestrate/run-state.js";
 import type { TestSpecResult } from "../../src/orchestrate/testspec.js";
 import type { RunTrace } from "../../src/orchestrate/trace.js";
+import {
+  DEFAULT_STAGE_PROVIDER_MAX_RETRIES,
+  DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS,
+  setStageRetryPolicy,
+  stageRetryPolicy,
+} from "../../src/runtime/stage-retry.js";
 import { buildCfgId } from "../../src/storage/branches.js";
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 import { setActiveWidget } from "../../src/widget/active-widget.js";
@@ -235,6 +241,15 @@ function capturingWidget(): WidgetPort & { calls: string[] } {
     onEvent: (event) => {
       calls.push(`onEvent:${event.type}`);
     },
+    onValidatorEvent: (event) => {
+      calls.push(`onValidatorEvent:${event.type}`);
+    },
+    setValidatorCtxWindow: () => {
+      calls.push("setValidatorCtxWindow");
+    },
+    clearValidator: () => {
+      calls.push("clearValidator");
+    },
     hide: () => {
       calls.push("hide");
     },
@@ -313,6 +328,22 @@ describe("startRun — identity + state + Phase-1 dispatch (inline, no driver)",
     expect(result.kind).toBe("done");
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
+  });
+
+  it("restores the built-in stage retry policy in startRun's finally (no leak past the run)", async () => {
+    setStageRetryPolicy({ maxRetries: 9, maxRetryDelayMs: 999 });
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1: phase1Mock(async () => ({ bases: fakeBases(["A1"]), finalCtx: FINAL_CTX })),
+      continuations: continuationsMock(async () => ({ traces: fakeTraces(["A1"]), finalCtx: FINAL_CTX })),
+    });
+    const result = await startRun(deps);
+    expect(result.kind).toBe("done");
+    expect(stageRetryPolicy()).toEqual({
+      maxRetries: DEFAULT_STAGE_PROVIDER_MAX_RETRIES,
+      maxRetryDelayMs: DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS,
+    });
   });
 
   it("writes the run-config snapshot (cfgId + toolVersions) once + reserves the run dir", async () => {

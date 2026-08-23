@@ -50,6 +50,9 @@ export interface StageRetryPolicy {
  *  bench config; the run-driver-only setter keeps stage calls signature-free. */
 let activePolicy: StageRetryPolicy | null = null;
 
+/** The "no installed policy" sentinel — restores the built-in default. */
+export const NO_STAGE_RETRY_POLICY: StageRetryPolicy | null = null;
+
 /** Install the run's stage retry policy (null restores the built-in default). */
 export function setStageRetryPolicy(policy: StageRetryPolicy | null): void {
   activePolicy = policy;

@@ -76,6 +76,7 @@ const DEFAULT_STATE: WidgetState = {
   ctxWindow: null,
   tok: null,
   judgeUsages: null,
+  validator: null,
   hint: null,
 };
 
@@ -88,6 +89,8 @@ export class WidgetController {
   private state: WidgetState;
   private primaryTokens = 0; // two-tier provider-output max (per request)
   private fallbackTokens = 0; // two-tier chars/4 accumulation (per request)
+  private validatorPrimaryTokens = 0; // the probe-validator slot's two-tier state
+  private validatorFallbackTokens = 0;
   private shown = false;
   private lastRender = 0;
   private trailing: WidgetTimer | null = null;
@@ -190,6 +193,57 @@ export class WidgetController {
     } else {
       return; // turn_start/tool_* etc. — no widget state change
     }
+    this.schedule();
+  }
+
+  // --- probe-validator agent (the second background-agent slot) ---
+  // Add-time probe validation interleaves with the authoring agent's tool
+  // calls: the author's ctx/tok freeze (its last request) while the validator
+  // runs its own (much smaller) request. The validator gets its OWN slot so
+  // both stay visible; clearValidator retires it per validation.
+
+  /** Harness sets the validator's context window when it resolves the model. */
+  setValidatorCtxWindow(ctxWindow: number | null): void {
+    if (this.state.validator === null) {
+      this.state = { ...this.state, validator: { ctxUsage: null, ctxWindow, tok: null } };
+    } else {
+      this.state = { ...this.state, validator: { ...this.state.validator, ctxWindow } };
+    }
+    this.schedule();
+  }
+
+  /** The validator agent's event stream — same two-tier accumulation as the
+   *  author slot, fed into the second slot (the author slot is untouched). */
+  onValidatorEvent(event: AgentEvent): void {
+    if (this.deps === null) return;
+    const cur = this.state.validator;
+    const next = { ...(cur ?? { ctxUsage: null, ctxWindow: null, tok: null }) };
+    if (event.type === "message_start") {
+      this.validatorPrimaryTokens = 0;
+      this.validatorFallbackTokens = 0;
+      next.tok = 0;
+    } else if (event.type === "message_end") {
+      const u = messageEndUsage((event as { message: Parameters<typeof messageEndUsage>[0] }).message);
+      if (u !== null) next.ctxUsage = u.totalTokens;
+    } else if (event.type === "message_update") {
+      const streamed = streamedOutputUsage(event);
+      if (streamed !== null && streamed > this.validatorPrimaryTokens) this.validatorPrimaryTokens = streamed;
+      const delta = deltaTextOf(event);
+      if (delta !== null) this.validatorFallbackTokens += deltaTokens(delta);
+      next.tok = Math.max(this.validatorPrimaryTokens, this.validatorFallbackTokens);
+    } else {
+      return; // turn_start/tool_* etc. — no widget state change
+    }
+    this.state = { ...this.state, validator: next };
+    this.schedule();
+  }
+
+  /** Retire the validator segment (per validation — the harness fires this when
+   *  the validator finishes, in a finally so failures hide it too). */
+  clearValidator(): void {
+    this.validatorPrimaryTokens = 0;
+    this.validatorFallbackTokens = 0;
+    this.state = { ...this.state, validator: null };
     this.schedule();
   }
 
@@ -307,6 +361,27 @@ export function widgetStageHooks(
     onEvent: widget.onEvent.bind(widget),
     onModelResolved: (model) => widget.setCtxWindow(model.contextWindow ?? null),
     onDone: () => widget.clearAgent(),
+  };
+}
+
+/** The probe-validator agent's widget hooks — the second background-agent slot
+ *  (onEvent → the validator segment, onModelResolved → its own window,
+ *  onDone → hide the segment). Same shape as {@link widgetStageHooks}. */
+export function widgetValidatorHooks(
+  widget:
+    | {
+        onValidatorEvent(event: AgentEvent): void;
+        setValidatorCtxWindow(ctxWindow: number | null): void;
+        clearValidator(): void;
+      }
+    | null
+    | undefined,
+): WidgetStageHooks | null {
+  if (widget === null || widget === undefined) return null;
+  return {
+    onEvent: widget.onValidatorEvent.bind(widget),
+    onModelResolved: (model) => widget.setValidatorCtxWindow(model.contextWindow ?? null),
+    onDone: () => widget.clearValidator(),
   };
 }
 

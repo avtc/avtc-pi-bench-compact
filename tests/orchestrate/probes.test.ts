@@ -230,6 +230,9 @@ describe("runProbes — direct probes per arm (fork → load → inject → sett
       setCtxWindow: vi.fn(),
       setJudgeUsages: vi.fn(),
       onEvent: vi.fn(),
+      onValidatorEvent: vi.fn(),
+      setValidatorCtxWindow: vi.fn(),
+      clearValidator: vi.fn(),
       hide: vi.fn(),
     };
     await runProbes({
