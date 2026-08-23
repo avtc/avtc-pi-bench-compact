@@ -34,11 +34,7 @@ import type { Pricing } from "../metrics/pricing.js";
 import { DEFAULT_MODELS_PATH, readPricing } from "../metrics/pricing.js";
 import { runBenchStage } from "../runtime/agent-loop.js";
 import { resolveBenchModel } from "../runtime/model.js";
-import {
-  DEFAULT_STAGE_PROVIDER_MAX_RETRIES,
-  DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS,
-  setStageRetryPolicy,
-} from "../runtime/stage-retry.js";
+import { DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS, setStageRetryPolicy } from "../runtime/stage-retry.js";
 import { pinsFromSettings } from "../session/fork.js";
 import { buildCfgId } from "../storage/branches.js";
 import { writeRunConfig } from "../storage/configs.js";
@@ -309,10 +305,10 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   const score = deps.score ?? scoreRun;
   const buildScoreDeps = deps.buildScoreDeps ?? buildProductionScoreDeps;
   // Provider-request retries for every background-stage LLM call. The run config
-  // owns the policy (null = the built-in default) so all stages of this run —
-  // including resumed ones — retry transient 5xx/429 identically.
+  // owns the policy so all stages of this run — including resumed ones — retry
+  // transient 5xx/429 identically.
   setStageRetryPolicy({
-    maxRetries: deps.config.stageProviderMaxRetries ?? DEFAULT_STAGE_PROVIDER_MAX_RETRIES,
+    maxRetries: deps.config.stageProviderMaxRetries,
     maxRetryDelayMs: DEFAULT_STAGE_PROVIDER_MAX_RETRY_DELAY_MS,
   });
 

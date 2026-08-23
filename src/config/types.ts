@@ -113,9 +113,8 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   /** Shared default wall-clock cap per background-agent LLM call (ms). */
   backgroundTimeoutMs: number;
   /** Provider-level retry attempts per background-stage LLM call (transient
-   *  5xx/429/408/409 — pi's session-owned retries never cover bench stages;
-   *  null = the built-in default of 3). */
-  stageProviderMaxRetries: number | null;
+   *  5xx/429/408/409 — pi's session-owned retries never cover bench stages). */
+  stageProviderMaxRetries: number;
   authorModel: string | null;
   authorThinkingLevel: ThinkingLevel | null;
   /** Per-call output-token cap override (null = backgroundMaxTokens). */

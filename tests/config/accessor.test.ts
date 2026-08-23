@@ -51,6 +51,17 @@ describe("getBenchConfig", () => {
     expect(cfg.testspecTimeoutMs).toBe(30000);
   });
 
+  it("stageProviderMaxRetries defaults to 3 and never surfaces null (no 'Infinite' display)", () => {
+    _setHandleForTest(fakeHandle({}));
+    expect(getBenchConfig().stageProviderMaxRetries).toBe(3);
+    _setHandleForTest(fakeHandle({ stageProviderMaxRetries: 5 }));
+    expect(getBenchConfig().stageProviderMaxRetries).toBe(5);
+    // A stale stored null (the old null default's sentinel) maps to the default,
+    // not to null — the settings panel must never render "Infinite" for retries.
+    _setHandleForTest(fakeHandle({ stageProviderMaxRetries: null }));
+    expect(getBenchConfig().stageProviderMaxRetries).toBe(3);
+  });
+
   it("defaults the background-agent settings (background xhigh/64K/20m, per-agent overrides null)", () => {
     _setHandleForTest(fakeHandle({}));
     const cfg = getBenchConfig();

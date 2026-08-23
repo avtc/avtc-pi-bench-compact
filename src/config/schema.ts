@@ -49,7 +49,7 @@ export const DEFAULTS = {
   backgroundThinkingLevel: "xhigh" as ThinkingLevel | null,
   backgroundMaxTokens: 65536,
   backgroundTimeoutMs: 1200000,
-  stageProviderMaxRetries: null as number | null,
+  stageProviderMaxRetries: 3,
   authorModel: NO_MODEL,
   authorThinkingLevel: null as ThinkingLevel | null,
   authorMaxTokens: null as number | null,
@@ -302,6 +302,7 @@ const SETTINGS: readonly SettingSchema[] = [
     defaultValue: DEFAULTS.stageProviderMaxRetries,
     min: 0,
     max: 20,
+    presets: [0, 3, 5, 10],
   }),
   setting("authorModel", {
     label: "Manifest author model",
