@@ -63,10 +63,10 @@ describe("getBenchConfig", () => {
       "authorThinkingLevel",
       "authorMaxTokens",
       "authorTimeoutMs",
-      "tailCheckModel",
-      "tailCheckThinkingLevel",
-      "tailCheckMaxTokens",
-      "tailCheckTimeoutMs",
+      "probeValidateModel",
+      "probeValidateThinkingLevel",
+      "probeValidateMaxTokens",
+      "probeValidateTimeoutMs",
       "simulatorModel",
       "simulatorThinkingLevel",
       "simulatorMaxTokens",
@@ -89,8 +89,8 @@ describe("getBenchConfig", () => {
         backgroundTimeoutMs: 600000,
         authorMaxTokens: 4096,
         authorTimeoutMs: 300000,
-        tailCheckMaxTokens: 512,
-        tailCheckTimeoutMs: 120000,
+        probeValidateMaxTokens: 512,
+        probeValidateTimeoutMs: 120000,
         simulatorMaxTokens: 1024,
         simulatorTurnTimeoutMs: 60000,
         latentStageMaxTokens: 65536,
@@ -104,8 +104,8 @@ describe("getBenchConfig", () => {
     expect(cfg.backgroundTimeoutMs).toBe(600000);
     expect(cfg.authorMaxTokens).toBe(4096);
     expect(cfg.authorTimeoutMs).toBe(300000);
-    expect(cfg.tailCheckMaxTokens).toBe(512);
-    expect(cfg.tailCheckTimeoutMs).toBe(120000);
+    expect(cfg.probeValidateMaxTokens).toBe(512);
+    expect(cfg.probeValidateTimeoutMs).toBe(120000);
     expect(cfg.simulatorMaxTokens).toBe(1024);
     expect(cfg.simulatorTurnTimeoutMs).toBe(60000);
     expect(cfg.latentStageMaxTokens).toBe(65536);

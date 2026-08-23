@@ -25,7 +25,7 @@ describe("BENCH_SCHEMA", () => {
       "Arms",
       "Judge",
       "Author",
-      "Tail",
+      "Validate",
       "Sim",
       "Latent",
     ]);
@@ -178,16 +178,16 @@ describe("BENCH_SCHEMA", () => {
       });
       expect(row("authorTimeoutMs").presets).toEqual([["default", null], "5m", "10m", "20m", "60m", "120m"]);
     });
-    it("tailCheckModel / tailCheckThinkingLevel: model + thinking-level, default null", () => {
-      expect(row("tailCheckModel")).toMatchObject({ type: "model", defaultValue: null });
-      expect(row("tailCheckThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
+    it("probeValidateModel / probeValidateThinkingLevel: model + thinking-level, default null", () => {
+      expect(row("probeValidateModel")).toMatchObject({ type: "model", defaultValue: null });
+      expect(row("probeValidateThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
     });
-    it("tailCheckMaxTokens: number, default null (background max tokens), shared token ladder", () => {
-      expect(row("tailCheckMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
-      expect(row("tailCheckMaxTokens").presets).toEqual([["default", null], 16384, 32768, 65536, 131072, 262144]);
+    it("probeValidateMaxTokens: number, default null (background max tokens), shared token ladder", () => {
+      expect(row("probeValidateMaxTokens")).toMatchObject({ type: "number", defaultValue: null, min: 1 });
+      expect(row("probeValidateMaxTokens").presets).toEqual([["default", null], 16384, 32768, 65536, 131072, 262144]);
     });
-    it("tailCheckTimeoutMs: duration, default null (background timeout), bounded", () => {
-      expect(row("tailCheckTimeoutMs")).toMatchObject({
+    it("probeValidateTimeoutMs: duration, default null (background timeout), bounded", () => {
+      expect(row("probeValidateTimeoutMs")).toMatchObject({
         type: "duration",
         defaultValue: null,
         min: 1000,
@@ -235,7 +235,7 @@ describe("BENCH_SCHEMA", () => {
       ];
       for (const id of [
         "authorThinkingLevel",
-        "tailCheckThinkingLevel",
+        "probeValidateThinkingLevel",
         "simulatorThinkingLevel",
         "latentThinkingLevel",
         "judgeThinkingLevel",

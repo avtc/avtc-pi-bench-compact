@@ -54,10 +54,10 @@ export const DEFAULTS = {
   authorThinkingLevel: null as ThinkingLevel | null,
   authorMaxTokens: null as number | null,
   authorTimeoutMs: null as number | null,
-  tailCheckModel: NO_MODEL,
-  tailCheckThinkingLevel: null as ThinkingLevel | null,
-  tailCheckMaxTokens: null as number | null,
-  tailCheckTimeoutMs: null as number | null,
+  probeValidateModel: NO_MODEL,
+  probeValidateThinkingLevel: null as ThinkingLevel | null,
+  probeValidateMaxTokens: null as number | null,
+  probeValidateTimeoutMs: null as number | null,
   simulatorModel: NO_MODEL,
   simulatorThinkingLevel: null as ThinkingLevel | null,
   simulatorMaxTokens: null as number | null,
@@ -265,7 +265,7 @@ const SETTINGS: readonly SettingSchema[] = [
   setting("backgroundModel", {
     label: "Background default model",
     description:
-      "Model for every background agent (manifest author, tail check, simulator, latent authoring) unless overridden per agent. Empty = each agent keeps its built-in base (author/tail check/simulator: the evaluated model; latent authoring: the session default).",
+      "Model for every background agent (manifest author, probe validator, simulator, latent authoring) unless overridden per agent. Empty = each agent keeps its built-in base (author/probe validator/simulator: the evaluated model; latent authoring: the session default).",
     type: "model",
     defaultValue: DEFAULTS.backgroundModel,
   }),
@@ -335,34 +335,33 @@ const SETTINGS: readonly SettingSchema[] = [
     max: 7200000,
     presets: AGENT_TIMEOUT_PRESETS,
   }),
-  setting("tailCheckModel", {
-    label: "Tail check model",
+  setting("probeValidateModel", {
+    label: "Probe validator model",
     description:
-      "Model for the kept-tail content check (prepare). Empty = background default, then the evaluated model.",
+      "Model for the probe validator (validates every authored probe at add time) and the kept-tail content check (prepare). Empty = background default, then the evaluated model.",
     type: "model",
-    defaultValue: DEFAULTS.tailCheckModel,
+    defaultValue: DEFAULTS.probeValidateModel,
   }),
-  setting("tailCheckThinkingLevel", {
-    label: "Tail check thinking level",
-    description: "Thinking level for the tail check. default = the background thinking level.",
+  setting("probeValidateThinkingLevel", {
+    label: "Probe validator thinking level",
+    description: "Thinking level for the probe validator. default = the background thinking level.",
     type: "thinking-level",
-    defaultValue: DEFAULTS.tailCheckThinkingLevel,
+    defaultValue: DEFAULTS.probeValidateThinkingLevel,
     presets: AGENT_THINKING_PRESETS,
   }),
-  setting("tailCheckMaxTokens", {
-    label: "Tail check max output tokens",
-    description:
-      "Per-call output-token cap for the tail check (the reply is a tiny JSON object). default = the background max tokens.",
+  setting("probeValidateMaxTokens", {
+    label: "Probe validator max output tokens",
+    description: "Per-call output-token cap for the probe validator. default = the background max tokens.",
     type: "number",
-    defaultValue: DEFAULTS.tailCheckMaxTokens,
+    defaultValue: DEFAULTS.probeValidateMaxTokens,
     min: 1,
     presets: AGENT_MAX_TOKENS_PRESETS,
   }),
-  setting("tailCheckTimeoutMs", {
-    label: "Tail check timeout",
-    description: "Wall-clock cap for the tail-check LLM call. default = the background timeout.",
+  setting("probeValidateTimeoutMs", {
+    label: "Probe validator timeout",
+    description: "Wall-clock cap per probe-validator LLM call. default = the background timeout.",
     type: "duration",
-    defaultValue: DEFAULTS.tailCheckTimeoutMs,
+    defaultValue: DEFAULTS.probeValidateTimeoutMs,
     min: 1000,
     max: 7200000,
     presets: AGENT_TIMEOUT_PRESETS,
@@ -524,8 +523,13 @@ const TABS: readonly SettingsTabSchema[] = [
     settingIds: ["authorModel", "authorThinkingLevel", "authorMaxTokens", "authorTimeoutMs"],
   },
   {
-    label: "Tail",
-    settingIds: ["tailCheckModel", "tailCheckThinkingLevel", "tailCheckMaxTokens", "tailCheckTimeoutMs"],
+    label: "Validate",
+    settingIds: [
+      "probeValidateModel",
+      "probeValidateThinkingLevel",
+      "probeValidateMaxTokens",
+      "probeValidateTimeoutMs",
+    ],
   },
   {
     label: "Sim",

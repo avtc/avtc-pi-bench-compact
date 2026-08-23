@@ -127,6 +127,9 @@ describe("buildAuthorSeam", () => {
       probes: [],
     } as unknown as ScenarioManifest;
     const author = buildAuthorSeam({
+      repoCwd: process.cwd(),
+      probeValidateModel: null,
+      probeValidateBudget: { thinking: null, maxTokens: 4096, timeoutMs: 120000 },
       ctxGetter: () => fakeCtx,
       authorModel: "provider/model-a",
       thinking: null,
@@ -150,7 +153,7 @@ describe("buildAuthorSeam", () => {
       },
     });
 
-    const result = await author("/tmp/slice/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
+    const result = await author("/tmp/slice/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1", "trial summary");
     expect(result).toBe(manifest);
     expect(captured.cwd).toBe("/tmp/slice");
     expect(captured.preSlicedJsonlPath).toBe("/tmp/slice/sliced-0.jsonl");
@@ -163,6 +166,9 @@ describe("buildAuthorSeam", () => {
   it("advances the widget to the 'extract' cell before running the authoring agent", async () => {
     const widget = capturingWidget();
     const author = buildAuthorSeam({
+      repoCwd: process.cwd(),
+      probeValidateModel: null,
+      probeValidateBudget: { thinking: null, maxTokens: 4096, timeoutMs: 120000 },
       ctxGetter: () => fakeCtx,
       authorModel: null,
       thinking: null,
@@ -174,7 +180,7 @@ describe("buildAuthorSeam", () => {
         ({ id: "sc1", recallFacts: [], doneOps: [], supersessions: [], probes: [] }) as unknown as ScenarioManifest,
       widget,
     });
-    await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
+    await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1", "trial summary");
     expect(widget.phases).toContain("extract");
   });
 });
@@ -754,6 +760,9 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
     });
     let authorResolveCtx: unknown = null;
     const author = buildAuthorSeam({
+      repoCwd: process.cwd(),
+      probeValidateModel: null,
+      probeValidateBudget: { thinking: null, maxTokens: 4096, timeoutMs: 120000 },
       ctxGetter: () => holder.current,
       authorModel: null,
       thinking: null,
@@ -781,7 +790,7 @@ describe("live-seams integration (cross-seam ctx-threading)", () => {
     // Drive the buildBackup order: driveAndCapture(0) → trialCompact → author.
     await driveAndCapture(0);
     await trialCompact("/tmp/build.jsonl");
-    await author("/tmp/slice/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
+    await author("/tmp/slice/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1", "trial summary");
 
     // driveAndCapture got the initial ctx; trialCompact got drive's fresh-1 (the holder threads).
     expect(fromCtxs).toEqual(["initial", "fresh-1"]);
@@ -970,7 +979,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
     const captured: { systemPrompt: string; userContent: string } = { systemPrompt: "", userContent: "" };
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      tailCheckModel: null,
+      probeValidateModel: null,
       thinking: null,
       maxTokens: 512,
       timeoutMs: 120000,
@@ -1010,7 +1019,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
     };
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      tailCheckModel: null,
+      probeValidateModel: null,
       thinking: "off",
       maxTokens: 512,
       timeoutMs: 98765,
@@ -1045,7 +1054,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
   it("malformed LLM reply → conservative empty set (missing → surface, never infinite-continue)", async () => {
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      tailCheckModel: null,
+      probeValidateModel: null,
       thinking: null,
       maxTokens: 512,
       timeoutMs: 120000,
@@ -1064,7 +1073,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
   it("model unavailable → throws (stop-and-surface, not silent)", async () => {
     const seam = buildTailCheckSeam({
       ctxGetter: () => fakeCtx,
-      tailCheckModel: null,
+      probeValidateModel: null,
       thinking: null,
       maxTokens: 512,
       timeoutMs: 120000,
@@ -1161,6 +1170,9 @@ describe("extractDetailFromCounts (extract-phase widget coverage)", () => {
       onModelResolved: () => {},
     } as unknown as WidgetPort;
     const author = buildAuthorSeam({
+      repoCwd: process.cwd(),
+      probeValidateModel: null,
+      probeValidateBudget: { thinking: null, maxTokens: 4096, timeoutMs: 120000 },
       ctxGetter: () => fakeCtx,
       authorModel: "provider/model-a",
       thinking: null,
@@ -1183,7 +1195,7 @@ describe("extractDetailFromCounts (extract-phase widget coverage)", () => {
         } as unknown as ScenarioManifest;
       }) as unknown as RunAuthor,
     });
-    await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1");
+    await author("/tmp/sliced-0.jsonl", "/tmp/backup.jsonl", "cut-1", "trial summary");
     expect(details).toEqual(["topics 1/4 · 1 pts", "topics 4/4 · 5 pts"]);
   });
 });

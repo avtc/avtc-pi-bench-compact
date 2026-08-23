@@ -31,6 +31,7 @@ import type { ArmId, BenchConfig } from "../config/types.js";
 import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { log } from "../log.js";
 import { type AuthoringSeams, runAuthoringAgent } from "../manifest/author.js";
+import { makeAddTimeValidator, readKeptTailText } from "../manifest/probe-validate.js";
 import type { ScenarioContext, ScenarioManifest } from "../manifest/schema.js";
 import { getBenchPi } from "../orchestrate/bench-ctx.js";
 import {
@@ -144,6 +145,13 @@ export interface AuthorSeamDeps {
   /** Wall-clock cap per authoring LLM call. */
   readonly timeoutMs: number;
   readonly rateLimitOptions?: RateLimitOptions | null;
+  /** The scenario repo working tree — the probe validator greps it for
+   *  repo-derivable answers. */
+  readonly repoCwd: string;
+  /** The probe validator's model (`provider/id`; null = session default). */
+  readonly probeValidateModel: string | null;
+  /** The probe validator's thinking/tokens/timeout budget. */
+  readonly probeValidateBudget: import("../manifest/probe-validate.js").ValidatorBudget;
   /** Injectable (default = resolveBenchModel). */
   readonly resolveModel?: ResolveModel;
   /** Injectable (default = runBenchStage). */
@@ -180,6 +188,7 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
     preSlicedJsonlPath: string,
     backupPath: string,
     firstKeptEntryId: string,
+    trialSummary: string,
   ): Promise<ScenarioManifest> => {
     deps.widget?.startPhase("extract", NO_DETAIL);
     const hooks = widgetStageHooks(deps.widget);
@@ -190,12 +199,40 @@ export function buildAuthorSeam(deps: AuthorSeamDeps): BuildSeams["author"] {
       onModelResolved: hooks?.onModelResolved,
       onDone: hooks?.onDone,
     };
+    // Lazily built on the FIRST validated probe: the tail read must not run
+    // (and cannot fail) when the authoring pass records no accept-carrying probes.
+    let validator: ReturnType<typeof makeAddTimeValidator> | undefined;
+    const validate = (probe: {
+      readonly question: string;
+      readonly accept: readonly string[];
+      readonly citedEntryIds: readonly string[];
+    }): Promise<import("../manifest/probe-validate.js").ProbeVerdict> => {
+      validator ??= makeAddTimeValidator({
+        kind: "manifest",
+        summary: trialSummary,
+        tail: readKeptTailText(backupPath, firstKeptEntryId),
+        repoCwd: deps.repoCwd,
+        spanPath: preSlicedJsonlPath,
+        seams: { resolveModel: () => resolve(deps.ctxGetter(), deps.probeValidateModel), runStage },
+        budget: deps.probeValidateBudget,
+        signal: deps.signal,
+      });
+      return validator(probe);
+    };
     const manifest = await runAuthor({
       seams,
       cwd: dirname(preSlicedJsonlPath),
       fullJsonlPath: backupPath,
       tailStartsAtEntryId: firstKeptEntryId,
       preSlicedJsonlPath,
+      validate: (probe) =>
+        probe.accept.length === 0
+          ? Promise.resolve({ ok: true })
+          : validate({
+              question: probe.question,
+              accept: probe.accept,
+              citedEntryIds: [...probe.citedEntryIds],
+            }),
       scenarioCtx: deps.scenarioCtx,
       onAdd: (counts): void => {
         deps.widget?.setDetail(extractDetailFromCounts(counts));
@@ -227,7 +264,7 @@ const SINGLE_TURN = 1;
 export interface TailCheckSeamDeps {
   readonly ctxGetter: () => ExtensionContext;
   /** The tail check's model (`provider/id`; null = session default). */
-  readonly tailCheckModel: string | null;
+  readonly probeValidateModel: string | null;
   /** The tail check's thinking level (null = omit the reasoning field). */
   readonly thinking: ThinkingLevel | null;
   /** Per-call output-token cap (the reply is a tiny JSON object). */
@@ -279,7 +316,7 @@ export function buildTailCheckSeam(deps: TailCheckSeamDeps): NonNullable<BuildSe
   return async (backupPath: string, firstKeptEntryId: string): Promise<ReadonlySet<string>> => {
     const raw = readRawBackupEntries(backupPath, { read: deps.read ?? ((p) => readFileSync(p, "utf-8")) });
     const tailText = renderTailText(sliceKeptTail(raw, firstKeptEntryId));
-    const resolved = await resolve(deps.ctxGetter(), deps.tailCheckModel);
+    const resolved = await resolve(deps.ctxGetter(), deps.probeValidateModel);
     if (!resolved.ok) throw new Error(`tail check model not available: ${resolved.error}`);
     hooks?.onModelResolved(resolved.model);
     let result: Awaited<ReturnType<typeof runStage>>;
@@ -787,6 +824,13 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
     signal: args.signal,
     maxTokens: agents.author.maxTokens,
     timeoutMs: agents.author.timeoutMs,
+    repoCwd: args.repoPath,
+    probeValidateModel: agents.probeValidate.model,
+    probeValidateBudget: {
+      thinking: agents.probeValidate.thinking,
+      maxTokens: agents.probeValidate.maxTokens,
+      timeoutMs: agents.probeValidate.timeoutMs,
+    },
   });
   const trialCompact = buildTrialCompactSeam({
     holder,
@@ -820,10 +864,10 @@ export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   });
   const findTailContent = buildTailCheckSeam({
     ctxGetter: () => holder.current,
-    tailCheckModel: agents.tailCheck.model,
-    thinking: agents.tailCheck.thinking,
-    maxTokens: agents.tailCheck.maxTokens,
-    timeoutMs: agents.tailCheck.timeoutMs,
+    probeValidateModel: agents.probeValidate.model,
+    thinking: agents.probeValidate.thinking,
+    maxTokens: agents.probeValidate.maxTokens,
+    timeoutMs: agents.probeValidate.timeoutMs,
     signal: args.signal,
     widget: args.widget,
   });

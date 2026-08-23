@@ -27,10 +27,10 @@ function cfg(overrides: Partial<BenchConfig>): BenchConfig {
     authorThinkingLevel: null,
     authorMaxTokens: null,
     authorTimeoutMs: null,
-    tailCheckModel: null,
-    tailCheckThinkingLevel: null,
-    tailCheckMaxTokens: null,
-    tailCheckTimeoutMs: null,
+    probeValidateModel: null,
+    probeValidateThinkingLevel: null,
+    probeValidateMaxTokens: null,
+    probeValidateTimeoutMs: null,
     simulatorModel: null,
     simulatorThinkingLevel: null,
     simulatorMaxTokens: null,
@@ -52,7 +52,7 @@ describe("resolveBackgroundAgents", () => {
       maxTokens: 65536,
       timeoutMs: 1200000,
     });
-    expect(agents.tailCheck).toEqual({
+    expect(agents.probeValidate).toEqual({
       model: "eval/model",
       thinking: "xhigh",
       maxTokens: 65536,
@@ -90,8 +90,8 @@ describe("resolveBackgroundAgents", () => {
     );
     expect(agents.author.model).toBe("author/model");
     expect(agents.author.thinking).toBe("high");
-    expect(agents.tailCheck.model).toBe("bg/model");
-    expect(agents.tailCheck.thinking).toBe("low");
+    expect(agents.probeValidate.model).toBe("bg/model");
+    expect(agents.probeValidate.thinking).toBe("low");
     expect(agents.simulator.model).toBe("bg/model");
     expect(agents.simulator.thinking).toBe("low");
     expect(agents.latent.model).toBe("latent/model");
@@ -106,15 +106,15 @@ describe("resolveBackgroundAgents", () => {
       cfg({
         backgroundMaxTokens: 8192,
         backgroundTimeoutMs: 60000,
-        tailCheckMaxTokens: 512,
+        probeValidateMaxTokens: 512,
         simulatorTurnTimeoutMs: 30000,
         latentStageMaxTokens: 65536,
       }),
     );
     expect(agents.author.maxTokens).toBe(8192);
     expect(agents.author.timeoutMs).toBe(60000);
-    expect(agents.tailCheck.maxTokens).toBe(512);
-    expect(agents.tailCheck.timeoutMs).toBe(60000);
+    expect(agents.probeValidate.maxTokens).toBe(512);
+    expect(agents.probeValidate.timeoutMs).toBe(60000);
     expect(agents.simulator.maxTokens).toBe(8192);
     expect(agents.simulator.timeoutMs).toBe(30000);
     expect(agents.latent.maxTokens).toBe(65536);

@@ -23,9 +23,17 @@ import {
 import {
   LATENT_MIN_PER_CLASS,
   type LatentCounts,
+  type ProbeValidateFn,
   runLatentAuthoringAgent,
   spanContentEntryIds,
 } from "../manifest/latent-author.js";
+import {
+  makeAddTimeValidator,
+  ProbeValidationStoppedError,
+  readKeptTailText,
+  type ValidatorBudget,
+} from "../manifest/probe-validate.js";
+import type { ResolvedBenchModel } from "../runtime/model.js";
 import { readArmCompaction } from "../session/compaction-record.js";
 import type { LatentPoolFile } from "../storage/latent-pool.js";
 import { readLatentPool, staleVerdictArms, summaryDigest, writeLatentPool } from "../storage/latent-pool.js";
@@ -56,6 +64,12 @@ export interface LatentStageDeps {
   /** Wall-clock cap per latent-authoring LLM call. */
   readonly timeoutMs: number;
   readonly rateLimitOptions: RateLimitOptions | null;
+  /** Add-time probe validation (null = off): the validator agent's budget +
+   *  model resolver. The closure is built per arm from its own summary + tail. */
+  readonly probeValidate: {
+    readonly budget: ValidatorBudget;
+    readonly resolveModel: () => Promise<ResolvedBenchModel>;
+  } | null;
   /** Per-arm mode: fired at the start of each arm's processing (reuse OR author) with
    *  the 1-based arm index + total — the harness moves the widget's arm counter.
    *  Shared mode: never fired (one authoring run over all arms). */
@@ -111,6 +125,35 @@ function sharedAuthoringArgs(
     rateLimitOptions: deps.rateLimitOptions,
     onAdd: deps.onAdd,
   };
+}
+
+/** Build the per-arm add-time validation closure (mechanical leak-gate + the
+ *  validator agent). Null when validation is off. */
+function validateOf(
+  deps: LatentStageDeps,
+  sessionPath: string,
+  summary: string,
+  anchor: string,
+): ProbeValidateFn | null {
+  const pv = deps.probeValidate;
+  if (pv === null) return null;
+  const inner = makeAddTimeValidator({
+    kind: "latent",
+    summary,
+    tail: readKeptTailText(sessionPath, anchor),
+    repoCwd: deps.cwd,
+    spanPath: sessionPath,
+    seams: { resolveModel: pv.resolveModel, runStage: deps.seams.runStage },
+    budget: pv.budget,
+    signal: deps.signal,
+  });
+  return (p) =>
+    inner({
+      question: p.question,
+      accept: [...p.accept],
+      citedEntryIds: [...p.entryIds],
+      claimedClass: p.probeClass,
+    });
 }
 
 /** Validate a pool's probes against the span ctx; the stopped result on failure,
@@ -198,6 +241,7 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       arm,
       sessionPaths: [sessionPath],
       tailStartsAtEntryId: compaction.firstKeptEntryId,
+      validate: validateOf(deps, sessionPath, compaction.summary, compaction.firstKeptEntryId),
       seedProbes: seeds,
       persistPartial: (probes): void => {
         writeLatentPool(poolPath, {
@@ -290,12 +334,15 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     }
   }
 
+  const firstCompaction = readArmCompaction(deps.arms[0].sessionPath);
   const result = await author({
     ...sharedAuthoringArgs(deps),
     mode: "shared",
     arm: deps.arms[0].arm,
     sessionPaths: deps.arms.map((a) => a.sessionPath),
     tailStartsAtEntryId: anchor,
+    validate:
+      firstCompaction === null ? null : validateOf(deps, deps.arms[0].sessionPath, firstCompaction.summary, anchor),
     seedProbes: seeds,
     persistPartial: (probes): void => {
       writeLatentPool(poolPath, {

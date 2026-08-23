@@ -85,6 +85,7 @@ function baseDeps(dir: string, over: Partial<LatentStageDeps> | null): LatentSta
     thinking: null,
     timeoutMs: 120000,
     rateLimitOptions: null,
+    probeValidate: null,
     ...(over ?? {}),
   };
 }

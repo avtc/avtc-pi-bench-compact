@@ -57,6 +57,10 @@ export interface KnownCondition {
 export type AuthoringSeams = JsonToolStageSeams;
 
 export interface RunAuthoringAgentDeps {
+  /** Add-time manifest-probe validation (mechanical leak-gate + the validator
+   *  agent, composed by the caller); absent/null = validation off. Applies to
+   *  accept-carrying probes only. */
+  readonly validate?: ManifestProbeValidateFn | null;
   /** Fires after every accepted per-item tool call with the live condition
    *  counts — the widget's extract-phase coverage signal. */
   readonly onAdd: (counts: ConditionCounts) => void;
@@ -361,9 +365,19 @@ export interface AuthorAccumulators {
  * `finalize_manifest` terminal tool (carries the task objective and ends the
  * stage). `onAdd` fires with the live counts after every accepted item.
  */
+/** Add-time manifest-probe validation: receives the accept-carrying probe content
+ *  (correctRefusal probes are exempt — there is no accept[] to leak); returns the
+ *  validator's verdict. */
+export type ManifestProbeValidateFn = (probe: {
+  readonly question: string;
+  readonly accept: readonly string[];
+  readonly citedEntryIds: readonly string[];
+}) => Promise<import("./probe-validate.js").ProbeVerdict>;
+
 export function buildAuthoringTools(
   cwd: string,
   onAdd: (counts: ConditionCounts) => void,
+  validate: ManifestProbeValidateFn | null,
 ): { tools: AgentTool[]; finalizeManifest: JsonOutputTool; acc: AuthorAccumulators } {
   const acc: AuthorAccumulators = {
     recallFacts: [],
@@ -447,6 +461,25 @@ export function buildAuthoringTools(
           return rejection(
             `rejected: supersessionId "${item.supersessionId}" matches no recorded reversal — record it via add_supersession first, then link the probe; fix and call add_probe again`,
           );
+        }
+      }
+      if (validate !== null && item.correctRefusal !== true && (item.accept?.length ?? 0) > 0) {
+        const verdict = await validate({
+          question: item.question,
+          accept: [...(item.accept ?? [])],
+          citedEntryIds: [...item.targets],
+        });
+        if (!verdict.ok) {
+          const what = verdict.problems.map((p) => p.what).join("; ");
+          return {
+            content: [
+              {
+                type: "text",
+                text: `rejected: ${what} — fix the probe or drop it and record a different fact of the same kind; call add_probe again`,
+              },
+            ],
+            details: { accepted: 0, rejected: 1 },
+          };
         }
       }
       sink(acc.probes)(params as Record<string, unknown>);
@@ -561,7 +594,7 @@ function makeGuardedFinalizeManifest(acc: AuthorAccumulators): JsonOutputTool {
 const JSONL_NEWLINE = "\n";
 
 export async function runAuthoringAgent(deps: RunAuthoringAgentDeps): Promise<ScenarioManifest> {
-  const { tools, finalizeManifest, acc } = buildAuthoringTools(deps.cwd, deps.onAdd);
+  const { tools, finalizeManifest, acc } = buildAuthoringTools(deps.cwd, deps.onAdd, deps.validate ?? null);
   const systemPrompt = buildAuthoringSystemPrompt({
     fullJsonlPath: deps.fullJsonlPath,
     tailStartsAtEntryId: deps.tailStartsAtEntryId,

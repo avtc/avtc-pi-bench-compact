@@ -34,10 +34,10 @@ function validConfig(): BenchConfig {
     authorThinkingLevel: null,
     authorMaxTokens: null,
     authorTimeoutMs: null,
-    tailCheckModel: null,
-    tailCheckThinkingLevel: null,
-    tailCheckMaxTokens: null,
-    tailCheckTimeoutMs: null,
+    probeValidateModel: null,
+    probeValidateThinkingLevel: null,
+    probeValidateMaxTokens: null,
+    probeValidateTimeoutMs: null,
     simulatorModel: null,
     simulatorThinkingLevel: null,
     simulatorMaxTokens: null,
@@ -237,8 +237,8 @@ describe("validateBenchConfig — multi-judge ensemble", () => {
     const allNull = validConfig();
     allNull.authorMaxTokens = null;
     allNull.authorTimeoutMs = null;
-    allNull.tailCheckMaxTokens = null;
-    allNull.tailCheckTimeoutMs = null;
+    allNull.probeValidateMaxTokens = null;
+    allNull.probeValidateTimeoutMs = null;
     allNull.simulatorMaxTokens = null;
     allNull.simulatorTurnTimeoutMs = null;
     allNull.latentStageMaxTokens = null;
@@ -246,7 +246,7 @@ describe("validateBenchConfig — multi-judge ensemble", () => {
     expect(validateBenchConfig(allNull)).toEqual({ ok: true });
 
     const badTokens = validConfig();
-    badTokens.tailCheckMaxTokens = 0;
+    badTokens.probeValidateMaxTokens = 0;
     expect(validateBenchConfig(badTokens).ok).toBe(false);
     const badLatentTokens = validConfig();
     badLatentTokens.latentStageMaxTokens = 0;

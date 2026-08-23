@@ -122,12 +122,12 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   authorMaxTokens: number | null;
   /** Wall-clock cap override per authoring LLM call (null = backgroundTimeoutMs). */
   authorTimeoutMs: number | null;
-  tailCheckModel: string | null;
-  tailCheckThinkingLevel: ThinkingLevel | null;
+  probeValidateModel: string | null;
+  probeValidateThinkingLevel: ThinkingLevel | null;
   /** Per-call output-token cap override (null = backgroundMaxTokens). */
-  tailCheckMaxTokens: number | null;
+  probeValidateMaxTokens: number | null;
   /** Wall-clock cap override for the tail-check LLM call (null = backgroundTimeoutMs). */
-  tailCheckTimeoutMs: number | null;
+  probeValidateTimeoutMs: number | null;
   simulatorModel: string | null;
   simulatorThinkingLevel: ThinkingLevel | null;
   /** Per-call output-token cap override (null = backgroundMaxTokens). */

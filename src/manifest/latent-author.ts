@@ -126,6 +126,7 @@ export function buildLatentTools(
   onAdd: (counts: LatentCounts) => void,
   citations: SpanCitations,
   persist: ((probes: readonly AuthorLatentProbe[]) => void) | null,
+  validate: ProbeValidateFn | null,
 ): { tools: AgentTool[]; finalizeLatent: LatentFinalizeTool; acc: AuthorLatentProbe[] } {
   const acc: AuthorLatentProbe[] = [];
   let lastRejectCount = 0;
@@ -223,6 +224,27 @@ export function buildLatentTools(
           ],
           details: { accepted: 0, rejected: 1 },
         };
+      }
+      // Add-time probe validation (mechanical leak-gate + the validator agent,
+      // both composed into the injected closure): a probe answerable from the
+      // compacted agent's own context (summary/tail/repo/reasoning) never enters
+      // the pool — the author gets the validator's evidence and records something
+      // else. A validator stop (ProbeValidationStoppedError) propagates out of the
+      // tool and halts the stage for the operator.
+      if (validate !== null) {
+        const verdict = await validate({ ...item, entryIds: resolvedIds });
+        if (!verdict.ok) {
+          const what = verdict.problems.map((p) => p.what).join("; ");
+          return {
+            content: [
+              {
+                type: "text",
+                text: `rejected: ${what} — fix the probe or drop it and record a different detail of the same kind; call add_latent_probe again`,
+              },
+            ],
+            details: { accepted: 0, rejected: 1 },
+          };
+        }
       }
       acc.push({ ...item, entryIds: resolvedIds });
       onAdd(counts());
@@ -376,8 +398,17 @@ export function buildLatentTaskMessage(deps: {
 
 // --- the agent -------------------------------------------------------------------
 
+/** Add-time probe validation: given the recorded probe, return the validator's
+ *  verdict (ok, or problems whose what-lines reach the author as the rejection). */
+export type ProbeValidateFn = (probe: AuthorLatentProbe) => Promise<import("./probe-validate.js").ProbeVerdict>;
+
 export interface RunLatentAuthoringDeps {
   readonly seams: JsonToolStageSeams;
+  /** Add-time probe validation per recorded probe (mechanical leak-gate + the
+   *  validator agent, composed by the caller); absent/null = validation off
+   *  (tests, legacy paths). A ProbeValidationStoppedError thrown inside halts
+   *  the stage for the operator. */
+  readonly validate?: ProbeValidateFn | null;
   /** Working directory the authoring tools operate in (the scenario repo). */
   readonly cwd: string;
   readonly mode: LatentAuthoringMode;
@@ -469,6 +500,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     deps.onAdd ?? (() => {}),
     citations,
     persist,
+    deps.validate ?? null,
   );
   const countsOf = (): LatentCounts => ({
     cued: acc.filter((p) => p.probeClass === "cued").length,

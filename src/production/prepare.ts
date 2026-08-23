@@ -154,7 +154,7 @@ export async function prepareScenario(deps: PrepareDeps): Promise<PrepareScenari
     }
     const trial = await deps.seams.trialCompact(backupPath);
     const preSliced = preSlice(backupPath, trial.firstKeptEntryId, join(deps.preSliceDir, "extract-sliced.jsonl"));
-    manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId);
+    manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId, trial.summary);
     // Structural validation gate (extract: stricter since ground truth is
     // discovered). Failures stop-and-surface.
     validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
@@ -269,7 +269,7 @@ export async function reAuthorManifest(deps: ReAuthorDeps): Promise<ScenarioMani
   const backupPath = branchSessionFile(deps.sessionsDir, RE_AUTHOR_BACKUP_BRANCH);
   const trial = await deps.seams.trialCompact(backupPath);
   const preSliced = preSlice(backupPath, trial.firstKeptEntryId, join(deps.preSliceDir, RE_AUTHOR_SLICE_NAME));
-  const manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId);
+  const manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId, trial.summary);
   // Same structural gate as a fresh prepare — a failure must NOT replace the manifest.
   validateAuthoredManifest(manifest, preSliced, backupPath, ALL_TOPICS);
   log.info(

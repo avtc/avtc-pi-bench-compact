@@ -75,13 +75,13 @@ export function validateBenchConfig(cfg: BenchConfig): ValidationResult {
   // Per-agent overrides, when set, must be positive too.
   const overrideMaxTokens = [
     cfg.authorMaxTokens,
-    cfg.tailCheckMaxTokens,
+    cfg.probeValidateMaxTokens,
     cfg.simulatorMaxTokens,
     cfg.latentStageMaxTokens,
   ];
   const overrideTimeouts = [
     cfg.authorTimeoutMs,
-    cfg.tailCheckTimeoutMs,
+    cfg.probeValidateTimeoutMs,
     cfg.simulatorTurnTimeoutMs,
     cfg.latentTimeoutMs,
   ];

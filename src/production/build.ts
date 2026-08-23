@@ -32,7 +32,12 @@ export interface BuildSeams {
   /** Author the manifest from the FULL backup JSONL (span + kept tail, split at
    *  `firstKeptEntryId`) — the author validates each finding against the tail.
    *  `preSlicedJsonlPath` remains the citation-sanitization input (span-only ids). */
-  author(preSlicedJsonlPath: string, backupPath: string, firstKeptEntryId: string): Promise<ScenarioManifest>;
+  author(
+    preSlicedJsonlPath: string,
+    backupPath: string,
+    firstKeptEntryId: string,
+    trialSummary: string,
+  ): Promise<ScenarioManifest>;
   /** Detect which condition-topics' content lives in the KEPT TAIL (at/after the
    *  trial cut `firstKeptEntryId` — the same tail boundary classifyLanding uses), for
    *  topics the author found nothing for. Optional — when absent, missing topics are
@@ -147,12 +152,13 @@ export async function buildBackup(deps: BuildBackupDeps): Promise<BuildBackupRes
   const endAttempt = startAttempt + maxAttempts;
   for (let attempt = startAttempt; attempt < endAttempt; attempt++) {
     const { backupPath, backupEntries } = await deps.seams.driveAndCapture(attempt);
-    const { firstKeptEntryId } = await deps.seams.trialCompact(backupPath);
+    const trial = await deps.seams.trialCompact(backupPath);
+    const { firstKeptEntryId } = trial;
 
     const preSlicedPath = join(deps.preSliceDir, `sliced-${attempt}.jsonl`);
-    const preSliced = preSlice(backupPath, firstKeptEntryId, preSlicedPath);
+    const preSliced = preSlice(backupPath, trial.firstKeptEntryId, preSlicedPath);
 
-    const manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, firstKeptEntryId);
+    const manifest = await deps.seams.author(preSliced.jsonlPath, backupPath, trial.firstKeptEntryId, trial.summary);
 
     // Tail detection: which topics' content is in the kept tail (separate from the
     // manifest's citations, since the author only saw the span). Only topics whose

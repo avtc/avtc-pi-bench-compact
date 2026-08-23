@@ -43,7 +43,7 @@ export interface JudgeAgents {
  *  background settings always carry a value. */
 export interface BackgroundAgents {
   readonly author: BackgroundAgent;
-  readonly tailCheck: BackgroundAgent;
+  readonly probeValidate: BackgroundAgent;
   readonly simulator: BackgroundAgent;
   readonly latent: BackgroundAgent;
   readonly judge: JudgeAgents;
@@ -64,11 +64,11 @@ export function resolveBackgroundAgents(config: BenchConfig): BackgroundAgents {
       maxTokens: maxTokens(config.authorMaxTokens),
       timeoutMs: timeoutMs(config.authorTimeoutMs),
     },
-    tailCheck: {
-      model: model(config.tailCheckModel, config.evaluatedModel),
-      thinking: thinking(config.tailCheckThinkingLevel),
-      maxTokens: maxTokens(config.tailCheckMaxTokens),
-      timeoutMs: timeoutMs(config.tailCheckTimeoutMs),
+    probeValidate: {
+      model: model(config.probeValidateModel, config.evaluatedModel),
+      thinking: thinking(config.probeValidateThinkingLevel),
+      maxTokens: maxTokens(config.probeValidateMaxTokens),
+      timeoutMs: timeoutMs(config.probeValidateTimeoutMs),
     },
     simulator: {
       model: model(config.simulatorModel, config.evaluatedModel),

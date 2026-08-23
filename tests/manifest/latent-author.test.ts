@@ -122,7 +122,14 @@ function citationsOf(...ids: string[]): SpanCitations {
 describe("buildLatentTools", () => {
   it("add_latent_probe accepts valid items and fires onAdd with per-class counts", async () => {
     const seen: string[] = [];
-    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"), null);
+    const { tools } = buildLatentTools(
+      ".",
+      null,
+      (c) => seen.push(`${c.cued}/${c.uncued}`),
+      citationsOf("e1"),
+      null,
+      null,
+    );
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { ...item("cued", "q1"), probeClass: "cued" });
@@ -131,7 +138,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe rejects schema mismatches with the shared rejection shape", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { question: "q", accept: [], entryIds: [], probeClass: "cued", note: "" });
@@ -143,7 +150,14 @@ describe("buildLatentTools", () => {
 
   it("add_latent_probe rejects placeholder-grade questions with the specific rejection (junk never enters the pool)", async () => {
     const seen: string[] = [];
-    const { tools } = buildLatentTools(".", null, (c) => seen.push(`${c.cued}/${c.uncued}`), citationsOf("e1"), null);
+    const { tools } = buildLatentTools(
+      ".",
+      null,
+      (c) => seen.push(`${c.cued}/${c.uncued}`),
+      citationsOf("e1"),
+      null,
+      null,
+    );
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { ...item("cued", "placeholder"), question: "Test4" });
@@ -155,7 +169,7 @@ describe("buildLatentTools", () => {
   });
 
   it('add_latent_probe rejects placeholder-grade notes and accept lists (the A3 junk: note "t", accept "a")', async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const note = await add.execute("c1", { ...item("cued", "fine question"), note: "t" });
@@ -171,7 +185,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe rejects near-duplicate questions (padding runs never enter the pool)", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const first = await add.execute("c1", item("cued", "What is the exact LEGACY_DECAY value?"));
@@ -187,7 +201,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe enforces the per-class cap with the approved rejection", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     for (let i = 0; i < LATENT_CAP_PER_CLASS; i++) {
@@ -206,7 +220,7 @@ describe("buildLatentTools", () => {
   });
 
   it("finalize_latent: min met → captures done and terminates", async () => {
-    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -220,7 +234,7 @@ describe("buildLatentTools", () => {
   });
 
   it("finalize_latent: below min with progress → produce-more rejection, no terminate", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -240,7 +254,7 @@ describe("buildLatentTools", () => {
     // operator dialog was unreachable. Junk adds are now rejected at the gate — the
     // next unchanged finalize has NO progress and opens the dialog (accept fewer).
     const ui = fakeUi(["accept fewer probes and continue"]);
-    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null);
+    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null, null);
     const add = t.tools.find((x) => x.name === "add_latent_probe");
     const fin = t.tools.find((x) => x.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -271,6 +285,7 @@ describe("buildLatentTools", () => {
       () => {},
       citationsOf("e1"),
       null,
+      null,
     );
     const finA = await seed(accept);
     const ra = await finA.execute("f1", {});
@@ -282,6 +297,7 @@ describe("buildLatentTools", () => {
       fakeUi(["ask the authoring agent to try again"]),
       () => {},
       citationsOf("e1"),
+      null,
       null,
     );
     const finR = await seed(retry);
@@ -295,19 +311,19 @@ describe("buildLatentTools", () => {
     expect(rr2.terminate).toBeUndefined();
     expect(retry.finalizeLatent._captured).toEqual([]);
 
-    const stop = buildLatentTools(".", fakeUi(["stop the run"]), () => {}, citationsOf("e1"), null);
+    const stop = buildLatentTools(".", fakeUi(["stop the run"]), () => {}, citationsOf("e1"), null, null);
     const finS = await seed(stop);
     const rs = await finS.execute("f1", {});
     expect(rs.terminate).toBe(true);
     expect(stop.finalizeLatent._captured).toEqual(["stop"]);
 
-    const dismissed = buildLatentTools(".", fakeUi([undefined]), () => {}, citationsOf("e1"), null);
+    const dismissed = buildLatentTools(".", fakeUi([undefined]), () => {}, citationsOf("e1"), null, null);
     const finD = await seed(dismissed);
     const rd = await finD.execute("f1", {});
     expect(rd.terminate).toBe(true);
     expect(dismissed.finalizeLatent._captured).toEqual(["stop"]);
 
-    const noUi = buildLatentTools(".", null, () => {}, citationsOf("e1"), null);
+    const noUi = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
     const finN = await seed(noUi);
     const rn = await finN.execute("f1", {});
     expect(rn.terminate).toBe(true);
@@ -971,5 +987,82 @@ describe("runLatentAuthoringAgent — retry passes", () => {
     expect(msg).toContain("Still needed: nothing — call finalize_latent.");
     expect(msg).toContain("The KEPT TAIL starts at the entry with id cut-1 — line 4.");
     expect(msg).toContain("Read the session file at E:/repo/sessions/arm.jsonl");
+  });
+});
+
+describe("buildLatentTools — add-time probe validation", () => {
+  const probeParams = {
+    question: "What was MODEL_MAINT before the recalibration?",
+    accept: ["MODEL_MAINT was 0.25"],
+    entryIds: ["e1"],
+    probeClass: "cued" as const,
+    note: "the pre-recalibration economy matters for regressions",
+  };
+
+  it("a validator rejection rejects the add with the validator's evidence; the probe never enters the pool", async () => {
+    const seen: unknown[] = [];
+    const { tools, acc } = buildLatentTools(
+      ".",
+      null,
+      () => {},
+      citationsOf("e1"),
+      null,
+      async (probe) => {
+        seen.push(probe);
+        return {
+          ok: false,
+          problems: [{ check: "tail", what: "the kept tail's recalibration table lists 0.25" }],
+        };
+      },
+    );
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (!add) throw new Error("no add_latent_probe");
+    const r = await add.execute("c1", probeParams);
+    expect(JSON.stringify(r?.content)).toContain("recalibration table lists 0.25");
+    expect(JSON.stringify(r?.content)).toContain("call add_latent_probe again");
+    expect(acc).toHaveLength(0);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("a validator pass records the probe", async () => {
+    const { tools, acc } = buildLatentTools(
+      ".",
+      null,
+      () => {},
+      citationsOf("e1"),
+      null,
+      async () => ({ ok: true }),
+    );
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (!add) throw new Error("no add_latent_probe");
+    const r = await add.execute("c1", probeParams);
+    expect(JSON.stringify(r?.content)).toContain("recorded add_latent_probe");
+    expect(acc).toHaveLength(1);
+  });
+
+  it("null validate = validation off (existing behavior)", async () => {
+    const { tools, acc } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null);
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (!add) throw new Error("no add_latent_probe");
+    await add.execute("c1", probeParams);
+    expect(acc).toHaveLength(1);
+  });
+
+  it("a validator stop error propagates out of the tool (halts the stage for the operator)", async () => {
+    const { tools } = buildLatentTools(
+      ".",
+      null,
+      () => {},
+      citationsOf("e1"),
+      null,
+      async () => {
+        throw new (await import("../../src/manifest/probe-validate.js")).ProbeValidationStoppedError(
+          "stage ended without calling report_verdict",
+        );
+      },
+    );
+    const add = tools.find((t) => t.name === "add_latent_probe");
+    if (!add) throw new Error("no add_latent_probe");
+    await expect(add.execute("c1", probeParams)).rejects.toThrow(/report_verdict/);
   });
 });

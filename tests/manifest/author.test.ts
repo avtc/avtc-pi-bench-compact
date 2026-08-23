@@ -110,7 +110,7 @@ describe("postProcessManifest (pure)", () => {
 
 describe("buildAuthoringTools", () => {
   it("composes read-only core tools + bash + five per-item tools + finalize_manifest", () => {
-    const { tools, finalizeManifest } = buildAuthoringTools(process.cwd(), () => {});
+    const { tools, finalizeManifest } = buildAuthoringTools(process.cwd(), () => {}, null);
     const names = tools.map((t) => t.name);
     expect(names).toContain("read");
     expect(names).toContain("grep");
@@ -127,7 +127,7 @@ describe("buildAuthoringTools", () => {
 
   it("per-item tools accumulate validated items; onAdd fires with live counts per accepted item", async () => {
     const counts: { recallFacts: number; doneOps: number; supersessions: number; abstentions: number }[] = [];
-    const { tools } = buildAuthoringTools(process.cwd(), (c) => counts.push({ ...c }));
+    const { tools } = buildAuthoringTools(process.cwd(), (c) => counts.push({ ...c }), null);
     const add = (name: string) => {
       const t = tools.find((x) => x.name === name);
       if (!t) throw new Error(`no ${name}`);
@@ -548,7 +548,7 @@ describe("sanitizeCitations", () => {
 
 describe("tail conflicts (author-side tail validation)", () => {
   it("buildAuthoringTools includes add_tail_conflict (validated accumulation)", async () => {
-    const { tools } = buildAuthoringTools(process.cwd(), () => {});
+    const { tools } = buildAuthoringTools(process.cwd(), () => {}, null);
     expect(tools.find((t) => t.name === "add_tail_conflict")).toBeDefined();
   });
 
@@ -613,7 +613,7 @@ describe("dropConflictedFindings (tail-conflict filtering, not auto-continue)", 
 });
 
 describe("buildAuthoringTools — supersessionId guards (add-time + finalize)", () => {
-  const toolsOf = () => buildAuthoringTools(process.cwd(), () => {});
+  const toolsOf = () => buildAuthoringTools(process.cwd(), () => {}, null);
   const byName = (ts: readonly { name: string }[], n: string) => {
     const t = ts.find((x) => x.name === n);
     if (!t) throw new Error(`${n} tool not composed`);
@@ -737,5 +737,54 @@ describe("postProcessManifest — supersession ids", () => {
     };
     const m = postProcessManifest(author, scenarioCtx);
     expect(m.supersessions.map((s) => s.id)).toEqual(["ss1", "ss2"]);
+  });
+});
+
+describe("buildAuthoringTools — add-time manifest-probe validation", () => {
+  const acceptProbe = {
+    question: "What was TAKE_RATE before the recalibration?",
+    accept: ["TAKE_RATE was 0.05"],
+    targets: ["e3"],
+  };
+
+  it("a validator rejection rejects the add with the validator's evidence; nothing accumulates", async () => {
+    const { tools, acc } = buildAuthoringTools(
+      process.cwd(),
+      () => {},
+      async () => ({
+        ok: false,
+        problems: [{ check: "repo", what: "grep hits TAKE_RATE = 0.05 in config.js — answerable from files" }],
+      }),
+    );
+    const add = tools.find((t) => t.name === "add_probe");
+    if (!add) throw new Error("no add_probe");
+    const r = await add.execute("c1", acceptProbe);
+    expect(JSON.stringify(r?.content)).toContain("answerable from files");
+    expect(JSON.stringify(r?.content)).toContain("call add_probe again");
+    expect(acc.probes).toHaveLength(0);
+  });
+
+  it("a validator pass records the probe; correctRefusal probes bypass validation", async () => {
+    let calls = 0;
+    const { tools, acc } = buildAuthoringTools(
+      process.cwd(),
+      () => {},
+      async () => {
+        calls += 1;
+        return { ok: true };
+      },
+    );
+    const add = tools.find((t) => t.name === "add_probe");
+    if (!add) throw new Error("no add_probe");
+    await add.execute("c1", acceptProbe);
+    const r2 = await add.execute("c2", {
+      question: "we use WASD, right?",
+      correctRefusal: true,
+      face: "stale",
+      targets: ["e3"],
+    });
+    expect(JSON.stringify(r2?.content)).toContain("recorded add_probe");
+    expect(acc.probes).toHaveLength(2);
+    expect(calls).toBe(1); // refusal probe never reached the validator
   });
 });

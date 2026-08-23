@@ -359,7 +359,9 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       widget?.startPhase("latent", NO_DETAIL);
       const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
       const stage = deps.latentStage ?? runLatentStage;
-      const latentAgent = resolveBackgroundAgents(deps.config).latent;
+      const latentAgents = resolveBackgroundAgents(deps.config);
+      const latentAgent = latentAgents.latent;
+      const probeValidateAgent = latentAgents.probeValidate;
       // The latent authoring is a BACKGROUND agent — wire the widget hooks like the
       // extract/author phase: onEvent streams ctx/tok, onModelResolved sets the ctx
       // window, onAdd renders the live per-class probe counts, onArm advances the
@@ -386,6 +388,14 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
           maxTokens: latentAgent.maxTokens,
           timeoutMs: latentAgent.timeoutMs,
           rateLimitOptions: null,
+          probeValidate: {
+            budget: {
+              thinking: probeValidateAgent.thinking,
+              maxTokens: probeValidateAgent.maxTokens,
+              timeoutMs: probeValidateAgent.timeoutMs,
+            },
+            resolveModel: () => resolveBenchModel(ctxAfterPhase1, probeValidateAgent.model),
+          },
           onArm: (arm, index, total): void => {
             widget?.setArm(index, total, ARM_DEFS[arm].tool);
             widget?.setDetail(NO_DETAIL);
