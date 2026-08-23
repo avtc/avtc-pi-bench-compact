@@ -133,6 +133,7 @@ describe("runLatentStagePerArm — validator widget wiring", () => {
         return {
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
           messages: [],
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
           outputTokens: 0,

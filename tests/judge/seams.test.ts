@@ -88,7 +88,14 @@ function stageResult(text: string): StageRunResult {
   const messages: AgentMessage[] = [
     { role: "assistant", content: [{ type: "text", text }], timestamp: 0 } as unknown as AgentMessage,
   ];
-  return { messages, usage: makeUsage(), outputTokens: 1, aborted: false, timedOut: false };
+  return {
+    messages,
+    usage: makeUsage(),
+    outputTokens: 1,
+    aborted: false,
+    timedOut: false,
+    finalContextTokens: 0,
+  };
 }
 
 function makeUsage(): StageRunResult["usage"] {

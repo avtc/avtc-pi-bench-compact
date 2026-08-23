@@ -187,6 +187,7 @@ describe("runAuthoringAgent", () => {
           outputTokens: 5,
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
         };
       },
     };
@@ -220,6 +221,7 @@ describe("runAuthoringAgent", () => {
         outputTokens: 5,
         aborted: false,
         timedOut: false,
+        finalContextTokens: 0,
       }),
     };
     await expect(
@@ -248,6 +250,7 @@ describe("runAuthoringAgent", () => {
         outputTokens: 0,
         aborted: false,
         timedOut: false,
+        finalContextTokens: 0,
       }),
     };
     await expect(
@@ -287,7 +290,8 @@ describe("runAuthoringAgent", () => {
           usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1, elapsedMs: 1 },
           outputTokens: 5,
           aborted: false,
-          timedOut: true, // per-turn timeout fired
+          timedOut: true,
+          finalContextTokens: 0, // per-turn timeout fired
         };
       },
     };
@@ -328,6 +332,7 @@ describe("runAuthoringAgent", () => {
           outputTokens: 5,
           aborted: true, // run-signal abort (not timeout)
           timedOut: false,
+          finalContextTokens: 0,
         };
       },
     };
@@ -367,6 +372,7 @@ describe("runAuthoringAgent", () => {
           outputTokens: 5,
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
         };
       },
     };
@@ -412,6 +418,7 @@ describe("runAuthoringAgent", () => {
           outputTokens: 1,
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
         };
       },
     };
@@ -455,6 +462,7 @@ describe("runAuthoringAgent", () => {
           outputTokens: 1,
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
         };
       },
     };

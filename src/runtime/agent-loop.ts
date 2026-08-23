@@ -80,6 +80,12 @@ export interface StageRunResult {
    *  Surfaced so the caller can STOP the stage + notify (a timeout is an error
    *  condition, not a silent no-op pass). */
   timedOut: boolean;
+  /** The FINAL request's context size — the last message_end's totalTokens
+   *  (input+output+cache components when the provider omits the precomputed
+   *  total), 0 when no usage was seen. The context-exhaustion signal: a stage
+   *  that ends without its terminal tool at >=95% of the model's window died
+   *  on the window, not on a lucid refusal. */
+  finalContextTokens: number;
 }
 
 /** Input to `runBenchStage`. Every field is required; pass a `NO_*` sentinel for "absent". */
@@ -198,6 +204,7 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
   const usage = emptyUsage();
   const startMs = Date.now();
   let fallbackTokens = 0;
+  let finalContextTokens = 0; // last message_end totalTokens (see StageRunResult)
 
   try {
     const context: AgentContext = {
@@ -280,6 +287,7 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
             usage.cacheRead += u.cacheRead;
             usage.cacheWrite += u.cacheWrite;
             usage.cost += u.cost;
+            finalContextTokens = u.totalTokens;
           }
         } else if (event.type === "turn_end") {
           usage.turns += 1;
@@ -328,7 +336,14 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
       // caller can distinguish "compaction cancelled me" from "a single LLM call ran
       // too long" and treat the latter as a stage-stopping error.
       const timedOut = turnTimeout.signal.aborted && !input.signal.aborted;
-      return { messages, usage, outputTokens, aborted: input.signal.aborted || turnTimeout.signal.aborted, timedOut };
+      return {
+        messages,
+        usage,
+        outputTokens,
+        aborted: input.signal.aborted || turnTimeout.signal.aborted,
+        timedOut,
+        finalContextTokens,
+      };
     } finally {
       if (turnTimer !== undefined) clearTimeout(turnTimer);
       input.signal.removeEventListener("abort", forwardAbort);

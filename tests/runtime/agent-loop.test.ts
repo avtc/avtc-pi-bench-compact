@@ -200,6 +200,19 @@ describe("runBenchStage", () => {
     expect(r.usage.elapsedMs).toBeGreaterThanOrEqual(0);
   });
 
+  it("finalContextTokens = the LAST message_end totalTokens (the final request's context); 0 when none", async () => {
+    const events = [
+      msgEnd({ input: 100, output: 40 }),
+      TURN_END,
+      msgEnd({ input: 200, output: 60, totalTokens: 262_000 }),
+      TURN_END,
+    ];
+    const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events, []) }));
+    expect(r.finalContextTokens).toBe(262_000);
+    const none = await runBenchStage(baseInput({ loopFn: fakeLoop([TURN_END], []) }));
+    expect(none.finalContextTokens).toBe(0);
+  });
+
   it("outputTokens falls back to chars/4 over streamed deltas when the provider reports no output usage", async () => {
     const events = [textDelta("abcdefgh"), textDelta("abcd"), TURN_END]; // 8+4 chars = 12 -> 3 tokens
     const r = await runBenchStage(baseInput({ loopFn: fakeLoop(events, []) }));

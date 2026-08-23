@@ -470,7 +470,9 @@ function poolFromAcc(
  *  request-failure message names the context/token limit). Everything else — a
  *  lucid no-finalize, an unavailable model, an abort — keeps today's throw. */
 function isRetryableLatentFailure(err: unknown): boolean {
-  if (err instanceof BenchJudgeError && err.category === "timeout") return true;
+  if (err instanceof BenchJudgeError && (err.category === "timeout" || err.category === "context-exhausted")) {
+    return true;
+  }
   if (err instanceof StageRunError) {
     const msg = err.cause instanceof Error ? err.cause.message : String(err.cause);
     return /exceed|context|too long|too large|token limit/i.test(msg);
@@ -567,7 +569,8 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
       // timeout or a context-window-exhausted request. The kept probes carry over
       // (same acc), and the next pass opens with the retry kickoff.
       if (!isRetryableLatentFailure(err) || pass >= LATENT_MAX_PASSES) throw err;
-      reason = err instanceof BenchJudgeError ? LATENT_REASON_TIMED_OUT : LATENT_REASON_CONTEXT;
+      reason =
+        err instanceof BenchJudgeError && err.category === "timeout" ? LATENT_REASON_TIMED_OUT : LATENT_REASON_CONTEXT;
       const kept = countsOf();
       log.info(
         `latent: ${scope} pass ${pass + 1}/${LATENT_MAX_PASSES} — previous pass ${reason} (kept cued ${kept.cued}, uncued ${kept.uncued})`,

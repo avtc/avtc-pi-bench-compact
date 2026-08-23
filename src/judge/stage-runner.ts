@@ -113,6 +113,10 @@ export interface RunJsonToolStageDeps {
  * aborted stage, or no capture (STOP+surface — the `label` names the stage).
  * Pure aside from the seams.
  */
+/** Fraction of the model's context window at or above which a no-capture stage
+ *  is classified as context-exhausted (died on the window, not a lucid refusal). */
+export const CONTEXT_EXHAUSTED_FRACTION = 0.95;
+
 export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unknown> {
   const resolved = await deps.seams.resolveModel();
   if (!resolved.ok) {
@@ -156,6 +160,17 @@ export async function runJsonToolStage(deps: RunJsonToolStageDeps): Promise<unkn
   }
   const captured = deps.terminalTool._captured;
   if (captured.length === 0) {
+    // A no-capture stage that ended at (nearly) the whole window died on the
+    // window — local models often degrade to a plain tool-less reply instead of
+    // erroring. Classified distinctly so retry-capable callers (the latent
+    // authoring pass loop) can restart in a fresh context.
+    const window = resolved.model.contextWindow ?? 0;
+    if (window > 0 && result.finalContextTokens >= CONTEXT_EXHAUSTED_FRACTION * window) {
+      throw new BenchJudgeError(
+        "context-exhausted",
+        `${deps.label} agent exhausted its context window before ${deps.terminalTool.name} — final context ${result.finalContextTokens}/${window} tokens`,
+      );
+    }
     throw new BenchJudgeError(
       "no-capture",
       `${deps.label} agent did not call ${deps.terminalTool.name} — nothing captured`,

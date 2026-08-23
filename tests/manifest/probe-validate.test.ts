@@ -23,6 +23,7 @@ function stageResult(): StageRunResult {
     outputTokens: 0,
     aborted: false,
     timedOut: false,
+    finalContextTokens: 0,
   };
 }
 

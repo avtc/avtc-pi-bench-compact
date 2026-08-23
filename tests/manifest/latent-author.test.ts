@@ -18,6 +18,7 @@ import {
   LATENT_CAP_PER_CLASS,
   LATENT_MAX_PASSES,
   LATENT_MIN_PER_CLASS,
+  LATENT_REASON_CONTEXT,
   LATENT_REASON_RESUMED,
   LATENT_REASON_TIMED_OUT,
   runLatentAuthoringAgent,
@@ -646,6 +647,7 @@ describe("runLatentAuthoringAgent", () => {
 // ── pass loop: auto-restart on mid-work deaths (timeout / context exhaustion) ──
 describe("runLatentAuthoringAgent — retry passes", () => {
   const FAKE_MODEL_R: Model<Api> = { id: "fake" } as unknown as Model<Api>;
+  const WINDOWED_MODEL_R: Model<Api> = { id: "fake", contextWindow: 262_144 } as unknown as Model<Api>;
 
   function sessionOf(dir: string): string {
     const path = join(dir, "arm.jsonl");
@@ -668,14 +670,23 @@ describe("runLatentAuthoringAgent — retry passes", () => {
    *  context-exhausted request wrapped in StageRunError — before the script runs. */
   function scriptedSeams(
     passes: Array<(find: (n: string) => AgentTool, input: { messages: [{ content: string }] }) => Promise<void>>,
-    failFirst: "timeout" | "context" | null,
+    failFirst: "timeout" | "context" | "silent-context" | null,
   ): { seams: JsonToolStageSeams; kickoffs: string[] } {
     const kickoffs: string[] = [];
     let i = 0;
     return {
       kickoffs,
       seams: {
-        resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL_R, apiKey: "k" }),
+        resolveModel: async () =>
+          ({
+            ok: true as const,
+            model: failFirst === "silent-context" ? WINDOWED_MODEL_R : FAKE_MODEL_R,
+            apiKey: "k",
+          }) as {
+            ok: true;
+            model: Model<Api>;
+            apiKey: string;
+          },
         runStage: async (input) => {
           const inp = input as unknown as { tools: AgentTool[]; messages: [{ content: string }] };
           kickoffs.push(inp.messages[0].content);
@@ -688,6 +699,16 @@ describe("runLatentAuthoringAgent — retry passes", () => {
             throw new StageRunError(
               new Error("model m request failed: maximum context length is 8192 tokens, however you requested 262999"),
             );
+          }
+          if (i === 0 && failFirst === "silent-context") {
+            // the local-model death: the stage ENDS CLEANLY (no timeout, no error,
+            // no terminal call) at >=95% of the window — a degraded tool-less reply
+            i += 1;
+            return {
+              timedOut: false,
+              aborted: false,
+              finalContextTokens: 262_000,
+            } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
           }
           const step = passes[Math.min(i, passes.length - 1)];
           i += 1;
@@ -774,6 +795,42 @@ describe("runLatentAuthoringAgent — retry passes", () => {
       timeoutMs: 120000,
     });
     expect(r.kind).toBe("completed");
+  });
+
+  it("a SILENT context death (clean no-finalize at >=95% of the window) auto-restarts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-retry-silent-"));
+    const { seams, kickoffs } = scriptedSeams(
+      [
+        async (find) => {
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          for (let i = 0; i < 3; i++) {
+            await add.execute("c", item("cued", `cued silent fact number ${i} of the trio`));
+            await add.execute("c", item("uncued", `uncued silent fact number ${i} of the trio`));
+          }
+          await (find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> }).execute("c", {});
+        },
+      ],
+      "silent-context",
+    );
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [sessionOf(dir)],
+      tailStartsAtEntryId: "cut-1",
+      ui: null,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+    expect(kickoffs).toHaveLength(2);
+    expect(kickoffs[1]).toContain(
+      `The previous authoring pass ended before finalize_latent (${LATENT_REASON_CONTEXT}).`,
+    );
   });
 
   it("a NON-retryable failure (lucid no-finalize) does NOT restart", async () => {

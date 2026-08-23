@@ -23,6 +23,7 @@ export function cleanResult(): StageRunResult {
     outputTokens: 0,
     aborted: false,
     timedOut: false,
+    finalContextTokens: 0,
   };
 }
 

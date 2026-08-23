@@ -995,6 +995,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
         return {
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
           messages: [
             {
               role: "assistant",
@@ -1039,6 +1040,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
         return {
           aborted: false,
           timedOut: false,
+          finalContextTokens: 0,
           messages: [
             {
               role: "assistant",
@@ -1067,6 +1069,7 @@ describe("tail-check seam (findTailContent wiring)", () => {
       runStage: (async () => ({
         aborted: false,
         timedOut: false,
+        finalContextTokens: 0,
         messages: [{ role: "assistant", content: [{ type: "text", text: "cannot answer" }] }],
       })) as unknown as RunStage,
     });
@@ -1266,7 +1269,7 @@ describe("buildAuthorSeam — probe-validator widget wiring", () => {
         const tool = input.tools.find((t) => t.name === "report_verdict");
         if (!tool?.execute) throw new Error("report_verdict missing");
         await tool.execute("c1", { ok: true, problems: [] });
-        return { aborted: false, timedOut: false, messages: [] };
+        return { aborted: false, timedOut: false, messages: [], finalContextTokens: 0 };
       }) as unknown as RunStage,
       runAuthor: async (deps) => {
         captured.fn = deps.validate ?? null;

@@ -4,6 +4,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import { BenchJudgeError } from "../../src/judge/errors.js";
 import { buildStageDeps, type JsonToolStageSeams, runJsonToolStage } from "../../src/judge/stage-runner.js";
 import { type JsonOutputTool, makeJsonOutputTool, NO_CAPTURE } from "../../src/runtime/tools.js";
 import { callTerminal, capturingSeams, cleanResult, OK_MODEL } from "./helpers.js";
@@ -215,6 +216,74 @@ describe("runJsonToolStage", () => {
       }),
     ).rejects.toThrow(/did not call emit|no.*captured/i);
   });
+
+  it("classifies a no-capture stage that ended at >=95% of the model window as context-exhausted", async () => {
+    const t = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
+    const windowed: JsonToolStageSeams = {
+      resolveModel: async () =>
+        ({ ok: true, model: { id: "m", contextWindow: 262_144 }, apiKey: "k" }) as unknown as typeof OK_MODEL,
+      runStage: async () => ({
+        ...cleanResult(),
+        finalContextTokens: 250_000, // 95.4% of the window
+      }),
+    };
+    const err = (await runJsonToolStage({
+      seams: windowed,
+      tools: [t] as AgentTool[],
+      systemPrompt: "s",
+      terminalTool: t,
+      label: "latent authoring",
+      userMessageContent: "go",
+      maxTokens: 1,
+      reasoning: null,
+      timeoutMs: null,
+      signal: new AbortController().signal,
+    }).catch((e: unknown) => e)) as unknown as { category?: string; message: string };
+    expect(err).toBeInstanceOf(BenchJudgeError);
+    expect((err as { category?: string }).category).toBe("context-exhausted");
+    expect(err.message).toMatch(/exhausted its context window.*250[ ,]?000.*262[ ,]?144/);
+  });
+
+  it("keeps plain no-capture below the threshold and when the window is unknown", async () => {
+    const t = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
+    const nearMiss: JsonToolStageSeams = {
+      resolveModel: async () =>
+        ({ ok: true, model: { id: "m", contextWindow: 262_144 }, apiKey: "k" }) as unknown as typeof OK_MODEL,
+      runStage: async () => ({ ...cleanResult(), finalContextTokens: 200_000 }),
+    };
+    await expect(
+      runJsonToolStage({
+        seams: nearMiss,
+        tools: [t] as AgentTool[],
+        systemPrompt: "s",
+        terminalTool: t,
+        label: "x",
+        userMessageContent: "g",
+        maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({ category: "no-capture" });
+    const noWindow: JsonToolStageSeams = {
+      ...nearMiss,
+      resolveModel: async () => OK_MODEL, // no contextWindow on the fake model
+    };
+    await expect(
+      runJsonToolStage({
+        seams: noWindow,
+        tools: [t] as AgentTool[],
+        systemPrompt: "s",
+        terminalTool: t,
+        label: "x",
+        userMessageContent: "g",
+        maxTokens: 1,
+        reasoning: null,
+        timeoutMs: null,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({ category: "no-capture" });
+  });
 });
 
 describe("buildStageDeps", () => {
@@ -251,7 +320,7 @@ describe("runJsonToolStage — agent-done hook", () => {
   const terminal = (): JsonOutputTool => makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
 
   it("fires seams.onDone after a successful stage", async () => {
-    const t = terminal();
+    const t = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const { seams } = capturingSeams("emit", { value: "x" });
     const done: number[] = [];
     const hooked: JsonToolStageSeams = { ...seams, onDone: () => done.push(1) };
@@ -271,13 +340,14 @@ describe("runJsonToolStage — agent-done hook", () => {
   });
 
   it("fires seams.onDone when the stage times out (any exit)", async () => {
-    const t = terminal();
+    const t = makeJsonOutputTool("emit", "desc", SCHEMA, NO_CAPTURE);
     const { seams } = capturingSeams("emit", { value: "x" });
     const timedOutSeams: JsonToolStageSeams = {
       ...seams,
       runStage: async () => ({
         messages: [],
         timedOut: true,
+        finalContextTokens: 0,
         aborted: false,
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0, turns: 0, elapsedMs: 0 },
         outputTokens: 0,

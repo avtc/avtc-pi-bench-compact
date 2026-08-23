@@ -98,6 +98,7 @@ function fakeStageResult(text: string) {
     outputTokens: 5,
     aborted: false,
     timedOut: false,
+    finalContextTokens: 0,
   };
 }
 
@@ -237,6 +238,7 @@ describe("SimulatorDriver", () => {
         outputTokens: 0,
         aborted: false,
         timedOut: false,
+        finalContextTokens: 0,
       }),
     });
     const driver = makeDriver(seams, { hooks: { onStop } });
