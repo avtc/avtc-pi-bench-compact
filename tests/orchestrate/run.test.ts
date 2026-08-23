@@ -1239,3 +1239,223 @@ describe("startRun — fastEval probes-only", () => {
     expect(walls).toEqual({ A1: 1000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Preserved arms — reuse a previous run's compaction + latent pools
+// ---------------------------------------------------------------------------
+import type { PreservedBase, PreserveRunResult, preserveArmsForRun } from "../../src/storage/preserve.js";
+
+function preservedBase(arm: ArmId, sourceRunId: string): PreservedBase {
+  return {
+    arm,
+    tool: `tool-${arm}`,
+    ver: undefined,
+    cfgId: "cfg-x",
+    branch: `preserved-branch-${arm}`,
+    wallMs: 500,
+    usage: undefined,
+    sourceRunId,
+  };
+}
+
+function preserveFake(found: readonly PreservedBase[]): ReturnType<typeof vi.fn> {
+  return vi.fn(
+    (): PreserveRunResult => ({
+      bases: [...found],
+      preservedFrom: Object.fromEntries(found.map((b) => [b.arm, b.sourceRunId])),
+      logLines: found.map((b) => `preserve: arm ${b.arm} reused run ${b.sourceRunId}`),
+    }),
+  );
+}
+
+describe("startRun — preserved arms (reuse compaction + latent pools)", () => {
+  /** Minimal session files for preserved branches — the probes-only synthesis
+   *  re-reads each arm base's transcript from the sessions dir. */
+  function writePreservedSessions(sessionsDir: string, found: readonly PreservedBase[]): void {
+    mkdirSync(sessionsDir, { recursive: true });
+    for (const b of found) {
+      writeFileSync(
+        join(sessionsDir, `${b.branch.replace(/[^a-zA-Z0-9._-]/g, "-")}.jsonl`),
+        [
+          { type: "session", id: "s-preserve" },
+          { id: "e1", type: "message", role: "user", content: "span" },
+          { id: "cut-1", type: "message", role: "assistant", content: "tail" },
+          { type: "compaction", id: "c1", summary: "preserved summary", firstKeptEntryId: "cut-1" },
+        ]
+          .map((e) => JSON.stringify(e))
+          .join("\n"),
+      );
+    }
+  }
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "bench-run-preserve-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("all arms preserved: phase-1, latent authoring, and continuations are skipped; probes ask on the reused bases and provenance lands in preserved.json", async () => {
+    const probes = probesMock(async () => ({ traces: [], finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: [], finalCtx: FINAL_CTX }));
+    const latentStage = vi.fn(async (_d: unknown, _mode: string) => ({
+      kind: "done" as const,
+      pools: {},
+      reAuthored: [],
+    }));
+    const phase1 = phase1Mock(async () => ({ bases: fakeBases(["A1", "A3"]), finalCtx: FINAL_CTX }));
+    const deps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      scenarioRepo: join(root, "repo"),
+      phase1,
+      continuations,
+      probes,
+      latentStage,
+      config: { latentProbes: "per-arm", fastEval: "off" },
+    });
+    deps.preserve = { from: null };
+    const found = [preservedBase("A1", "2026-08-23-2"), preservedBase("A3", "2026-08-22-2")];
+    writePreservedSessions(join(root, "sessions"), found);
+    deps.preserveArms = preserveFake(found) as unknown as typeof preserveArmsForRun;
+
+    const result = await startRun(deps);
+
+    expect(result.kind).toBe("done");
+    // compaction + latent authoring never ran; continuations skipped (probes-only)
+    expect(phase1).not.toHaveBeenCalled();
+    expect(latentStage).not.toHaveBeenCalled();
+    expect(continuations).not.toHaveBeenCalled();
+    // probes asked per arm, on the PRESERVED bases, in armsEnabled order
+    expect(probes).toHaveBeenCalledTimes(2);
+    expect(probes.mock.calls.map((c) => [c[0].armBase.arm, c[0].armBase.branch])).toEqual([
+      ["A1", "preserved-branch-A1"],
+      ["A3", "preserved-branch-A3"],
+    ]);
+    // durable provenance artifact beside the run's other artifacts
+    const runId = "2026-08-11-1";
+    const preserved = JSON.parse(readFileSync(join(root, "runs", runId, "preserved.json"), "utf8")) as Record<
+      string,
+      string
+    >;
+    expect(preserved).toEqual({ A1: "2026-08-23-2", A3: "2026-08-22-2" });
+  });
+
+  it("mixed: phase-1 compacts only the unpreserved arm and the latent stage authors only that arm", async () => {
+    const probes = probesMock(async () => ({ traces: [], finalCtx: FINAL_CTX }));
+    const continuations = continuationsMock(async () => ({ traces: [], finalCtx: FINAL_CTX }));
+    const latentStage = vi.fn(async (_d: unknown, _mode: string) => ({
+      kind: "done" as const,
+      pools: {},
+      reAuthored: [],
+    }));
+    const phase1 = phase1Mock(async (d) => ({ bases: fakeBases(d.armsEnabled), finalCtx: FINAL_CTX }));
+    const deps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      scenarioRepo: join(root, "repo"),
+      phase1,
+      continuations,
+      probes,
+      latentStage,
+      config: { latentProbes: "per-arm" },
+    });
+    deps.preserve = { from: null };
+    const found = [preservedBase("A1", "2026-08-23-2")];
+    writePreservedSessions(join(root, "sessions"), found);
+    // the compacted arm's base session (fakeBases names it branch-<arm>) — the
+    // probes-only synthesis reads every arm base's transcript
+    writePreservedSessions(join(root, "sessions"), [{ ...preservedBase("A3", "this-run"), branch: "branch-A3" }]);
+    deps.preserveArms = preserveFake(found) as unknown as typeof preserveArmsForRun;
+
+    const result = await startRun(deps);
+
+    expect(result.kind).toBe("done");
+    expect(phase1).toHaveBeenCalledTimes(1);
+    expect(phase1.mock.calls[0]?.[0].armsEnabled).toEqual(["A3"]);
+    expect(latentStage).toHaveBeenCalledTimes(1);
+    const stageArg = latentStage.mock.calls[0]?.[0] as { arms: Array<{ arm: ArmId }> } | undefined;
+    expect(stageArg?.arms.map((a) => a.arm)).toEqual(["A3"]);
+    // any preservation forces probes-only
+    expect(continuations).not.toHaveBeenCalled();
+    expect(probes).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserve is ignored while resuming (the resume path owns the run)", async () => {
+    const phase1 = phase1Mock(async (d) => ({ bases: fakeBases(d.armsEnabled), finalCtx: FINAL_CTX }));
+    const latentStage = vi.fn(async (_d: unknown, _mode: string) => ({
+      kind: "done" as const,
+      pools: {},
+      reAuthored: [],
+    }));
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1,
+      latentStage,
+      config: { latentProbes: "per-arm" },
+    });
+    deps.preserve = { from: null };
+    deps.preserveArms = preserveFake([preservedBase("A1", "2026-08-23-2")]) as unknown as typeof preserveArmsForRun;
+    deps.resume = {
+      runId: "2026-08-10-9",
+      cfgId: buildCfgId(buildRunConfig(deps.config, null as unknown as Parameters<typeof buildRunConfig>[1], MANIFEST)),
+      allowConfigChange: true,
+    } as unknown as StartRunDeps["resume"];
+
+    await startRun(deps);
+
+    expect(deps.preserveArms).not.toHaveBeenCalled();
+    expect(phase1).toHaveBeenCalledTimes(1);
+    expect(phase1.mock.calls[0]?.[0].armsEnabled).toEqual(["A1"]);
+  });
+
+  it("preserve is ignored when the latent mode is not per-arm (shared/off pools are not preservable pairs)", async () => {
+    const phase1 = phase1Mock(async (d) => ({ bases: fakeBases(d.armsEnabled), finalCtx: FINAL_CTX }));
+    const latentStage = vi.fn(async (_d: unknown, _mode: string) => ({
+      kind: "done" as const,
+      pools: {},
+      reAuthored: [],
+    }));
+    const deps = makeDeps({
+      arms: ["A1"],
+      root,
+      phase1,
+      latentStage,
+      config: { latentProbes: "shared" },
+    });
+    deps.preserve = { from: null };
+    deps.preserveArms = preserveFake([preservedBase("A1", "2026-08-23-2")]) as unknown as typeof preserveArmsForRun;
+
+    await startRun(deps);
+
+    expect(deps.preserveArms).not.toHaveBeenCalled();
+    expect(phase1.mock.calls[0]?.[0].armsEnabled).toEqual(["A1"]);
+  });
+
+  it("without a preserve request the flow is unchanged (phase-1 + latent stage over every arm)", async () => {
+    const phase1 = phase1Mock(async (d) => ({ bases: fakeBases(d.armsEnabled), finalCtx: FINAL_CTX }));
+    const latentStage = vi.fn(async (_d: unknown, _mode: string) => ({
+      kind: "done" as const,
+      pools: {},
+      reAuthored: [],
+    }));
+    const continuations = continuationsMock(async () => ({ traces: [], finalCtx: FINAL_CTX }));
+    const deps = makeDeps({
+      arms: ["A1", "A3"],
+      root,
+      phase1,
+      latentStage,
+      continuations,
+      config: { latentProbes: "per-arm" },
+    });
+
+    await startRun(deps);
+
+    expect(phase1.mock.calls[0]?.[0].armsEnabled).toEqual(["A1", "A3"]);
+    expect(latentStage).toHaveBeenCalledTimes(1);
+    const stageArg = latentStage.mock.calls[0]?.[0] as { arms: Array<{ arm: ArmId }> } | undefined;
+    expect(stageArg?.arms.map((a) => a.arm)).toEqual(["A1", "A3"]);
+    expect(continuations).toHaveBeenCalledTimes(1);
+  });
+});

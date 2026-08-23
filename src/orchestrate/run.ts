@@ -51,6 +51,7 @@ import {
   scenarioManifest,
 } from "../storage/paths.js";
 import { type Phase1Walls, readPhase1Walls, writePhase1Walls } from "../storage/phase1-walls.js";
+import { type PreserveRunResult, preserveArmsForRun } from "../storage/preserve.js";
 import { checkout } from "../storage/repo.js";
 import { parseResumeRunId, type ResumeTarget } from "../storage/resume.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
@@ -179,6 +180,13 @@ export interface StartRunDeps {
    *  namespace cfg (a config change since the crash refuses the resume). Committed
    *  phase artifacts (arm bases, attempts, probes) are skipped by the phases. */
   resume?: ResumeTarget;
+  /** Preserved run (fresh runs only, per-arm latent mode): reuse a previous run's
+   *  compaction + latent pool verbatim for every arm with a valid source pair — the
+   *  run starts at the probes (probes-only, no continuations). `run-scenario` passes
+   *  this by default; undefined = a full fresh run. Ignored alongside `resume`. */
+  preserve?: { readonly from: string | null };
+  /** Injectable preserve resolver (tests fake it; default = select + materialize). */
+  preserveArms?: typeof preserveArmsForRun;
 }
 
 /** The production ScoreRunDeps builder's inputs. */
@@ -317,32 +325,84 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   });
 
   try {
-    // --- Phase 1: compact each arm once → arm bases ---
+    // --- Shared run inputs: the sessions store + the run's runtime pins ---
     const sessionsDir = join(dirname(deps.scenarioRepo), "sessions");
+    const runtimePins = pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel);
     // The operator's global memkeeper settings, read ONCE and merged under the arm
     // pins at every configureArm (Phase 1 + Phase 2) — global panel tuning (models,
     // timeouts, thinking levels, max tokens) reaches the bench arms.
     const memkeeperGlobalSettings = readMemkeeperGlobalSettings(join(homedir(), ".pi"));
-    const { bases, finalCtx: ctxAfterPhase1 } = await phase1({
-      cmdCtx: deps.cmdCtx,
-      scenarioRepo: deps.scenarioRepo,
-      sessionsDir,
-      date,
-      id,
-      cfgId: nsCfgId,
-      toolVersions: runConfig.toolVersions,
-      omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
-      memkeeperGlobalSettings,
-      priorWalls,
-      wallsPath,
-      armsEnabled: deps.config.armsEnabled,
-      runtimePins: pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel),
-      resume: resuming,
-      reuseBases: deps.resume?.reuseBases === true,
-      widget,
-      ops: deps.ops,
-    });
 
+    // --- Preserved arms: reuse a previous run's compaction + latent pool ---
+    // Fresh runs in per-arm latent mode only: each arm with a valid source pair
+    // (committed base + session whose compaction record still matches its pool)
+    // skips phase-1 + latent authoring entirely — the probes are re-asked on the
+    // VERBATIM memory state, so only the answering model varies across runs.
+    let preserved: PreserveRunResult = { bases: [], preservedFrom: {}, logLines: [] };
+    if (deps.preserve !== undefined && !resuming) {
+      if (deps.config.latentProbes !== "per-arm") {
+        log.info("preserve: skipped — latent mode is not per-arm (pools are not preservable pairs)");
+      } else {
+        const preserveArms = deps.preserveArms ?? preserveArmsForRun;
+        preserved = preserveArms({
+          repo: deps.scenarioRepo,
+          sessionsDir,
+          runsRoot: root,
+          runPath,
+          date,
+          id,
+          cfgId: nsCfgId,
+          runtimePins,
+          armsEnabled: deps.config.armsEnabled,
+          from: deps.preserve.from,
+        });
+        for (const line of preserved.logLines) log.info(line);
+        if (preserved.bases.length > 0) {
+          writeFileSync(join(runPath, "preserved.json"), `${JSON.stringify(preserved.preservedFrom, null, 2)}\n`);
+        }
+      }
+    }
+
+    // --- Phase 1: compact each arm once → arm bases (preserved arms skipped) ---
+    const armsToCompact = deps.config.armsEnabled.filter((a) => preserved.preservedFrom[a] === undefined);
+    const armOrder = new Map(deps.config.armsEnabled.map((a, i) => [a, i] as const));
+    let ctxAfterPhase1: ExtensionCommandContext = deps.cmdCtx;
+    let bases: ArmBase[] = [...preserved.bases];
+    if (armsToCompact.length > 0) {
+      const phase1Result = await phase1({
+        cmdCtx: deps.cmdCtx,
+        scenarioRepo: deps.scenarioRepo,
+        sessionsDir,
+        date,
+        id,
+        cfgId: nsCfgId,
+        toolVersions: runConfig.toolVersions,
+        omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
+        memkeeperGlobalSettings,
+        priorWalls,
+        wallsPath,
+        armsEnabled: armsToCompact,
+        runtimePins,
+        resume: resuming,
+        reuseBases: deps.resume?.reuseBases === true,
+        widget,
+        ops: deps.ops,
+      });
+      ctxAfterPhase1 = phase1Result.finalCtx;
+      // Merged in the config's arm order (the probe/continuation loops + the widget
+      // arm counter iterate this order regardless of how each base was built); with
+      // NO preservation the phase-1 array passes through untouched.
+      bases =
+        preserved.bases.length === 0
+          ? phase1Result.bases
+          : [...preserved.bases, ...phase1Result.bases].sort(
+              (a, b) => (armOrder.get(a.arm) ?? 0) - (armOrder.get(b.arm) ?? 0),
+            );
+    } else if (preserved.bases.length > 0) {
+      log.info(
+        `phase-1: skipped — all arms preserved (${preserved.bases.map((b) => `${b.arm}←${b.sourceRunId}`).join(", ")})`,
+      );
+    }
     // Persist every arm THIS process compacted (merge — keeps prior entries for arms
     // that skipped via resume/reuse, whose walls are only in the file).
     const freshWalls: Phase1Walls = {};
@@ -355,71 +415,79 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // The pools persist under runs/<runId>/ (latent-pool[-<arm>].json) — later
     // phases read them from disk, like the phase-1 walls + verdict journal. ---
     if (deps.config.latentProbes !== "off") {
-      updateRunState({ phase: "latent", currentArm: null, currentAttempt: null });
-      widget?.startPhase("latent", NO_DETAIL);
-      const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
-      const stage = deps.latentStage ?? runLatentStage;
-      const latentAgents = resolveBackgroundAgents(deps.config);
-      const latentAgent = latentAgents.latent;
-      const probeValidateAgent = latentAgents.probeValidate;
-      // The latent authoring is a BACKGROUND agent — wire the widget hooks like the
-      // extract/author phase: onEvent streams ctx/tok, onModelResolved sets the ctx
-      // window, onAdd renders the live per-class probe counts, onArm advances the
-      // arm counter (per-arm mode).
-      const latentHooks = widgetStageHooks(widget);
-      const latentResult = await stage(
-        {
-          arms: bases.map((b) => ({ arm: b.arm, sessionPath: branchSessionFile(sessionsDir, b.branch) })),
-          runPath,
-          cwd: deps.scenarioRepo,
-          // The phase-1 arm compactions switchSession'd — the original command ctx is
-          // STALE by now. Use the threaded fresh ctx (the last arm's withSession ctx),
-          // exactly like the continuation + probe phases do.
-          ui: ctxAfterPhase1.ui,
-          seams: {
-            resolveModel: () => resolveBenchModel(ctxAfterPhase1, latentAgent.model),
-            runStage: runBenchStage,
-            onEvent: latentHooks?.onEvent,
-            onModelResolved: latentHooks?.onModelResolved,
-            onDone: latentHooks?.onDone,
-          },
-          signal,
-          thinking: latentAgent.thinking,
-          maxTokens: latentAgent.maxTokens,
-          timeoutMs: latentAgent.timeoutMs,
-          rateLimitOptions: null,
-          probeValidate: {
-            budget: {
-              thinking: probeValidateAgent.thinking,
-              maxTokens: probeValidateAgent.maxTokens,
-              timeoutMs: probeValidateAgent.timeoutMs,
+      // Preserved arms' pools were copied verbatim at preserve time (their digests
+      // match the copied sessions BY CONSTRUCTION) — authoring runs only for the
+      // arms that actually compacted this run.
+      const latentArms = bases.filter((b) => preserved.preservedFrom[b.arm] === undefined);
+      if (latentArms.length === 0) {
+        log.info("latent: all arms preserved — pools reused verbatim, authoring skipped");
+      } else {
+        updateRunState({ phase: "latent", currentArm: null, currentAttempt: null });
+        widget?.startPhase("latent", NO_DETAIL);
+        const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
+        const stage = deps.latentStage ?? runLatentStage;
+        const latentAgents = resolveBackgroundAgents(deps.config);
+        const latentAgent = latentAgents.latent;
+        const probeValidateAgent = latentAgents.probeValidate;
+        // The latent authoring is a BACKGROUND agent — wire the widget hooks like the
+        // extract/author phase: onEvent streams ctx/tok, onModelResolved sets the ctx
+        // window, onAdd renders the live per-class probe counts, onArm advances the
+        // arm counter (per-arm mode).
+        const latentHooks = widgetStageHooks(widget);
+        const latentResult = await stage(
+          {
+            arms: latentArms.map((b) => ({ arm: b.arm, sessionPath: branchSessionFile(sessionsDir, b.branch) })),
+            runPath,
+            cwd: deps.scenarioRepo,
+            // The phase-1 arm compactions switchSession'd — the original command ctx is
+            // STALE by now. Use the threaded fresh ctx (the last arm's withSession ctx),
+            // exactly like the continuation + probe phases do.
+            ui: ctxAfterPhase1.ui,
+            seams: {
+              resolveModel: () => resolveBenchModel(ctxAfterPhase1, latentAgent.model),
+              runStage: runBenchStage,
+              onEvent: latentHooks?.onEvent,
+              onModelResolved: latentHooks?.onModelResolved,
+              onDone: latentHooks?.onDone,
             },
-            resolveModel: () => resolveBenchModel(ctxAfterPhase1, probeValidateAgent.model),
+            signal,
+            thinking: latentAgent.thinking,
+            maxTokens: latentAgent.maxTokens,
+            timeoutMs: latentAgent.timeoutMs,
+            rateLimitOptions: null,
+            probeValidate: {
+              budget: {
+                thinking: probeValidateAgent.thinking,
+                maxTokens: probeValidateAgent.maxTokens,
+                timeoutMs: probeValidateAgent.timeoutMs,
+              },
+              resolveModel: () => resolveBenchModel(ctxAfterPhase1, probeValidateAgent.model),
+            },
+            widget,
+            onArm: (arm, index, total): void => {
+              widget?.setArm(index, total, ARM_DEFS[arm].tool);
+              widget?.setDetail(NO_DETAIL);
+            },
+            onAdd: (counts): void => {
+              widget?.setDetail(latentDetailFromCounts(counts));
+            },
           },
-          widget,
-          onArm: (arm, index, total): void => {
-            widget?.setArm(index, total, ARM_DEFS[arm].tool);
-            widget?.setDetail(NO_DETAIL);
-          },
-          onAdd: (counts): void => {
-            widget?.setDetail(latentDetailFromCounts(counts));
-          },
-        },
-        latentMode,
-      );
-      if (latentResult.kind === "stopped") {
-        throw new LatentStageStoppedError(latentResult.arm, { message: latentResult.message });
-      }
-      // A re-authored pool restarts ids at l1 — purge the OLD latent probe branches +
-      // session files so a resume cannot replay dead answers for the new questions.
-      if (latentResult.reAuthored.length > 0) {
-        purgeLatentProbeArtifacts(
-          deps.scenarioRepo,
-          sessionsDir,
-          bases
-            .filter((b) => latentResult.kind === "done" && latentResult.reAuthored.includes(b.arm))
-            .map((b) => ({ arm: b.arm, branch: b.branch })),
+          latentMode,
         );
+        if (latentResult.kind === "stopped") {
+          throw new LatentStageStoppedError(latentResult.arm, { message: latentResult.message });
+        }
+        // A re-authored pool restarts ids at l1 — purge the OLD latent probe branches +
+        // session files so a resume cannot replay dead answers for the new questions.
+        if (latentResult.reAuthored.length > 0) {
+          purgeLatentProbeArtifacts(
+            deps.scenarioRepo,
+            sessionsDir,
+            bases
+              .filter((b) => latentResult.kind === "done" && latentResult.reAuthored.includes(b.arm))
+              .map((b) => ({ arm: b.arm, branch: b.branch })),
+          );
+        }
       }
     } else {
       log.info("latent: off — skipped");
@@ -427,7 +495,12 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
     // --- Phase 2a: fork each base into N continuation attempts ---
     updateRunState({ phase: "phase-2", currentArm: null, currentAttempt: null });
-    const probesOnly = deps.config.fastEval === "probes-only";
+    // A preserved run is a recall test by construction — the memory state + probe
+    // set are fixed inputs, so continuations add nothing: force probes-only.
+    const probesOnly = deps.config.fastEval === "probes-only" || preserved.bases.length > 0;
+    if (probesOnly && deps.config.fastEval !== "probes-only" && preserved.bases.length > 0) {
+      log.info("phase-2: skipped (preserved run — probes-only, the reused memory is the input under test)");
+    }
     let contResult: Phase2Result;
     if (probesOnly) {
       // fast eval: no continuations — the direct probes ARE the eval (the agent is

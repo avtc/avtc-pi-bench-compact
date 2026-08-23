@@ -220,6 +220,8 @@ describe("parseRunScenarioArgs", () => {
       allowConfigChange: false,
       reuseBases: false,
       rescore: false,
+      fresh: false,
+      from: undefined,
       error: undefined,
     });
   });
@@ -240,6 +242,8 @@ describe("parseRunScenarioArgs", () => {
       allowConfigChange: false,
       reuseBases: false,
       rescore: false,
+      fresh: false,
+      from: undefined,
       error: undefined,
     });
     expect(b).toEqual({
@@ -248,6 +252,8 @@ describe("parseRunScenarioArgs", () => {
       allowConfigChange: false,
       reuseBases: false,
       rescore: false,
+      fresh: false,
+      from: undefined,
       error: undefined,
     });
   });
@@ -355,5 +361,41 @@ describe("parseRunScenarioArgs — --resume=<runId> format tolerance", () => {
 
   it("still rejects an empty value", () => {
     expect(parseRunScenarioArgs("C:/s --resume=").error).toMatch(/non-empty runId/);
+  });
+});
+
+describe("parseRunScenarioArgs — preserve flags", () => {
+  it("parses --fresh (force a full run)", () => {
+    const r = parseRunScenarioArgs("/scen/abc --fresh");
+    expect(r.folder).toBe("/scen/abc");
+    expect(r.fresh).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it("parses --from=<runId> (pin the preserved source run)", () => {
+    const r = parseRunScenarioArgs("/scen/abc --from=2026-08-23-2");
+    expect(r.from).toBe("2026-08-23-2");
+    expect(r.fresh).toBe(false);
+    expect(r.error).toBeUndefined();
+  });
+
+  it("refuses --fresh with --resume", () => {
+    expect(parseRunScenarioArgs("/scen/abc --resume --fresh").error).toBe("--fresh cannot be combined with --resume");
+    expect(parseRunScenarioArgs("/scen/abc --resume=2026-08-16-4 --fresh").error).toBe(
+      "--fresh cannot be combined with --resume",
+    );
+  });
+
+  it("refuses --fresh with --from", () => {
+    expect(parseRunScenarioArgs("/scen/abc --fresh --from=2026-08-23-2").error).toBe(
+      "--fresh cannot be combined with --from",
+    );
+  });
+
+  it("refuses an empty --from= and --from with --resume", () => {
+    expect(parseRunScenarioArgs("/scen/abc --from=").error).toBe("--from requires a non-empty runId");
+    expect(parseRunScenarioArgs("/scen/abc --from=2026-08-23-2 --resume").error).toBe(
+      "--from cannot be combined with --resume",
+    );
   });
 });

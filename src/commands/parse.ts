@@ -288,6 +288,12 @@ export interface RunScenarioArgs {
    *  refusal — every phase replays from its durable artifacts and scoring re-runs
    *  (the verdict journal replays unchanged slices). */
   rescore: boolean;
+  /** `--fresh`: force a full fresh run — compaction + latent authoring from scratch,
+   *  no preservation of a previous run's bases + pools. */
+  fresh: boolean;
+  /** `--from=<runId>`: pin the preserved source run (default = newest valid pair
+   *  per arm). Ignored alongside `--fresh`/`--resume` (parse refuses both mixes). */
+  from: string | undefined;
   /** Set when a flag is malformed (e.g. `--resume=` with no id). */
   error: string | undefined;
 }
@@ -298,6 +304,7 @@ const RESUME_EQ = "--resume=";
 const ALLOW_CONFIG_CHANGE_FLAG = "--allow-config-change";
 const REUSE_BASES_FLAG = "--reuse-bases";
 const RESCORE_FLAG = "--rescore";
+const FRESH_FLAG = "--fresh";
 
 /** Parse `run-scenario` args: one positional scenario folder + `--resume` (bare —
  *  auto-detect the latest incomplete run) or `--resume=<runId>` (explicit). The
@@ -312,6 +319,8 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
   let allowConfigChange = false;
   let reuseBases = false;
   let rescore = false;
+  let fresh = false;
+  let from: string | undefined;
   let error: string | undefined;
 
   for (let i = 0; i < tokens.length; i++) {
@@ -335,6 +344,10 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
       reuseBases = true;
     } else if (tok === RESCORE_FLAG) {
       rescore = true;
+    } else if (tok === FRESH_FLAG) {
+      fresh = true;
+    } else if (tok.startsWith(FROM_EQ)) {
+      from = tok.slice(FROM_EQ.length);
     } else if (tok.startsWith("--")) {
       error = `unknown flag "${tok}"`;
       break;
@@ -355,6 +368,18 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
   if (error === undefined && rescore && (resume === undefined || resume === true)) {
     error = "--rescore requires an explicit --resume=<runId>";
   }
+  if (error === undefined && fresh && resume !== undefined) {
+    error = "--fresh cannot be combined with --resume";
+  }
+  if (error === undefined && fresh && from !== undefined) {
+    error = "--fresh cannot be combined with --from";
+  }
+  if (error === undefined && from === "") {
+    error = "--from requires a non-empty runId";
+  }
+  if (error === undefined && from !== undefined && resume !== undefined) {
+    error = "--from cannot be combined with --resume";
+  }
 
   return {
     folder: positionals.length === 1 ? positionals[0] : undefined,
@@ -362,6 +387,8 @@ export function parseRunScenarioArgs(args: string): RunScenarioArgs {
     allowConfigChange,
     reuseBases,
     rescore,
+    fresh,
+    from: from === "" ? undefined : from,
     error,
   };
 }

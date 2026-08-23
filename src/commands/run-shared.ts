@@ -116,6 +116,9 @@ export interface ExecuteRunOptions {
   readonly manifest: ScenarioManifest;
   /** Crash resume: the crashed run's identity + cfg (from --resume; absent = fresh). */
   readonly resume?: ResumeTarget;
+  /** Preserved run (run-scenario default; absent = full fresh run): reuse a previous
+   *  run's compaction + latent pools per arm, start at the probes. */
+  readonly preserve?: { readonly from: string | null };
   /** Override the run driver (tests inject a fake; default = real `startRun`). */
   readonly startRun?: (deps: StartRunDeps) => Promise<RunResult>;
 }
@@ -380,6 +383,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunResult> {
     scenarioRepo: opts.scenarioRepo,
     manifest: opts.manifest,
     resume: opts.resume,
+    preserve: opts.preserve,
     widget,
     notify: (message: string): void => {
       ui.notify(message, "warning");

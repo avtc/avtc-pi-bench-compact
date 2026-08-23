@@ -153,6 +153,10 @@ export function makeRunScenarioHandler(opts: RunScenarioHandlerOptions) {
       scenarioRepo: layout.repoPath,
       manifest,
       resume,
+      // Preserved runs are the DEFAULT for a fresh invocation: reuse a previous
+      // run's compaction + latent pools per arm and start at the probes. Off on
+      // --fresh (forced full run) and --resume (the resume path owns the run).
+      preserve: parsed.fresh || resume !== undefined ? undefined : { from: parsed.from ?? null },
     });
   };
 }
@@ -162,7 +166,7 @@ export function registerRunScenarioCommand(pi: ExtensionAPI): void {
   registerHandler(
     pi,
     "bench-compact:run-scenario",
-    "Run every enabled arm from a prepared scenario folder (--resume [runId] continues an interrupted run).",
+    "Run every enabled arm from a prepared scenario folder — reuses a previous run's compaction + latent probes per arm (run-scenario --fresh forces a full run; --resume [runId] continues an interrupted run).",
     makeRunScenarioHandler({}),
   );
 }

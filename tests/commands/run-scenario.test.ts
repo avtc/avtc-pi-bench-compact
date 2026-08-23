@@ -271,3 +271,72 @@ describe("makeRunScenarioHandler — --resume", () => {
     expect(notifies.some((n) => n.level === "warning")).toBe(true);
   });
 });
+
+describe("makeRunScenarioHandler — preserve (reuse compaction + latent pools)", () => {
+  function preserveHarness() {
+    const folder = "/scen/repo";
+    const parentManifest = join(dirname(folder), "manifest.json");
+    const executeRun = vi
+      .fn()
+      .mockResolvedValue({ kind: "done", runId: "r", cfgId: "c", resultsPath: "/p", reportPath: "/r" });
+    const handler = makeRunScenarioHandler({
+      executeRun,
+      exists: (p: string): boolean => p === folder || p === parentManifest,
+      readManifest: (): string => JSON.stringify(VALID_MANIFEST),
+      listBranches: (): string[] => [],
+    });
+    return { ctx: fakeCommandCtx().ctx, executeRun, handler, folder };
+  }
+
+  it("a fresh invocation passes preserve by default (newest per arm)", async () => {
+    const { ctx, executeRun, handler, folder } = preserveHarness();
+    await handler(folder, ctx);
+    const arg = executeRun.mock.calls[0][0] as { preserve?: { from: string | null } };
+    expect(arg.preserve).toEqual({ from: null });
+  });
+
+  it("--from=<runId> pins the preserved source run", async () => {
+    const { ctx, executeRun, handler, folder } = preserveHarness();
+    await handler(`${folder} --from=2026-08-23-2`, ctx);
+    const arg = executeRun.mock.calls[0][0] as { preserve?: { from: string | null } };
+    expect(arg.preserve).toEqual({ from: "2026-08-23-2" });
+  });
+
+  it("--fresh forces a full run (no preserve)", async () => {
+    const { ctx, executeRun, handler, folder } = preserveHarness();
+    await handler(`${folder} --fresh`, ctx);
+    const arg = executeRun.mock.calls[0][0] as { preserve?: unknown };
+    expect(arg.preserve).toBeUndefined();
+  });
+
+  it("--resume keeps the resume path (no preserve)", async () => {
+    const { ctx, executeRun, handler, folder } = preserveHarness();
+    // bare --resume: the branch scan finds nothing incomplete → warning, no run
+    await handler(`${folder} --resume`, ctx);
+    expect(executeRun).not.toHaveBeenCalled();
+  });
+
+  it("--resume=<runId> passes no preserve", async () => {
+    const { ctx, executeRun } = { ctx: fakeCommandCtx().ctx, executeRun: preserveHarness().executeRun };
+    const folder = "/scen/repo";
+    const handler2 = makeRunScenarioHandler({
+      executeRun,
+      exists: (p: string): boolean => p === folder || p === join(dirname(folder), "manifest.json"),
+      readManifest: (): string => JSON.stringify(VALID_MANIFEST),
+      listBranches: (): string[] => ["bench-compact/run-2026-08-16-4/cfg-abc/arm-bare-pi"],
+    });
+    await handler2(`${folder} --resume=2026-08-16-4`, ctx);
+    expect(executeRun).toHaveBeenCalledOnce();
+    const arg = executeRun.mock.calls[0][0] as { preserve?: unknown; resume?: unknown };
+    expect(arg.preserve).toBeUndefined();
+    expect(arg.resume).toBeDefined();
+  });
+
+  it("--fresh with --resume is refused before any run", async () => {
+    const c = fakeCommandCtx();
+    const harness = preserveHarness();
+    await harness.handler("/scen/repo --resume --fresh", c.ctx);
+    expect(harness.executeRun).not.toHaveBeenCalled();
+    expect(c.notifies.some((n) => n.level === "warning")).toBe(true);
+  });
+});
