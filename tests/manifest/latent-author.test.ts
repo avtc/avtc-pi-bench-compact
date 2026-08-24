@@ -12,6 +12,8 @@ import type { JsonToolStageSeams } from "../../src/judge/stage-runner.js";
 import type { AuthorLatentProbe, LatentProbe } from "../../src/manifest/latent.js";
 import type { LatentFinalizeTool } from "../../src/manifest/latent-author.js";
 import {
+  AUTO_FRESH_PASS_FRACTION,
+  type AutoFreshPass,
   buildLatentRetryTaskMessage,
   buildLatentSystemPrompt,
   buildLatentTaskMessage,
@@ -20,6 +22,7 @@ import {
   LATENT_MAX_PASSES,
   LATENT_MIN_PER_CLASS,
   LATENT_REASON_CONTEXT,
+  LATENT_REASON_CONTEXT_STALL,
   LATENT_REASON_FRESH_PASS,
   LATENT_REASON_RESUMED,
   LATENT_REASON_TIMED_OUT,
@@ -85,6 +88,14 @@ function optsRecordingUi(answer: string | undefined): AskUi & { opts: ({ signal?
   };
 }
 
+/** A stub AutoFreshPass: a fixed context fraction + budget availability. */
+function stubAutoPass(fraction: number | null, available: boolean): AutoFreshPass {
+  return {
+    contextFraction: () => fraction,
+    available: () => available,
+  };
+}
+
 describe("system prompts (byte-compare against frozen fixtures)", () => {
   it("per-arm matches the approved text verbatim", () => {
     expect(LATENT_PER_ARM_SYSTEM_PROMPT).toBe(perArmFixture);
@@ -147,6 +158,7 @@ describe("buildLatentTools", () => {
       null,
       null,
       null,
+      null,
     );
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
@@ -156,7 +168,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe rejects schema mismatches with the shared rejection shape", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const r = await add.execute("c1", { question: "q", accept: [], entryIds: [], probeClass: "cued", note: "" });
@@ -176,6 +188,7 @@ describe("buildLatentTools", () => {
       null,
       null,
       null,
+      null,
     );
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
@@ -188,7 +201,7 @@ describe("buildLatentTools", () => {
   });
 
   it('add_latent_probe rejects placeholder-grade notes and accept lists (the A3 junk: note "t", accept "a")', async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const note = await add.execute("c1", { ...item("cued", "fine question"), note: "t" });
@@ -204,7 +217,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe rejects near-duplicate questions (padding runs never enter the pool)", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     const first = await add.execute("c1", item("cued", "What is the exact LEGACY_DECAY value?"));
@@ -220,7 +233,7 @@ describe("buildLatentTools", () => {
   });
 
   it("add_latent_probe enforces the per-class cap with the approved rejection", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (add === undefined) throw new Error("missing tool");
     for (let i = 0; i < LATENT_CAP_PER_CLASS; i++) {
@@ -239,7 +252,7 @@ describe("buildLatentTools", () => {
   });
 
   it("finalize_latent: min met → captures done and terminates", async () => {
-    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -253,7 +266,7 @@ describe("buildLatentTools", () => {
   });
 
   it("finalize_latent: below min with progress → produce-more rejection, no terminate", async () => {
-    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -273,7 +286,7 @@ describe("buildLatentTools", () => {
     // operator dialog was unreachable. Junk adds are now rejected at the gate — the
     // next unchanged finalize has NO progress and opens the dialog (accept fewer).
     const ui = fakeUi(["accept fewer probes and continue"]);
-    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null, null, null);
+    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null, null, null, null);
     const add = t.tools.find((x) => x.name === "add_latent_probe");
     const fin = t.tools.find((x) => x.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -306,6 +319,7 @@ describe("buildLatentTools", () => {
       null,
       null,
       null,
+      null,
     );
     const finA = await seed(accept);
     const ra = await finA.execute("f1", {});
@@ -317,6 +331,7 @@ describe("buildLatentTools", () => {
       fakeUi(["ask the authoring agent to try again"]),
       () => {},
       citationsOf("e1"),
+      null,
       null,
       null,
       null,
@@ -332,19 +347,19 @@ describe("buildLatentTools", () => {
     expect(rr2.terminate).toBeUndefined();
     expect(retry.finalizeLatent._captured).toEqual([]);
 
-    const stop = buildLatentTools(".", fakeUi(["stop the run"]), () => {}, citationsOf("e1"), null, null, null);
+    const stop = buildLatentTools(".", fakeUi(["stop the run"]), () => {}, citationsOf("e1"), null, null, null, null);
     const finS = await seed(stop);
     const rs = await finS.execute("f1", {});
     expect(rs.terminate).toBe(true);
     expect(stop.finalizeLatent._captured).toEqual(["stop"]);
 
-    const dismissed = buildLatentTools(".", fakeUi([undefined]), () => {}, citationsOf("e1"), null, null, null);
+    const dismissed = buildLatentTools(".", fakeUi([undefined]), () => {}, citationsOf("e1"), null, null, null, null);
     const finD = await seed(dismissed);
     const rd = await finD.execute("f1", {});
     expect(rd.terminate).toBe(true);
     expect(dismissed.finalizeLatent._captured).toEqual(["stop"]);
 
-    const noUi = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const noUi = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const finN = await seed(noUi);
     const rn = await finN.execute("f1", {});
     expect(rn.terminate).toBe(true);
@@ -362,6 +377,7 @@ describe("buildLatentTools", () => {
       null,
       null,
       null,
+      null,
     );
     const add = t.tools.find((x) => x.name === "add_latent_probe");
     const fin = t.tools.find((x) => x.name === "finalize_latent");
@@ -373,12 +389,56 @@ describe("buildLatentTools", () => {
     expect(t.finalizeLatent._captured).toEqual(["retry-pass"]);
   });
 
+  it("no-progress stall at >=90% of the window AUTO-restarts: context-pass, no dialog", async () => {
+    const ui = fakeUi(["stop the run"]); // must never be called
+    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null, null, null, stubAutoPass(0.95, true));
+    const add = t.tools.find((x) => x.name === "add_latent_probe");
+    const fin = t.tools.find((x) => x.name === "finalize_latent");
+    if (add === undefined || fin === undefined) throw new Error("missing tool");
+    await add.execute("a0", item("cued", "the one real cued fact in the span"));
+    await fin.execute("f0", {}); // below min WITH progress → rejection
+    const r = await fin.execute("f1", {}); // no progress + 95% context + budget → auto
+    expect(r.terminate).toBe(true);
+    expect(t.finalizeLatent._captured).toEqual(["context-pass"]);
+    expect(ui.calls).toBe(0);
+  });
+
+  it("under 90% / window unknown / budget spent → the dialog still decides", async () => {
+    const cases: Array<{ fraction: number | null; available: boolean; label: string }> = [
+      { fraction: AUTO_FRESH_PASS_FRACTION - 0.2, available: true, label: "under the fraction" },
+      { fraction: null, available: true, label: "window unknown" },
+      { fraction: 0.95, available: false, label: "budget spent" },
+    ];
+    for (const c of cases) {
+      const ui = fakeUi(["accept fewer probes and continue"]);
+      const t = buildLatentTools(
+        ".",
+        ui,
+        () => {},
+        citationsOf("e1"),
+        null,
+        null,
+        null,
+        stubAutoPass(c.fraction, c.available),
+      );
+      const add = t.tools.find((x) => x.name === "add_latent_probe");
+      const fin = t.tools.find((x) => x.name === "finalize_latent");
+      if (add === undefined || fin === undefined) throw new Error("missing tool");
+      await add.execute("a0", item("cued", `the one real cued fact in the span (${c.label})`));
+      await fin.execute("f0", {});
+      const r = await fin.execute("f1", {}); // no progress → dialog
+      expect(r.terminate, c.label).toBe(true);
+      expect(t.finalizeLatent._captured, c.label).toEqual(["accept"]);
+      expect(ui.calls, c.label).toBe(1);
+    }
+  });
+
   it("the deadlock dialog is abort-linked: the stage's signal reaches ui.select", async () => {
     // A run stopped while the dialog is open must close the dialog (dismissed →
     // stop) instead of leaving it dangling over a dead stage.
     const ac = new AbortController();
     const ui = optsRecordingUi("accept fewer probes and continue");
-    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null, null, ac.signal);
+    const t = buildLatentTools(".", ui, () => {}, citationsOf("e1"), null, null, ac.signal, null);
     const add = t.tools.find((x) => x.name === "add_latent_probe");
     const fin = t.tools.find((x) => x.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -390,7 +450,7 @@ describe("buildLatentTools", () => {
   });
 
   it("_resetCaptured empties the capture slate", async () => {
-    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools, finalizeLatent } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     const fin = tools.find((t) => t.name === "finalize_latent");
     if (add === undefined || fin === undefined) throw new Error("missing tool");
@@ -833,6 +893,137 @@ describe("runLatentAuthoringAgent", () => {
     });
     expect(r.kind).toBe("completed");
     expect(call).toBe(4); // stall pass + 2 timeouts + the completing pass
+  });
+
+  it("a no-progress stall at >=90% of the window AUTO-restarts the pass (no dialog) with the context-stall kickoff", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-ctxpass-"));
+    const session = makeSession(dir, "arm.jsonl");
+    const windowed = { id: "fake", contextWindow: 262_144 } as unknown as Model<Api>;
+    const ui = fakeUi(["stop the run"]); // must never be called
+    const kickoffs: string[] = [];
+    let call = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => ({ ok: true as const, model: windowed, apiKey: "k" }),
+      runStage: async (input) => {
+        const inp = input as unknown as {
+          tools: AgentTool[];
+          messages: [{ content: string }];
+          onEvent?: (e: AgentEvent) => void;
+        };
+        kickoffs.push(inp.messages[0].content);
+        call += 1;
+        if (call === 1) {
+          // the author's context reaches ~95% of the window, then stalls below min
+          inp.onEvent?.({ type: "message_end", message: { usage: { totalTokens: 250_000 } } } as AgentEvent);
+          const find = (n: string): AgentTool => {
+            const tool = inp.tools.find((t) => t.name === n);
+            if (tool === undefined) throw new Error(`tool ${n} missing`);
+            return tool;
+          };
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          await (add as unknown as { execute: (id: string, a: unknown) => Promise<unknown> }).execute(
+            "a0",
+            item("cued", "cued fact kept from the stalled pass"),
+          );
+          await fin.execute("f0", {});
+          await fin.execute("f1", {}); // no progress + 95% + budget → context-pass
+        } else {
+          const find = (n: string): AgentTool => {
+            const tool = inp.tools.find((t) => t.name === n);
+            if (tool === undefined) throw new Error(`tool ${n} missing`);
+            return tool;
+          };
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          await add.execute("c1", item("cued", "cued fact number one of the trio"));
+          await add.execute("c2", item("cued", "cued fact number two of the trio"));
+          await add.execute("c3", item("uncued", "uncued fact number one of the trio"));
+          await add.execute("c4", item("uncued", "uncued fact number two of the trio"));
+          await add.execute("c5", item("uncued", "uncued fact number three of the trio"));
+          await fin.execute("f2", {});
+        }
+        return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+      },
+      onEvent: (_e: AgentEvent) => {},
+    };
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [session],
+      tailStartsAtEntryId: "cut-1",
+      ui,
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+    if (r.kind !== "completed") return;
+    expect(r.pool).toHaveLength(6);
+    expect(ui.calls).toBe(0); // fully automatic
+    expect(kickoffs).toHaveLength(2);
+    expect(kickoffs[1]).toContain(
+      "The previous pass stalled below the minimum with its context nearly full — the recorded probes carry into this fresh attempt.",
+    );
+    expect(kickoffs[1]).toContain("Still needed: cued 2 more, uncued 3 more.");
+  });
+
+  it("an AUTO fresh pass consumes the pass budget (unlike the operator fresh pass)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-ctxpass-budget-"));
+    const session = makeSession(dir, "arm.jsonl");
+    const windowed = { id: "fake", contextWindow: 262_144 } as unknown as Model<Api>;
+    let call = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => ({ ok: true as const, model: windowed, apiKey: "k" }),
+      runStage: async (input) => {
+        const inp = input as unknown as {
+          tools: AgentTool[];
+          messages: [{ content: string }];
+          onEvent?: (e: AgentEvent) => void;
+        };
+        call += 1;
+        if (call === 1) {
+          inp.onEvent?.({ type: "message_end", message: { usage: { totalTokens: 250_000 } } } as AgentEvent);
+          const find = (n: string): AgentTool => {
+            const tool = inp.tools.find((t) => t.name === n);
+            if (tool === undefined) throw new Error(`tool ${n} missing`);
+            return tool;
+          };
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          await add.execute("a0", item("cued", "cued fact kept from the stalled pass"));
+          await fin.execute("f0", {});
+          await fin.execute("f1", {}); // auto context-pass (pass 1 → 2)
+          return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+        }
+        // pass 2 and pass 3 both time out — with the budget consumed by the auto
+        // pass, the second timeout exceeds the cap and the failure surfaces
+        // (the operator fresh pass RESETS the budget; this one must not)
+        return { timedOut: true, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+      },
+      onEvent: (_e: AgentEvent) => {},
+    };
+    await expect(
+      runLatentAuthoringAgent({
+        seams,
+        cwd: dir,
+        mode: "per-arm",
+        arm: "A1",
+        enabledArms: ["A1"],
+        sessionPaths: [session],
+        tailStartsAtEntryId: "cut-1",
+        ui: null,
+        signal: new AbortController().signal,
+        maxTokens: 1000,
+        thinking: null,
+        timeoutMs: 120000,
+      }),
+    ).rejects.toThrow(/timed out before finalize_latent/);
+    expect(call).toBe(3); // stall pass + two timeouts — the cap held
   });
 
   it("a tail-id citation is rejected AT ADD TIME (the finalize validation is the unreachable backstop)", async () => {
@@ -1373,6 +1564,7 @@ describe("buildLatentTools — add-time probe validation", () => {
         };
       },
       null,
+      null,
     );
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (!add) throw new Error("no add_latent_probe");
@@ -1392,6 +1584,7 @@ describe("buildLatentTools — add-time probe validation", () => {
       null,
       async () => ({ ok: true }),
       null,
+      null,
     );
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (!add) throw new Error("no add_latent_probe");
@@ -1401,7 +1594,7 @@ describe("buildLatentTools — add-time probe validation", () => {
   });
 
   it("null validate = validation off (existing behavior)", async () => {
-    const { tools, acc } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null);
+    const { tools, acc } = buildLatentTools(".", null, () => {}, citationsOf("e1"), null, null, null, null);
     const add = tools.find((t) => t.name === "add_latent_probe");
     if (!add) throw new Error("no add_latent_probe");
     await add.execute("c1", probeParams);
@@ -1420,6 +1613,7 @@ describe("buildLatentTools — add-time probe validation", () => {
           "stage ended without calling report_verdict",
         );
       },
+      null,
       null,
     );
     const add = tools.find((t) => t.name === "add_latent_probe");

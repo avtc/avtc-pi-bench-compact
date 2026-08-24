@@ -17,6 +17,7 @@ import type { RateLimitOptions } from "../judge/rate-limit.js";
 import { type JsonToolStageSeams, runJsonToolStage } from "../judge/stage-runner.js";
 import { log } from "../log.js";
 import { StageRunError } from "../runtime/agent-loop.js";
+import { messageEndUsage } from "../runtime/streaming-tokens.js";
 import { benchAuthoringTools } from "../runtime/tools.js";
 import { type AskUi, askOperator } from "../ui/ask.js";
 import {
@@ -53,6 +54,24 @@ export const LATENT_REASON_RESUMED = "the run stopped before it finished";
 /** Routing value for the operator-requested fresh pass (its kickoff has its own
  *  approved opening line — see buildLatentRetryTaskMessage). */
 export const LATENT_REASON_FRESH_PASS = "the operator asked for a fresh pass";
+/** Routing value for the auto fresh pass (a no-progress stall at >=90% of the
+ *  window); its kickoff also has its own approved opening line. */
+export const LATENT_REASON_CONTEXT_STALL = "the pass stalled with its context nearly full";
+
+/** Fraction of the context window at or above which a no-progress stall
+ *  auto-restarts the authoring in a fresh context (kept probes) with no dialog. */
+export const AUTO_FRESH_PASS_FRACTION = 0.9;
+
+/** What the finalize tool needs to decide an AUTO fresh pass on a no-progress
+ *  stall: the authoring agent's live context usage + whether the pass budget
+ *  still allows another pass. */
+export interface AutoFreshPass {
+  /** Current context usage (last message_end totalTokens / window), or null when
+   *  the window is unknown or no usage has been observed. */
+  contextFraction(): number | null;
+  /** True while the auto-retry budget allows another pass. */
+  available(): boolean;
+}
 /** The entry types that carry conversation content (the closed list the authoring
  *  agent may cite; everything else is metadata / persistence / compaction). */
 const CONTENT_ENTRY_TYPES = new Set(["message", "custom_message", "branch_summary"]);
@@ -94,7 +113,7 @@ const DIALOG_RETRY_PASS = "restart the pass in a fresh context (keep the recorde
 const DIALOG_STOP = "stop the run";
 
 /** The terminal capture: which way the stage ended. */
-export type LatentFinalizeAction = "done" | "accept" | "stop" | "retry-pass";
+export type LatentFinalizeAction = "done" | "accept" | "stop" | "retry-pass" | "context-pass";
 
 export interface LatentFinalizeTool extends AgentTool {
   /** Finalize captures (in call order) — the last one names the ending action. */
@@ -136,6 +155,7 @@ export function buildLatentTools(
   persist: ((probes: readonly AuthorLatentProbe[]) => void) | null,
   validate: ProbeValidateFn | null,
   signal: AbortSignal | null,
+  autoPass: AutoFreshPass | null,
 ): { tools: AgentTool[]; finalizeLatent: LatentFinalizeTool; acc: AuthorLatentProbe[] } {
   const acc: AuthorLatentProbe[] = [];
   let lastRejectCount = 0;
@@ -295,6 +315,16 @@ export function buildLatentTools(
         };
       }
 
+      // No progress: the facts may be exhausted. At >=90% of the window the context
+      // itself is the likely cause — auto-restart in a fresh context over the kept
+      // probes (a normal pass increment, no operator involved) while budget remains;
+      // with no budget left (or the window unknown) the operator decides as before.
+      if (autoPass !== null) {
+        const fraction = autoPass.contextFraction();
+        if (fraction !== null && fraction >= AUTO_FRESH_PASS_FRACTION && autoPass.available()) {
+          return stopOrTerminate("context-pass");
+        }
+      }
       // No progress: the facts may be exhausted — the operator decides. No dialog
       // surface (non-TUI) → stop, the agreed safe default.
       if (ui === null) return stopOrTerminate("stop");
@@ -370,13 +400,15 @@ export function buildLatentRetryTaskMessage(deps: {
           0,
           LATENT_MIN_PER_CLASS - uncued,
         )} more.`;
-  // VERBATIM approved protected text — the fresh-pass opening (the generic line
+  // VERBATIM approved protected text — the fresh-pass openings (the generic line
   // would wrongly claim the pass ended "before finalize_latent"; finalize ran —
-  // the operator answered its deadlock dialog).
+  // the pass stalled on its no-progress deadlock, with or without the operator).
   const opening =
     deps.reason === LATENT_REASON_FRESH_PASS
       ? "The operator accepted this pass's recorded probes and asked for one more attempt in a fresh context."
-      : `The previous authoring pass ended before finalize_latent (${deps.reason}).`;
+      : deps.reason === LATENT_REASON_CONTEXT_STALL
+        ? "The previous pass stalled below the minimum with its context nearly full — the recorded probes carry into this fresh attempt."
+        : `The previous authoring pass ended before finalize_latent (${deps.reason}).`;
   const tail =
     deps.mode === "per-arm"
       ? "Continue mining the compacted-away span for conversation-only knowledge that is NOT already recorded, validate each candidate against the summary and the kept tail, record each verified probe with add_latent_probe, then call finalize_latent when done."
@@ -517,6 +549,35 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     deps.persistPartial === undefined
       ? null
       : (keptNow: readonly AuthorLatentProbe[]): void => deps.persistPartial?.(poolFromAcc(keptNow, deps));
+  // The authoring agent's live context usage (the widget's ctx/tok machinery in
+  // miniature): the resolved model's window + the last message_end totalTokens,
+  // tracked by wrapping the seams' event hooks (the validator's nested stages do
+  // NOT pass through here — its usage cannot pollute the author's fraction).
+  // Feeds the finalize tool's auto fresh-pass check.
+  let contextWindow = 0;
+  let lastTotalTokens = 0;
+  const innerSeams = deps.seams;
+  const trackedSeams: JsonToolStageSeams = {
+    resolveModel: innerSeams.resolveModel,
+    runStage: innerSeams.runStage,
+    onModelResolved: (m): void => {
+      contextWindow = m.contextWindow ?? 0;
+      innerSeams.onModelResolved?.(m);
+    },
+    onEvent: (e): void => {
+      if (e.type === "message_end") {
+        const u = messageEndUsage(e.message);
+        if (u !== null) lastTotalTokens = u.totalTokens;
+      }
+      innerSeams.onEvent?.(e);
+    },
+    onDone: (): void => innerSeams.onDone?.(),
+  };
+  const passState = { pass: 1 };
+  const autoPass: AutoFreshPass = {
+    contextFraction: (): number | null => (contextWindow > 0 ? lastTotalTokens / contextWindow : null),
+    available: (): boolean => passState.pass < LATENT_MAX_PASSES,
+  };
   const { tools, finalizeLatent, acc } = buildLatentTools(
     deps.cwd,
     deps.ui,
@@ -525,6 +586,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     persist,
     deps.validate ?? null,
     deps.signal,
+    autoPass,
   );
   const countsOf = (): LatentCounts => ({
     cued: acc.filter((p) => p.probeClass === "cued").length,
@@ -555,6 +617,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     deps.seedProbes !== undefined && deps.seedProbes.length > 0 ? LATENT_REASON_RESUMED : null;
   let action: LatentFinalizeAction;
   for (let pass = 1; ; pass++) {
+    passState.pass = pass; // the finalize tool's available() reads this
     // Each pass starts with a clean capture slate: only THIS pass's finalize
     // captures may decide its outcome.
     finalizeLatent._resetCaptured();
@@ -576,7 +639,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
           });
     try {
       action = (await runJsonToolStage({
-        seams: deps.seams,
+        seams: trackedSeams,
         tools,
         systemPrompt: buildLatentSystemPrompt(deps),
         terminalTool: finalizeLatent,
@@ -601,6 +664,16 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
           `latent: ${scope} fresh pass — the operator asked for a new context (kept cued ${kept.cued}, uncued ${kept.uncued})`,
         );
         pass = 0; // the loop's pass++ makes the fresh pass #1 again
+        continue;
+      }
+      // The auto fresh pass (a no-progress stall at >=90% of the window): a NORMAL
+      // pass increment — it consumes the auto-retry budget like a timeout retry.
+      if (action === "context-pass") {
+        reason = LATENT_REASON_CONTEXT_STALL;
+        const kept = countsOf();
+        log.info(
+          `latent: ${scope} pass ${pass + 1}/${LATENT_MAX_PASSES} — no-progress stall with the context nearly full (kept cued ${kept.cued}, uncued ${kept.uncued})`,
+        );
         continue;
       }
       break; // terminal tool captured — the pass loop ends
