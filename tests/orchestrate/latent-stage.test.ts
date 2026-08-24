@@ -65,7 +65,13 @@ function fakeAuthor(overrides: { result?: LatentAuthoringResult; calls: { n: num
   return {
     deps: async (): Promise<LatentAuthoringResult> => {
       overrides.calls.n += 1;
-      return overrides.result ?? { kind: "completed", pool: [probe("l1", "cued"), probe("l2", "uncued")] };
+      return (
+        overrides.result ?? {
+          kind: "completed",
+          pool: [probe("l1", "cued"), probe("l2", "uncued")],
+          acceptedFewer: false,
+        }
+      );
     },
   };
 }
@@ -120,7 +126,7 @@ describe("runLatentStagePerArm — validator widget wiring", () => {
           note: "the fee drives every cost estimate later",
         });
       }
-      return { kind: "completed", pool: [] };
+      return { kind: "completed", pool: [], acceptedFewer: false };
     };
     const fakeSeams = {
       ...NO_SEAMS,
@@ -172,7 +178,7 @@ describe("runLatentStagePerArm", () => {
       calls.n += 1;
       onAddSeen = a.onAdd ?? null;
       a.onAdd?.({ cued: 1, uncued: 2 }); // simulate an accepted probe
-      return { kind: "completed", pool: [probe("l1", "cued")] };
+      return { kind: "completed", pool: [probe("l1", "cued")], acceptedFewer: false };
     };
     const r = await runLatentStagePerArm(
       baseDeps(dir, {
@@ -379,7 +385,7 @@ describe("runLatentStagePerArm", () => {
       calls.n += 1;
       // a seam-injected (or future-regression) author completing with a
       // placeholder-grade probe — must never reach phase-2b probing
-      return { kind: "completed", pool: [{ ...probe("l1", "cued"), question: "Test4" }] };
+      return { kind: "completed", pool: [{ ...probe("l1", "cued"), question: "Test4" }], acceptedFewer: false };
     };
     const r = await runLatentStagePerArm(baseDeps(dir, { author }));
     expect(r).toEqual({
@@ -467,6 +473,7 @@ describe("runLatentStageShared", () => {
       return {
         kind: "completed",
         pool: [sharedProbe("l1", "cued"), { ...sharedProbe("l2", "uncued"), question: "Test4" }],
+        acceptedFewer: false,
       };
     };
     const r = await runLatentStageShared(baseDeps(dir, { author }));
@@ -484,7 +491,10 @@ describe("runLatentStageShared", () => {
     const calls = { n: 0 };
     const r = await runLatentStageShared(
       baseDeps(dir, {
-        author: fakeAuthor({ calls, result: { kind: "completed", pool: [sharedProbe("l1", "cued")] } }).deps,
+        author: fakeAuthor({
+          calls,
+          result: { kind: "completed", pool: [sharedProbe("l1", "cued")], acceptedFewer: false },
+        }).deps,
       }),
     );
     expect(calls.n).toBe(1);
@@ -519,7 +529,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
     const author: LatentStageDeps["author"] = async (a) => {
       calls.n += 1;
       seenSeeds.push(a.seedProbes);
-      return { kind: "completed", pool: [probe("l1", "cued")] };
+      return { kind: "completed", pool: [probe("l1", "cued")], acceptedFewer: false };
     };
     const r = await runLatentStagePerArm(baseDeps(dir, { author }));
     expect(r.kind).toBe("done");
@@ -567,12 +577,33 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
     const author: LatentStageDeps["author"] = async (a) => {
       calls.n += 1;
       seeds = a.seedProbes;
-      return { kind: "completed", pool: [sharedProbe("l1", "cued")] };
+      return { kind: "completed", pool: [sharedProbe("l1", "cued")], acceptedFewer: false };
     };
     const r = await runLatentStageShared(baseDeps(dir, { author }));
     expect(r.kind).toBe("done");
     expect(calls.n).toBe(1);
     expect(seeds).toHaveLength(2);
+  });
+
+  it("an operator-accepted SHARED pool is reused + the marker persisted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-shared-accepted-"));
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      return { kind: "completed", pool: [sharedProbe("l1", "cued")], acceptedFewer: true };
+    };
+    // pass 1: authoring completes accepted-below-min → pool written with the marker
+    const r1 = await runLatentStageShared(baseDeps(dir, { author }));
+    expect(r1.kind).toBe("done");
+    if (r1.kind !== "done") return;
+    expect(readLatentPool(join(dir, "latent-pool.json")).operatorAcceptedBelowMinimum).toBe(true);
+    expect(calls.n).toBe(1);
+    // pass 2 (a resume): the accepted pool is reused — the author never re-runs
+    const r2 = await runLatentStageShared(baseDeps(dir, { author }));
+    expect(r2.kind).toBe("done");
+    if (r2.kind !== "done") return;
+    expect(calls.n).toBe(1); // still one authoring call
+    expect(r2.reAuthored).toEqual([]);
   });
 
   it("a COMPLETE pool with matching digests is still reused (no seeds, no authoring)", async () => {
@@ -597,7 +628,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
     const calls = { n: 0 };
     const author: LatentStageDeps["author"] = async () => {
       calls.n += 1;
-      return { kind: "completed", pool: [] };
+      return { kind: "completed", pool: [], acceptedFewer: false };
     };
     const r = await runLatentStagePerArm(baseDeps(dir, { author }));
     expect(r.kind).toBe("done");
@@ -605,5 +636,87 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
     expect(r.pools.A1?.probes).toHaveLength(6); // reused untouched
     expect(r.reAuthored).not.toContain("A1");
     expect(calls.n).toBe(1); // only A3 authored
+  });
+
+  it("an operator-accepted below-minimum authoring writes the marker into the pool file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-accepted-"));
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      // below minimum (3 cued / 0 uncued), accepted by the operator
+      return {
+        kind: "completed",
+        pool: [probe("l1", "cued"), probe("l2", "cued"), probe("l3", "cued")],
+        acceptedFewer: true,
+      };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r.kind).toBe("done");
+    if (r.kind !== "done") return;
+    const written = readLatentPool(join(dir, "latent-pool-A1.json"));
+    expect(written.operatorAcceptedBelowMinimum).toBe(true);
+    expect(written.probes).toHaveLength(3);
+  });
+
+  it("an operator-accepted pool is REUSED on the next stage entry — the decision is durable across resumes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-accepted-reuse-"));
+    writeFileSync(
+      join(dir, "latent-pool-A1.json"),
+      JSON.stringify({
+        mode: "per-arm",
+        arm: "A1",
+        tailStartsAtEntryId: "cut-1",
+        summaryDigests: { A1: summaryDigest("summary one") },
+        operatorAcceptedBelowMinimum: true,
+        probes: [probe("l1", "cued"), probe("l2", "cued"), probe("l3", "cued")],
+      }),
+    );
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      return { kind: "completed", pool: [], acceptedFewer: false };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r.kind).toBe("done");
+    if (r.kind !== "done") return;
+    expect(r.pools.A1?.probes).toHaveLength(3); // the accepted pool, untouched
+    expect(r.reAuthored).not.toContain("A1"); // NOT re-authored — no purge, no re-ask
+    expect(calls.n).toBe(1); // only A3 authored
+  });
+
+  it("a below-minimum pool WITHOUT the marker still re-authors (a plain partial pool)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-stage-partial-nomarker-"));
+    writeFileSync(
+      join(dir, "latent-pool-A1.json"),
+      JSON.stringify({
+        mode: "per-arm",
+        arm: "A1",
+        tailStartsAtEntryId: "cut-1",
+        summaryDigests: { A1: summaryDigest("summary one") },
+        probes: [probe("l1", "cued"), probe("l2", "cued"), probe("l3", "cued")],
+      }),
+    );
+    const calls = { n: 0 };
+    const author: LatentStageDeps["author"] = async () => {
+      calls.n += 1;
+      return {
+        kind: "completed",
+        pool: [
+          probe("l1", "cued"),
+          probe("l2", "cued"),
+          probe("l3", "cued"),
+          probe("l4", "cued"),
+          probe("l5", "uncued"),
+          probe("l6", "uncued"),
+          probe("l7", "uncued"),
+        ],
+        acceptedFewer: false,
+      };
+    };
+    const r = await runLatentStagePerArm(baseDeps(dir, { author }));
+    expect(r.kind).toBe("done");
+    if (r.kind !== "done") return;
+    expect(r.reAuthored).toContain("A1"); // seeds re-authored
+    expect(calls.n).toBe(2); // A1 + A3
   });
 });

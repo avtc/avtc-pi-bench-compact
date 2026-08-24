@@ -29,7 +29,6 @@ import {
 } from "../manifest/latent-author.js";
 import {
   makeAddTimeValidator,
-  ProbeValidationStoppedError,
   readKeptTailText,
   type ValidatorBudget,
 } from "../manifest/probe-validate.js";
@@ -177,6 +176,21 @@ function invalidPoolStop(
       };
 }
 
+/** A persisted pool is reusable when it reached the per-class minimum, OR when the
+ *  operator durably accepted it below minimum at authoring time ("accept fewer
+ *  probes and continue") — re-authoring such a pool would purge the arm's probe
+ *  sessions and re-ask everything the operator already accepted. */
+function poolReusable(pool: LatentPoolFile): boolean {
+  const cued = pool.probes.filter((p) => p.probeClass === "cued").length;
+  const uncued = pool.probes.length - cued;
+  return (cued >= LATENT_MIN_PER_CLASS && uncued >= LATENT_MIN_PER_CLASS) || pool.operatorAcceptedBelowMinimum === true;
+}
+
+/** The reuse log line's accepted-fewer suffix (empty for minimum-met pools). */
+function acceptedSuffix(pool: LatentPoolFile): string {
+  return pool.operatorAcceptedBelowMinimum === true ? " (operator accepted fewer)" : "";
+}
+
 function perArmPoolCtx(deps: LatentStageDeps, sessionPath: string, anchor: string): LatentValidationContext {
   return {
     mode: "per-arm",
@@ -214,16 +228,14 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       const pool = readLatentPool(poolPath);
       const stale = staleVerdictArms(pool, { [arm]: summaryDigest(compaction.summary) });
       if (stale.length === 0 && pool.tailStartsAtEntryId === compaction.firstKeptEntryId) {
-        const cued = pool.probes.filter((p) => p.probeClass === "cued").length;
-        const uncued = pool.probes.length - cued;
-        if (cued >= LATENT_MIN_PER_CLASS && uncued >= LATENT_MIN_PER_CLASS) {
+        if (poolReusable(pool)) {
           const stop = invalidPoolStop(pool.probes, perArmPoolCtx(deps, sessionPath, compaction.firstKeptEntryId), {
             arm,
             lead: `latent: ${basename(poolPath)} failed validation`,
             tail: "delete the file to re-author",
           });
           if (stop !== null) return stop;
-          log.info(`latent: arm ${arm} pool valid (summary unchanged) — reuse`);
+          log.info(`latent: arm ${arm} pool valid (summary unchanged)${acceptedSuffix(pool)} — reuse`);
           pools[arm] = pool;
           continue;
         }
@@ -270,6 +282,7 @@ export async function runLatentStagePerArm(deps: LatentStageDeps): Promise<Laten
       tailStartsAtEntryId: compaction.firstKeptEntryId,
       summaryDigests: { [arm]: summaryDigest(compaction.summary) },
       probes: [...result.pool],
+      ...(result.acceptedFewer ? { operatorAcceptedBelowMinimum: true } : {}),
     };
     // A freshly authored pool is validated before it is persisted — the add-time
     // content gates make junk unlikely, but a regression there must stop the run
@@ -316,16 +329,14 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     const pool = readLatentPool(poolPath);
     const stale = staleVerdictArms(pool, summaryDigests);
     if (stale.length === 0 && pool.tailStartsAtEntryId === anchor) {
-      const cued = pool.probes.filter((p) => p.probeClass === "cued").length;
-      const uncued = pool.probes.length - cued;
-      if (cued >= LATENT_MIN_PER_CLASS && uncued >= LATENT_MIN_PER_CLASS) {
+      if (poolReusable(pool)) {
         const stop = invalidPoolStop(pool.probes, sharedPoolCtx(deps, anchor), {
           arm: null,
           lead: `latent: ${basename(poolPath)} failed validation`,
           tail: "delete the file to re-author",
         });
         if (stop !== null) return stop;
-        log.info("latent: shared pool valid (summaries unchanged) — reuse");
+        log.info(`latent: shared pool valid (summaries unchanged)${acceptedSuffix(pool)} — reuse`);
         const pools: Partial<Record<ArmId, LatentPoolFile>> = {};
         for (const { arm } of compactions) pools[arm] = pool;
         return { kind: "done", pools, reAuthored: [] };
@@ -371,6 +382,7 @@ export async function runLatentStageShared(deps: LatentStageDeps): Promise<Laten
     tailStartsAtEntryId: anchor,
     summaryDigests,
     probes: [...result.pool],
+    ...(result.acceptedFewer ? { operatorAcceptedBelowMinimum: true } : {}),
   };
   // Same pre-persist validation as the per-arm branch (see comment there).
   const stop = invalidPoolStop(pool.probes, sharedPoolCtx(deps, anchor), {

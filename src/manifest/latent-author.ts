@@ -452,7 +452,7 @@ export interface RunLatentAuthoringDeps {
  *  (or the absent dialog surface) ended the stage below minimum — the caller
  *  surfaces it through its stop path. */
 export type LatentAuthoringResult =
-  | { kind: "completed"; pool: readonly LatentProbe[] }
+  | { kind: "completed"; pool: readonly LatentProbe[]; acceptedFewer: boolean }
   | { kind: "stopped"; counts: LatentCounts };
 
 /** Map the kept-so-far authoring probes to their POOL form (ids l1..ln over the
@@ -608,7 +608,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
   if (!validation.ok) {
     throw new Error(`latent pool validation failed: ${validation.reasons.join("; ")}`);
   }
-  return { kind: "completed", pool };
+  return { kind: "completed", pool, acceptedFewer: action === "accept" };
 }
 
 /** A parsed session line: its 1-based position (what a line-numbered read view

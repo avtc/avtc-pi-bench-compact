@@ -654,6 +654,37 @@ describe("runLatentAuthoringAgent", () => {
     expect(r).toEqual({ kind: "stopped", counts: { cued: 1, uncued: 0 } });
   });
 
+  it("completed results surface the operator's accept: acceptedFewer=true (min-met finalizes carry false)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-accepted-"));
+    const session = makeSession(dir, "arm.jsonl");
+    const seams = fakeSeams(async (find) => {
+      const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+      const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+      await exec(add, item("cued", "q"));
+      await exec(fin, {}); // below min with progress → rejection
+      // no progress + ui answers "accept fewer probes and continue" → accept
+      await exec(fin, {});
+    });
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [session],
+      tailStartsAtEntryId: "cut-1",
+      ui: fakeUi(["accept fewer probes and continue"]),
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+    if (r.kind !== "completed") return;
+    expect(r.acceptedFewer).toBe(true);
+    expect(r.pool).toHaveLength(1);
+  });
+
   it("a tail-id citation is rejected AT ADD TIME (the finalize validation is the unreachable backstop)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
     const session = makeSession(dir, "arm.jsonl");

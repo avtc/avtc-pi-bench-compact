@@ -20,6 +20,13 @@ export interface LatentPoolFile {
   readonly tailStartsAtEntryId: string;
   /** sha256 of each arm's compaction summary at authoring time, keyed by arm. */
   readonly summaryDigests: Readonly<Record<string, string>>;
+  /** Present (true) when the operator accepted a below-minimum pool at authoring
+   *  time ("accept fewer probes and continue"). The decision is durable: later
+   *  stage entries (crash resumes) REUSE the pool instead of re-authoring the arm
+   *  — re-authoring would purge the arm's probe sessions and re-ask everything.
+   *  Absent = the pool reached the per-class minimum (or is a partial mid-collection
+   *  write, which resumes keep building). */
+  readonly operatorAcceptedBelowMinimum?: boolean;
   readonly probes: readonly LatentProbe[];
 }
 
