@@ -28,6 +28,7 @@ import type {
 import { agentLoop } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { log } from "../log.js";
+import { pushStageClock } from "../ui/operator-wait.js";
 import { defaultRetryingStreamFn } from "./stage-retry.js";
 import { deltaTextOf, deltaTokens, messageEndUsage } from "./streaming-tokens.js";
 
@@ -239,6 +240,24 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
         }, input.timeoutMs);
       }
     };
+    // Operator-wait linkage: while this stage runs, its armed turn timer is
+    // pausable — askOperator pauses the ACTIVE stage's clock for the whole time
+    // an operator dialog is open (operator wait never counts against the stage's
+    // wall clock — the dialog may block for minutes or an overnight machine
+    // sleep), and resumes it with a FULL fresh window when the dialog closes.
+    // Guards against the dialog-blocked timeout: a pass ending as a timeout while
+    // the operator's decision is still pending would drop that decision.
+    const unregisterClock = pushStageClock({
+      pause: (): void => {
+        if (turnTimer !== undefined) {
+          clearTimeout(turnTimer);
+          turnTimer = undefined;
+        }
+      },
+      resume: (): void => {
+        armTurnTimeout();
+      },
+    });
 
     const config: AgentLoopConfig = {
       model: input.model,
@@ -346,6 +365,7 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
       };
     } finally {
       if (turnTimer !== undefined) clearTimeout(turnTimer);
+      unregisterClock();
       input.signal.removeEventListener("abort", forwardAbort);
     }
   } catch (cause) {

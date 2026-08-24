@@ -34,7 +34,7 @@ import {
 } from "../production/prepare.js";
 import { buildPlantInstruction } from "../simulator/condition-topics.js";
 import { benchRoot, scenarioDir } from "../storage/paths.js";
-import { askOperator } from "../ui/ask.js";
+import { askOperator, NO_DIALOG_SIGNAL } from "../ui/ask.js";
 import { getActiveWidget, setActiveWidget, type WidgetPort } from "../widget/active-widget.js";
 import { makeTuiWidgetDeps, NO_DETAIL, WidgetController } from "../widget/tracker.js";
 import { type PrepareArgs, parsePrepareArgs } from "./parse.js";
@@ -227,7 +227,8 @@ export async function askRecoveryChoice(
     | ((title: string, options: string[], opts?: { signal?: AbortSignal }) => Promise<string | undefined>)
     | undefined;
   if (ctx?.mode === "tui" && typeof select === "function") {
-    return askSurfaceAction({ select }, err);
+    // The prepare flow owns no abort controller — its dialog is not abort-linked.
+    return askSurfaceAction({ select }, err, NO_DIALOG_SIGNAL);
   }
   return null;
 }
@@ -252,6 +253,7 @@ const SURFACE_CHOICE_START_OVER = "start over";
 export async function askSurfaceAction(
   ui: { select: (title: string, options: string[], opts?: { signal?: AbortSignal }) => Promise<string | undefined> },
   err: SurfaceConditionsError,
+  signal: AbortSignal | null,
 ): Promise<SurfaceChoice | null> {
   const labels = err.action.missing.map((t) => t.label).join(", ");
   const options = [SURFACE_CHOICE_PLANT];
@@ -262,6 +264,7 @@ export async function askSurfaceAction(
     detail: `condition topics missing: ${labels}`,
     title: `prepare stopped — missing topics: ${labels}`,
     options,
+    signal,
   });
   if (choice === SURFACE_CHOICE_PLANT) return "plant";
   if (choice === SURFACE_CHOICE_SKIP) return "skip";

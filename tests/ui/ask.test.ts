@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   _resetState,
   subscribeToDialogCoordinator,
@@ -12,6 +12,7 @@ import {
   subscribeToNotificationApi,
 } from "../../src/snippets/vendored/subscribe-to-notifications.js";
 import { type AskUi, askOperator } from "../../src/ui/ask.js";
+import { _resetStageClocks, pushStageClock } from "../../src/ui/operator-wait.js";
 
 /** Event-bus fake: pi.events.on registers named handlers we can fire manually. */
 function fakePi(): {
@@ -43,11 +44,14 @@ function fakePi(): {
   };
 }
 
-function fakeUi(answer: string | undefined): { ui: AskUi; calls: { title: string; options: string[] }[] } {
-  const calls: { title: string; options: string[] }[] = [];
+function fakeUi(answer: string | undefined): {
+  ui: AskUi;
+  calls: { title: string; options: string[]; opts?: { signal?: AbortSignal } }[];
+} {
+  const calls: { title: string; options: string[]; opts?: { signal?: AbortSignal } }[] = [];
   const ui: AskUi = {
-    select: async (title, options) => {
-      calls.push({ title, options });
+    select: async (title, options, opts) => {
+      calls.push({ title, options, opts });
       return answer;
     },
   };
@@ -64,6 +68,7 @@ describe("askOperator", () => {
       detail: "condition topics did not land",
       title: "Prepare surfaced",
       options: ["plant", "start over"],
+      signal: null,
     });
     expect(choice).toBe("option-b");
     expect(calls).toEqual([{ title: "Prepare surfaced", options: ["plant", "start over"] }]);
@@ -97,11 +102,58 @@ describe("askOperator", () => {
       detail: "missing topics",
       title: "Prepare surfaced",
       options: ["proceed", "stop"],
+      signal: null,
     });
     expect(choice).toBe("proceed");
     expect(enqueued).toHaveLength(1); // serialized through the dialog queue
     expect(attended).toContain("bench-compact:missing topics"); // attention pinged
     expect(attended).toContain("cancelled"); // cancelled after the dialog resolved
+    expect(calls).toHaveLength(1);
+  });
+
+  it("pauses the active stage's clock while the dialog is open and resumes it after", async () => {
+    _resetState();
+    _resetNotificationState();
+    _resetStageClocks();
+    const order: string[] = [];
+    const unregister = pushStageClock({
+      pause: (): void => {
+        order.push("pause");
+      },
+      resume: (): void => {
+        order.push("resume");
+      },
+    });
+    const ui: AskUi = {
+      select: async () => {
+        order.push("select");
+        return "x";
+      },
+    };
+    await askOperator(ui, { source: "s", detail: "d", title: "t", options: ["x"], signal: null });
+    expect(order).toEqual(["pause", "select", "resume"]);
+    unregister();
+  });
+
+  it("forwards a non-null abort signal to ui.select; null passes no opts", async () => {
+    _resetState();
+    _resetNotificationState();
+    _resetStageClocks();
+    const { ui, calls } = fakeUi("x");
+    const ac = new AbortController();
+    await askOperator(ui, { source: "s", detail: "d", title: "t", options: ["x"], signal: ac.signal });
+    expect(calls[0]?.opts).toEqual({ signal: ac.signal });
+    await askOperator(ui, { source: "s", detail: "d", title: "t", options: ["x"], signal: null });
+    expect(calls[1]?.opts).toBeUndefined();
+  });
+
+  it("a dialog with no active stage (registry empty) asks directly", async () => {
+    _resetState();
+    _resetNotificationState();
+    _resetStageClocks();
+    const { ui, calls } = fakeUi("y");
+    const choice = await askOperator(ui, { source: "s", detail: "d", title: "t", options: ["y"], signal: null });
+    expect(choice).toBe("y");
     expect(calls).toHaveLength(1);
   });
 });

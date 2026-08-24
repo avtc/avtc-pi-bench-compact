@@ -94,6 +94,9 @@ export type LatentFinalizeAction = "done" | "accept" | "stop";
 export interface LatentFinalizeTool extends AgentTool {
   /** Finalize captures (in call order) — the last one names the ending action. */
   readonly _captured: LatentFinalizeAction[];
+  /** Drop every capture (each authoring pass starts with a clean slate — a
+   *  capture left over from an earlier pass must not decide this one). */
+  _resetCaptured(): void;
 }
 
 /** The live per-class counts after each accepted probe (widget signal parity
@@ -127,6 +130,7 @@ export function buildLatentTools(
   citations: SpanCitations,
   persist: ((probes: readonly AuthorLatentProbe[]) => void) | null,
   validate: ProbeValidateFn | null,
+  signal: AbortSignal | null,
 ): { tools: AgentTool[]; finalizeLatent: LatentFinalizeTool; acc: AuthorLatentProbe[] } {
   const acc: AuthorLatentProbe[] = [];
   let lastRejectCount = 0;
@@ -294,6 +298,7 @@ export function buildLatentTools(
         detail: `latent authoring stalled: no new probes since last attempt (cued ${cued}/${LATENT_MIN_PER_CLASS}, uncued ${uncued}/${LATENT_MIN_PER_CLASS})`,
         title: "latent probes below minimum — accept fewer?",
         options: [DIALOG_ACCEPT, DIALOG_RETRY, DIALOG_STOP],
+        signal,
       });
       if (choice === DIALOG_ACCEPT) return stopOrTerminate("accept");
       if (choice === DIALOG_RETRY) {
@@ -306,6 +311,9 @@ export function buildLatentTools(
     },
     get _captured(): LatentFinalizeAction[] {
       return captured.slice();
+    },
+    _resetCaptured(): void {
+      captured.length = 0;
     },
   };
 
@@ -503,6 +511,7 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     citations,
     persist,
     deps.validate ?? null,
+    deps.signal,
   );
   const countsOf = (): LatentCounts => ({
     cued: acc.filter((p) => p.probeClass === "cued").length,
@@ -533,6 +542,9 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
     deps.seedProbes !== undefined && deps.seedProbes.length > 0 ? LATENT_REASON_RESUMED : null;
   let action: LatentFinalizeAction;
   for (let pass = 1; ; pass++) {
+    // Each pass starts with a clean capture slate: only THIS pass's finalize
+    // captures may decide its outcome.
+    finalizeLatent._resetCaptured();
     const userMessageContent =
       reason === null
         ? buildLatentTaskMessage({

@@ -18,6 +18,7 @@ import {
   type StageRunInput,
   toStageReasoning,
 } from "../../src/runtime/agent-loop.js";
+import { _resetStageClocks, activeStageClock, type StageClock } from "../../src/ui/operator-wait.js";
 
 // --- fake agentLoop seam ---------------------------------------------------
 
@@ -332,6 +333,75 @@ describe("runBenchStage", () => {
       expect(r.usage.turns).toBe(1); // the one turn_end before the timer fired
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("the operator-wait clock pauses the armed per-turn timer; resume re-arms a FULL fresh window", async () => {
+    vi.useFakeTimers();
+    try {
+      const ac = new AbortController(); // run signal NOT aborted
+      // The blocking fake from the timeout test: one turn, then a long wait that
+      // bails on the per-turn signal.
+      const blocking = (
+        _m: AgentMessage[],
+        _ctx: unknown,
+        _config: AgentLoopConfig,
+        signal: AbortSignal,
+        _s: unknown,
+      ) => ({
+        async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+          if (signal.aborted) return;
+          yield TURN_END;
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) return resolve();
+            const t = setTimeout(resolve, 1000);
+            signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(t);
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+        async result(): Promise<AgentMessage[]> {
+          return [];
+        },
+      });
+      const loop = blocking as unknown as typeof import("@earendil-works/pi-agent-core").agentLoop;
+      let settled = false;
+      let clockHolder: StageClock | null = null;
+      // read through a fn so TS uses the DECLARED type (closure assignments don't narrow)
+      const clock = (): StageClock | null => clockHolder;
+      const p = runBenchStage(
+        baseInput({
+          signal: ac.signal,
+          loopFn: loop,
+          timeoutMs: 50,
+          onEvent: (e: AgentEvent): void => {
+            if (e.type === "turn_end" && clockHolder === null) clockHolder = activeStageClock();
+          },
+        }),
+      );
+      p.finally(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(10); // the turn lands; the stage's clock is live
+      expect(clock()).not.toBeNull();
+      clock()?.pause(); // an operator dialog opens behind this stage
+      await vi.advanceTimersByTimeAsync(200); // LONG past the 50ms budget — paused, so no timeout
+      expect(settled).toBe(false);
+      clock()?.resume(); // dialog closed → a full fresh 50ms window
+      await vi.advanceTimersByTimeAsync(49); // 1ms short of the fresh window
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      const r = await p;
+      expect(r.timedOut).toBe(true); // the RE-ARMED timer fired, not the pre-dialog one
+      expect(activeStageClock()).toBeNull(); // the stage unregistered its clock on exit
+    } finally {
+      vi.useRealTimers();
+      _resetStageClocks();
     }
   });
 
