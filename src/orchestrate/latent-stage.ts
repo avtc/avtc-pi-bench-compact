@@ -27,11 +27,7 @@ import {
   runLatentAuthoringAgent,
   spanContentEntryIds,
 } from "../manifest/latent-author.js";
-import {
-  makeAddTimeValidator,
-  readKeptTailText,
-  type ValidatorBudget,
-} from "../manifest/probe-validate.js";
+import { makeAddTimeValidator, readKeptTailText, type ValidatorBudget } from "../manifest/probe-validate.js";
 import type { ResolvedBenchModel } from "../runtime/model.js";
 import { readArmCompaction } from "../session/compaction-record.js";
 import type { LatentPoolFile } from "../storage/latent-pool.js";
