@@ -50,6 +50,9 @@ export const LATENT_MAX_PASSES = 3;
 export const LATENT_REASON_TIMED_OUT = "it timed out";
 export const LATENT_REASON_CONTEXT = "its context window was exhausted";
 export const LATENT_REASON_RESUMED = "the run stopped before it finished";
+/** Routing value for the operator-requested fresh pass (its kickoff has its own
+ *  approved opening line — see buildLatentRetryTaskMessage). */
+export const LATENT_REASON_FRESH_PASS = "the operator asked for a fresh pass";
 /** The entry types that carry conversation content (the closed list the authoring
  *  agent may cite; everything else is metadata / persistence / compaction). */
 const CONTENT_ENTRY_TYPES = new Set(["message", "custom_message", "branch_summary"]);
@@ -86,10 +89,12 @@ const dupQuestionRejection = (ordinal: number): string =>
 
 const DIALOG_ACCEPT = "accept fewer probes and continue";
 const DIALOG_RETRY = "ask the authoring agent to try again";
+// VERBATIM approved protected text (the operator-requested fresh pass).
+const DIALOG_RETRY_PASS = "restart the pass in a fresh context (keep the recorded probes)";
 const DIALOG_STOP = "stop the run";
 
 /** The terminal capture: which way the stage ended. */
-export type LatentFinalizeAction = "done" | "accept" | "stop";
+export type LatentFinalizeAction = "done" | "accept" | "stop" | "retry-pass";
 
 export interface LatentFinalizeTool extends AgentTool {
   /** Finalize captures (in call order) — the last one names the ending action. */
@@ -297,10 +302,11 @@ export function buildLatentTools(
         source: "bench-compact",
         detail: `latent authoring stalled: no new probes since last attempt (cued ${cued}/${LATENT_MIN_PER_CLASS}, uncued ${uncued}/${LATENT_MIN_PER_CLASS})`,
         title: "latent probes below minimum — accept fewer?",
-        options: [DIALOG_ACCEPT, DIALOG_RETRY, DIALOG_STOP],
+        options: [DIALOG_ACCEPT, DIALOG_RETRY, DIALOG_RETRY_PASS, DIALOG_STOP],
         signal,
       });
       if (choice === DIALOG_ACCEPT) return stopOrTerminate("accept");
+      if (choice === DIALOG_RETRY_PASS) return stopOrTerminate("retry-pass");
       if (choice === DIALOG_RETRY) {
         return {
           content: [{ type: "text", text: retryRejection(cued, uncued) }],
@@ -364,11 +370,18 @@ export function buildLatentRetryTaskMessage(deps: {
           0,
           LATENT_MIN_PER_CLASS - uncued,
         )} more.`;
+  // VERBATIM approved protected text — the fresh-pass opening (the generic line
+  // would wrongly claim the pass ended "before finalize_latent"; finalize ran —
+  // the operator answered its deadlock dialog).
+  const opening =
+    deps.reason === LATENT_REASON_FRESH_PASS
+      ? "The operator accepted this pass's recorded probes and asked for one more attempt in a fresh context."
+      : `The previous authoring pass ended before finalize_latent (${deps.reason}).`;
   const tail =
     deps.mode === "per-arm"
       ? "Continue mining the compacted-away span for conversation-only knowledge that is NOT already recorded, validate each candidate against the summary and the kept tail, record each verified probe with add_latent_probe, then call finalize_latent when done."
       : "Continue mining the compacted-away span for conversation-only knowledge that is NOT already recorded, validate each candidate against every summary and the shared kept tail, record each verified probe with add_latent_probe, then call finalize_latent when done.";
-  return `The previous authoring pass ended before finalize_latent (${deps.reason}).\n\nAlready recorded — do not re-record these:\n${keptLines}\n\n${stillNeeded}\n\n${head}\n${anchor}\n${tail}`;
+  return `${opening}\n\nAlready recorded — do not re-record these:\n${keptLines}\n\n${stillNeeded}\n\n${head}\n${anchor}\n${tail}`;
 }
 
 // --- prompt + kickoff composition ---------------------------------------------
@@ -575,6 +588,21 @@ export async function runLatentAuthoringAgent(deps: RunLatentAuthoringDeps): Pro
         signal: deps.signal,
         rateLimitOptions: deps.rateLimitOptions,
       })) as LatentFinalizeAction;
+      // The operator's fresh-pass choice: end THIS pass and restart the authoring
+      // in a new context with the recorded probes carried over (the same mechanics
+      // as the timeout retry). A deliberate operator action also RESETS the
+      // auto-retry budget — the cap guards a degenerate unattended loop, and the
+      // operator just proved the authoring is alive (same as the unlimited
+      // in-context "try again", which requires a stall per click).
+      if (action === "retry-pass") {
+        reason = LATENT_REASON_FRESH_PASS;
+        const kept = countsOf();
+        log.info(
+          `latent: ${scope} fresh pass — the operator asked for a new context (kept cued ${kept.cued}, uncued ${kept.uncued})`,
+        );
+        pass = 0; // the loop's pass++ makes the fresh pass #1 again
+        continue;
+      }
       break; // terminal tool captured — the pass loop ends
     } catch (err) {
       // Auto-restart (up to the pass cap) ONLY on the mid-work deaths: a per-LLM-call

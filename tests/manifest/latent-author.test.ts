@@ -20,6 +20,7 @@ import {
   LATENT_MAX_PASSES,
   LATENT_MIN_PER_CLASS,
   LATENT_REASON_CONTEXT,
+  LATENT_REASON_FRESH_PASS,
   LATENT_REASON_RESUMED,
   LATENT_REASON_TIMED_OUT,
   runLatentAuthoringAgent,
@@ -348,6 +349,28 @@ describe("buildLatentTools", () => {
     const rn = await finN.execute("f1", {});
     expect(rn.terminate).toBe(true);
     expect(noUi.finalizeLatent._captured).toEqual(["stop"]);
+  });
+
+  it("the fresh-context retry option terminates with the retry-pass action", async () => {
+    // The operator ends THIS pass and asks for a new one in a fresh context —
+    // the pass loop restarts the authoring with the recorded probes carried over.
+    const t = buildLatentTools(
+      ".",
+      fakeUi(["restart the pass in a fresh context (keep the recorded probes)"]),
+      () => {},
+      citationsOf("e1"),
+      null,
+      null,
+      null,
+    );
+    const add = t.tools.find((x) => x.name === "add_latent_probe");
+    const fin = t.tools.find((x) => x.name === "finalize_latent");
+    if (add === undefined || fin === undefined) throw new Error("missing tool");
+    await add.execute("a0", item("cued", "the one real cued fact in the span"));
+    await fin.execute("f0", {}); // below min WITH progress → produce-more rejection
+    const r = await fin.execute("f1", {}); // no progress → dialog → fresh-context retry
+    expect(r.terminate).toBe(true);
+    expect(t.finalizeLatent._captured).toEqual(["retry-pass"]);
   });
 
   it("the deadlock dialog is abort-linked: the stage's signal reaches ui.select", async () => {
@@ -683,6 +706,133 @@ describe("runLatentAuthoringAgent", () => {
     if (r.kind !== "completed") return;
     expect(r.acceptedFewer).toBe(true);
     expect(r.pool).toHaveLength(1);
+  });
+
+  it("the fresh-pass dialog choice restarts authoring in a new context over the kept probes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-freshpass-"));
+    const session = makeSession(dir, "arm.jsonl");
+    const kickoffs: string[] = [];
+    let pass = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL, apiKey: "k" }),
+      runStage: async (input) => {
+        const inp = input as unknown as { tools: AgentTool[]; messages: [{ content: string }] };
+        kickoffs.push(inp.messages[0].content);
+        pass += 1;
+        const find = (n: string): AgentTool => {
+          const tool = inp.tools.find((t) => t.name === n);
+          if (tool === undefined) throw new Error(`tool ${n} missing`);
+          return tool;
+        };
+        const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+        const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+        if (pass === 1) {
+          // stall: one cued probe, below min, no progress → dialog → fresh pass
+          await exec(add, item("cued", "cued fact kept from the stalled pass"));
+          await exec(fin, {}); // below min WITH progress → rejection
+          await exec(fin, {}); // no progress → dialog (fakeUi answers fresh-pass)
+        } else {
+          // the fresh pass completes over the kept probe + new ones
+          await exec(add, item("cued", "cued fact number one of the trio"));
+          await exec(add, item("cued", "cued fact number two of the trio"));
+          await exec(add, item("uncued", "uncued fact number one of the trio"));
+          await exec(add, item("uncued", "uncued fact number two of the trio"));
+          await exec(add, item("uncued", "uncued fact number three of the trio"));
+          await exec(fin, {});
+        }
+        return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+      },
+      onEvent: (_e: AgentEvent) => {},
+    };
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [session],
+      tailStartsAtEntryId: "cut-1",
+      ui: fakeUi(["restart the pass in a fresh context (keep the recorded probes)"]),
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+    if (r.kind !== "completed") return;
+    expect(r.acceptedFewer).toBe(false); // completed via a real finalize, not an accept
+    expect(r.pool).toHaveLength(6); // the kept probe + the five new ones
+    expect(kickoffs).toHaveLength(2);
+    expect(kickoffs[0]).toContain("then call finalize_latent when done."); // the plain kickoff
+    expect(kickoffs[1]).toContain(
+      "The operator accepted this pass's recorded probes and asked for one more attempt in a fresh context.",
+    );
+    expect(kickoffs[1]).toContain("Still needed: cued 2 more, uncued 3 more.");
+    expect(kickoffs[1]).toContain("- [cued] cued fact kept from the stalled pass");
+  });
+
+  it("an operator fresh pass RESETS the auto-retry budget (later timeouts still retry)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "latent-run-freshpass-budget-"));
+    const session = makeSession(dir, "arm.jsonl");
+    let call = 0;
+    const seams: JsonToolStageSeams = {
+      resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL, apiKey: "k" }),
+      runStage: async (input) => {
+        const inp = input as unknown as { tools: AgentTool[]; messages: [{ content: string }] };
+        call += 1;
+        if (call === 1) {
+          // pass 1: stall → dialog → fresh pass
+          const tools = inp.tools;
+          const find = (n: string): AgentTool => {
+            const tool = tools.find((t) => t.name === n);
+            if (tool === undefined) throw new Error(`tool ${n} missing`);
+            return tool;
+          };
+          const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+          await exec(add, item("cued", "cued fact kept from the stalled pass"));
+          await exec(fin, {});
+          await exec(fin, {});
+          return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+        }
+        // two timeouts after the operator pass (budget NOT reset → the second
+        // would exceed the cap and throw), then a completing pass
+        if (call === 2 || call === 3) {
+          return { timedOut: true, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+        }
+        const tools = inp.tools;
+        const find = (n: string): AgentTool => {
+          const tool = tools.find((t) => t.name === n);
+          if (tool === undefined) throw new Error(`tool ${n} missing`);
+          return tool;
+        };
+        const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
+        const fin = find("finalize_latent") as { execute: (id: string, a: unknown) => Promise<unknown> };
+        for (let i = 0; i < 3; i++) {
+          await exec(add, item("cued", `cued fact number ${i} of the trio`));
+          await exec(add, item("uncued", `uncued fact number ${i} of the trio`));
+        }
+        await exec(fin, {});
+        return { timedOut: false, aborted: false } as unknown as Awaited<ReturnType<JsonToolStageSeams["runStage"]>>;
+      },
+      onEvent: (_e: AgentEvent) => {},
+    };
+    const r = await runLatentAuthoringAgent({
+      seams,
+      cwd: dir,
+      mode: "per-arm",
+      arm: "A1",
+      enabledArms: ["A1"],
+      sessionPaths: [session],
+      tailStartsAtEntryId: "cut-1",
+      ui: fakeUi(["restart the pass in a fresh context (keep the recorded probes)"]),
+      signal: new AbortController().signal,
+      maxTokens: 1000,
+      thinking: null,
+      timeoutMs: 120000,
+    });
+    expect(r.kind).toBe("completed");
+    expect(call).toBe(4); // stall pass + 2 timeouts + the completing pass
   });
 
   it("a tail-id citation is rejected AT ADD TIME (the finalize validation is the unreachable backstop)", async () => {
@@ -1179,6 +1329,22 @@ describe("runLatentAuthoringAgent — retry passes", () => {
     expect(msg).toContain("Still needed: nothing — call finalize_latent.");
     expect(msg).toContain("The KEPT TAIL starts at the entry with id cut-1 — line 4.");
     expect(msg).toContain("Read the session file at E:/repo/sessions/arm.jsonl");
+  });
+
+  it("the fresh-pass kickoff opens with the operator line (the generic 'ended before finalize_latent' claim is wrong there)", () => {
+    const msg = buildLatentRetryTaskMessage({
+      mode: "per-arm",
+      sessionPaths: ["E:/repo/sessions/arm.jsonl"],
+      tailStartsAtEntryId: "cut-1",
+      tailStartLine: 4,
+      reason: LATENT_REASON_FRESH_PASS,
+      kept: [item("cued", "cued fact one that is long enough")],
+    });
+    expect(msg).toContain(
+      "The operator accepted this pass's recorded probes and asked for one more attempt in a fresh context.",
+    );
+    expect(msg).not.toContain("The previous authoring pass ended before finalize_latent");
+    expect(msg).toContain("Still needed: cued 2 more, uncued 3 more.");
   });
 });
 
