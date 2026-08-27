@@ -140,12 +140,13 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
     expect(readMemkeeperEnv().enabled).toBe(true);
 
     writeArmConfig("A1", repo, OPTS); // switching to a non-memkeeper arm must clear it
-    expect(readMemkeeperEnv()).toEqual({ enabled: false });
+    expect(readMemkeeperEnv()).toEqual({ enabled: false, ignoreConflicts: true });
   });
 
   it("memkeeper-builder arm: observations-root (Selector OFF), all stages on-compaction", () => {
     writeArmConfig("A3", repo, OPTS);
     expect(readMemkeeperEnv()).toEqual({
+      ignoreConflicts: true,
       enabled: true,
       renderMode: "observations-root",
       observerMode: "on-compaction",
@@ -158,6 +159,7 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
     writeArmConfig("A4", repo, OPTS);
     expect(readMemkeeperEnv()).toEqual({
       enabled: true,
+      ignoreConflicts: true,
       renderMode: "selected-root",
       observerMode: "on-compaction",
       builderMode: "on-compaction",
@@ -179,6 +181,7 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
       llmCallTimeoutMs: 180_000,
       observerThinkingLevel: "low",
       observerModel: "local-server/Qwen3.8-27B",
+      ignoreConflicts: true, // the bench pin wins over a global ignoreConflicts:false
       enabled: true,
       renderMode: "selected-root", // the pin wins over the global value
       observerMode: "on-compaction",
@@ -189,7 +192,7 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
 
   it("non-memkeeper arm with global settings: {...global, enabled:false} (knobs ride along, stages stay off)", () => {
     writeArmConfig("A1", repo, { ...OPTS, memkeeperGlobal: { observerThinkingLevel: "low" } });
-    expect(readMemkeeperEnv()).toEqual({ observerThinkingLevel: "low", enabled: false });
+    expect(readMemkeeperEnv()).toEqual({ observerThinkingLevel: "low", ignoreConflicts: true, enabled: false });
   });
 });
 
@@ -326,5 +329,20 @@ describe("arms/config — clearArmEnv (env-only teardown, no repo)", () => {
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
     expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+  });
+});
+
+describe("arms/config — ignoreConflicts pin (memkeeper co-runs despite other compaction extensions)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bench-mkignore-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("pins ignoreConflicts:true AFTER the global merge — a global false cannot keep memkeeper paused", () => {
+    writeArmConfig("A4", repo, { ...OPTS, memkeeperGlobal: { ignoreConflicts: false } });
+    expect(readMemkeeperEnv().ignoreConflicts).toBe(true);
   });
 });

@@ -95,7 +95,15 @@ export function writeArmConfig(arm: ArmId, repoCwd: string, opts: WriteArmConfig
   //    is set), so the operator's global settings are merged UNDER the pins — without
   //    this, every unpinned knob would silently fall back to memkeeper's built-in
   //    defaults instead of the operator's panel values.
-  process.env[MEMKEEPER_ENV] = JSON.stringify({ ...(opts.memkeeperGlobal ?? {}), ...def.memkeeperConfig });
+  //    `ignoreConflicts: true` is pinned AFTER the merge: the bench deliberately
+  //    co-runs memkeeper with other compaction-handling extensions (the OM fork),
+  //    and memkeeper stays dormant while paused — a global `false` riding into the
+  //    arm doc would keep it paused for memkeeper arms.
+  process.env[MEMKEEPER_ENV] = JSON.stringify({
+    ...(opts.memkeeperGlobal ?? {}),
+    ...def.memkeeperConfig,
+    ignoreConflicts: true,
+  });
 }
 
 /** The memkeeper settings filename convention (avtc-pi-settings-ui `settingsFilePaths`). */
