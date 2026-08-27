@@ -582,6 +582,40 @@ describe("buildRunConfig", () => {
     expect(rc.toolVersions.A2).toEqual({ source: "git", commit: "gabcdef", full: "abcdef1234567890" });
   });
 
+  it("records the effective memkeeper arm params (shape keys) per enabled memkeeper arm", () => {
+    const resolver: VersionResolver = {
+      resolveRoot: () => "/fake/root",
+      gitHead: () => "abcdef1234567890",
+      npmVersion: () => null,
+    };
+    const rc = buildRunConfig(makeConfig(["A1", "A3", "A4"]), resolver, manifestOf(null), {
+      rootViewTargetNodes: 160,
+      rootViewStrategy: "task",
+      observerModel: "local-server/Qwen3.8-27B", // tuning — must NOT appear in the projection
+    });
+    expect(rc.memkeeperArms?.A1).toBeUndefined(); // bare-pi arm has no entry (not memkeeper-enabled)
+    expect(rc.memkeeperArms?.A3).toEqual({
+      enabled: true,
+      renderMode: "observations-root",
+      rootViewTargetNodes: 160,
+      rootViewStrategy: "task",
+      observerMode: "on-compaction",
+      builderMode: "on-compaction",
+      selectorMode: "on-compaction",
+      ignoreConflicts: true,
+    });
+    expect(rc.memkeeperArms?.A4).toEqual({
+      enabled: true,
+      renderMode: "selected-root",
+      rootViewTargetNodes: 160,
+      rootViewStrategy: "task",
+      observerMode: "on-compaction",
+      builderMode: "on-compaction",
+      selectorMode: "on-compaction",
+      ignoreConflicts: true,
+    });
+  });
+
   it("backupMode comes from the frozen manifest (extract stamped at freeze; absent = build)", () => {
     const resolver: VersionResolver = { resolveRoot: () => "/fake", gitHead: () => null, npmVersion: () => null };
     expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf("extract")).backupMode).toBe("extract");

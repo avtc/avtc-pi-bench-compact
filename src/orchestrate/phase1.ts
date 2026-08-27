@@ -22,6 +22,7 @@
 
 import { existsSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { effectiveMemkeeperArmParams } from "../arms/config.js";
 import { ARM_DEFS } from "../arms/definitions.js";
 import { isolateArmOrStop } from "../arms/switch.js";
 import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } from "../arms/version.js";
@@ -201,6 +202,7 @@ export function buildRunConfig(
   config: BenchConfig,
   resolver: VersionResolver | null,
   manifest: ScenarioManifest,
+  memkeeperGlobal?: Record<string, unknown>,
 ): RunConfig {
   const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const toolVersions: Partial<Record<ArmId, ToolVersion>> = {};
@@ -220,6 +222,22 @@ export function buildRunConfig(
     fastEval: config.fastEval,
     latentProbes: config.latentProbes,
     toolVersions,
+    // null (non-memkeeper arms) entries are dropped — the record keys are exactly
+    // the enabled memkeeper arms
+    memkeeperArms: Object.fromEntries(
+      config.armsEnabled
+        .map(
+          (arm) =>
+            [
+              arm,
+              effectiveMemkeeperArmParams(arm, {
+                omFullReflectionThresholdTokens: config.omFullReflectionThresholdTokens,
+                ...(memkeeperGlobal !== undefined ? { memkeeperGlobal } : {}),
+              }),
+            ] as [ArmId, Readonly<Record<string, unknown>> | null],
+        )
+        .filter(([, params]) => params !== null),
+    ),
   };
 }
 

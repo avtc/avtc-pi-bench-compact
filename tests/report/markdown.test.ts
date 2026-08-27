@@ -203,6 +203,31 @@ describe("renderHeadline", () => {
     expect(md).not.toContain("K="); // K=1 (single judge) omits the ensemble suffix
   });
 
+  it("renders the Memkeeper arm-params line (variable shape keys only; omitted without memkeeper arms)", () => {
+    const base = syntheticResult(false);
+    const withMk = renderHeadline({
+      ...base,
+      config: {
+        ...base.config,
+        memkeeperArms: {
+          A3: {
+            enabled: true,
+            renderMode: "observations-root",
+            rootViewTargetNodes: 160,
+            rootViewStrategy: "task",
+            ignoreConflicts: true,
+          },
+          A4: { enabled: true, renderMode: "selected-root", ignoreConflicts: true },
+        },
+      },
+    });
+    expect(withMk).toContain(
+      "Memkeeper: A3 render=observations-root rootTarget=160 rootStrategy=task; A4 render=selected-root",
+    );
+    // absent memkeeperArms (older snapshots) → no line at all
+    expect(renderHeadline(base)).not.toContain("Memkeeper:");
+  });
+
   it("surfaces the multi-judge ensemble in the config line when judgesNumber > 1", () => {
     const base = syntheticResult(false);
     const md = renderHeadline({

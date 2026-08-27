@@ -29,6 +29,15 @@ import {
   stageRetryPolicy,
 } from "../../src/runtime/stage-retry.js";
 import { buildCfgId } from "../../src/storage/branches.js";
+
+// Deterministic cfgId: startRun reads the operator's REAL global memkeeper
+// settings (which feed the fingerprinted memkeeperArms) — pin them to {} so the
+// run config never depends on the machine's home dir.
+vi.mock("../../src/arms/config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/arms/config.js")>()),
+  readMemkeeperGlobalSettings: () => ({}),
+}));
+
 import type { WidgetPort } from "../../src/widget/active-widget.js";
 import { setActiveWidget } from "../../src/widget/active-widget.js";
 

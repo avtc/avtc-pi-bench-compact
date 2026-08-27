@@ -47,6 +47,12 @@ export interface RunConfig extends JudgeEnsembleConfig {
   latentProbes: LatentProbesMode;
   /** Per-arm resolved tool versions. The bare-pi arm is typically absent (no memory tool). */
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
+  /** Effective memkeeper arm params (shape-defining keys: renderMode + root-view
+   *  knobs + stage modes), recorded per enabled memkeeper arm for traceability —
+   *  the report renders them and cfgId fingerprints them (structure affects
+   *  results; model/timeout tuning deliberately stays out). Absent in older
+   *  snapshots. Entries: null for arms with memkeeper disabled. */
+  memkeeperArms?: Partial<Record<ArmId, Readonly<Record<string, unknown>>>>;
 }
 
 // --- {ver} token formatters ------------------------------------------------
@@ -147,6 +153,9 @@ export function buildCfgId(rc: RunConfig): string {
         return v === undefined ? null : [a, v.source, v.commit, v.full];
       })
       .filter((x): x is [ArmId, string, string, string] => x !== null),
+    memkeeperArms: Object.keys(rc.memkeeperArms ?? {})
+      .sort()
+      .map((a) => [a, rc.memkeeperArms?.[a as ArmId] ?? null]),
   };
   const hash = createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
   return `cfg-${hash.slice(0, 6)}`;

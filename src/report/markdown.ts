@@ -99,6 +99,28 @@ export function renderHeadline(result: BenchResultJson): string {
   lines.push(
     `Config: eval=${c.evaluatedModel ?? "(default)"} (${c.evaluatedThinkingLevel}) · judge=${c.judgeModel ?? "(default)"} (${c.judgeThinkingLevel})${judgeEnsemble} · N=${c.N} · compactionBoundary=${c.compactionBoundary} · arms ${c.armsEnabled.join(",")}`,
   );
+  // Memkeeper arm params (approved format): shape-defining knobs per memkeeper
+  // arm — present-when-set key=value pairs; the whole line only when a memkeeper
+  // arm ran (older snapshots without memkeeperArms render nothing).
+  const memkeeperEntries = (Object.entries(c.memkeeperArms ?? {}) as [ArmId, Record<string, unknown> | null][])
+    .filter(([, params]) => params !== null)
+    .map(([arm, paramsIn]) => {
+      const params = paramsIn as Record<string, unknown>;
+      // positive list: the variable/shape keys only (approved short labels) —
+      // enabled/ignoreConflicts are constants and the stage modes are arm identity
+      const LABELS: ReadonlyArray<readonly [string, string]> = [
+        ["renderMode", "render"],
+        ["rootViewTargetNodes", "rootTarget"],
+        ["rootViewStrategy", "rootStrategy"],
+      ];
+      const pairs = LABELS.filter(([key]) => params[key] !== undefined).map(
+        ([key, label]) => `${label}=${String(params[key])}`,
+      );
+      return `${arm} ${pairs.join(" ")}`;
+    });
+  if (memkeeperEntries.length > 0) {
+    lines.push(`Memkeeper: ${memkeeperEntries.join("; ")}`);
+  }
   const toolLine = arms
     .map((a) => {
       const v = result.toolVersions[a];

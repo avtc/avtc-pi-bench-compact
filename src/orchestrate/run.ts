@@ -247,7 +247,15 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
 
   mkdirSync(runPath, { recursive: true });
 
-  const runConfig = buildRunConfig(deps.config, deps.versionResolver ?? DEFAULT_VERSION_RESOLVER, deps.manifest);
+  // Read once here: the arm pins merge it (every configureArm) AND buildRunConfig
+  // records the effective memkeeper arm params (report + cfgId traceability).
+  const memkeeperGlobalSettings = readMemkeeperGlobalSettings(join(homedir(), ".pi"));
+  const runConfig = buildRunConfig(
+    deps.config,
+    deps.versionResolver ?? DEFAULT_VERSION_RESOLVER,
+    deps.manifest,
+    memkeeperGlobalSettings,
+  );
   const cfgId = buildCfgId(runConfig);
   // Hard cfg guard: the resumed namespace's cfg segment IS the crashed run's run
   // conditions; a mismatch means the config (model / N / arm tool versions / …)
@@ -328,10 +336,10 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // --- Shared run inputs: the sessions store + the run's runtime pins ---
     const sessionsDir = join(dirname(deps.scenarioRepo), "sessions");
     const runtimePins = pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel);
-    // The operator's global memkeeper settings, read ONCE and merged under the arm
-    // pins at every configureArm (Phase 1 + Phase 2) — global panel tuning (models,
-    // timeouts, thinking levels, max tokens) reaches the bench arms.
-    const memkeeperGlobalSettings = readMemkeeperGlobalSettings(join(homedir(), ".pi"));
+    // memkeeperGlobalSettings was read once before buildRunConfig (above) — it
+    // merges under the arm pins at every configureArm (Phase 1 + Phase 2), so
+    // global panel tuning (models, timeouts, thinking levels, max tokens) reaches
+    // the bench arms.
 
     // --- Preserved arms: reuse a previous run's compaction + latent pool ---
     // Fresh runs in per-arm latent mode only: each arm with a valid source pair

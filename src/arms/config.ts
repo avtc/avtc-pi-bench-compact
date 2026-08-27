@@ -99,11 +99,41 @@ export function writeArmConfig(arm: ArmId, repoCwd: string, opts: WriteArmConfig
   //    co-runs memkeeper with other compaction-handling extensions (the OM fork),
   //    and memkeeper stays dormant while paused — a global `false` riding into the
   //    arm doc would keep it paused for memkeeper arms.
-  process.env[MEMKEEPER_ENV] = JSON.stringify({
-    ...(opts.memkeeperGlobal ?? {}),
-    ...def.memkeeperConfig,
-    ignoreConflicts: true,
-  });
+  process.env[MEMKEEPER_ENV] = JSON.stringify(buildMemkeeperArmDoc(def, opts));
+}
+
+/** The memkeeper env doc one arm runs with: the operator's global settings
+ *  merged UNDER the arm pins, with the bench's ignoreConflicts pin on top (the
+ *  bench deliberately co-runs memkeeper with other compaction extensions).
+ *  Single source of truth for writeArmConfig AND the report's arm-params record. */
+function buildMemkeeperArmDoc(def: (typeof ARM_DEFS)[ArmId], opts: WriteArmConfigOpts): Record<string, unknown> {
+  return { ...(opts.memkeeperGlobal ?? {}), ...def.memkeeperConfig, ignoreConflicts: true };
+}
+
+/** The traceability projection of one arm's effective memkeeper config: the
+ *  shape-defining keys only (structure affects results — report + cfgId record
+ *  them; model/timeout tuning deliberately stays out). Null for non-memkeeper arms. */
+export function effectiveMemkeeperArmParams(
+  arm: ArmId,
+  opts: WriteArmConfigOpts,
+): Readonly<Record<string, unknown>> | null {
+  const def = ARM_DEFS[arm];
+  if (!def.memkeeperConfig.enabled) return null;
+  const doc = buildMemkeeperArmDoc(def, opts);
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    "enabled",
+    "renderMode",
+    "rootViewTargetNodes",
+    "rootViewStrategy",
+    "observerMode",
+    "builderMode",
+    "selectorMode",
+    "ignoreConflicts",
+  ]) {
+    if (doc[key] !== undefined) out[key] = doc[key];
+  }
+  return out;
 }
 
 /** The memkeeper settings filename convention (avtc-pi-settings-ui `settingsFilePaths`). */
