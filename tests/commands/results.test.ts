@@ -68,7 +68,7 @@ describe("runResultsCommand", () => {
     const outcome = runResultsCommand(
       "run1",
       seams({
-        run1: mkResult("run1", { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } }),
+        run1: mkResult("run1", { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } }),
       }),
     );
     expect(outcome.error).toBeUndefined();
@@ -80,8 +80,8 @@ describe("runResultsCommand", () => {
     const outcome = runResultsCommand(
       "run1 run2",
       seams({
-        run1: mkResult("run1", { A3: { tool: "memkeeper-builder" } }),
-        run2: mkResult("run2", { A3: { tool: "memkeeper-builder" } }),
+        run1: mkResult("run1", { A3: { tool: "session-owl-builder" } }),
+        run2: mkResult("run2", { A3: { tool: "session-owl-builder" } }),
       }),
     );
     expect(outcome.error).toBeUndefined();
@@ -91,7 +91,7 @@ describe("runResultsCommand", () => {
   });
 
   it("reportFile: full single-run → canonical report.md; subset + comparison get their own siblings", () => {
-    const arms = { A1: { tool: "bare-pi" }, A3: { tool: "memkeeper-builder" } };
+    const arms = { A1: { tool: "bare-pi" }, A3: { tool: "session-owl-builder" } };
     const single = runResultsCommand("run1", { loadResultJson: () => mkResult("run1", arms) });
     expect(single.reportFile).toBe("report.md");
     const subset = runResultsCommand("run1:A1,A3", { loadResultJson: () => mkResult("run1", arms) });
@@ -108,7 +108,7 @@ describe("runResultsCommand", () => {
       seams({
         run1: mkResult("run1", {
           A1: { tool: "bare-pi", metrics: { C1: { mean: 500, ci: [400, 600] } } },
-          A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } },
+          A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } },
         }),
       }),
     );
@@ -144,7 +144,7 @@ describe("registerResultsCommand (handler: real file IO)", () => {
     const root = mkdtempSync(path.join(tmpdir(), "bench-results-"));
     const runId = "run-handler-1";
     const result = mkResult(runId, {
-      A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] as [number, number] } } },
+      A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] as [number, number] } } },
     });
     const dir = path.join(root, "runs", runId);
     mkdirSync(dir, { recursive: true });

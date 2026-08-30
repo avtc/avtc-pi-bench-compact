@@ -30,12 +30,12 @@ import {
 } from "../../src/runtime/stage-retry.js";
 import { buildCfgId } from "../../src/storage/branches.js";
 
-// Deterministic cfgId: startRun reads the operator's REAL global memkeeper
-// settings (which feed the fingerprinted memkeeperArms) — pin them to {} so the
+// Deterministic cfgId: startRun reads the operator's REAL global session-owl
+// settings (which feed the fingerprinted sessionOwlArms) — pin them to {} so the
 // run config never depends on the machine's home dir.
 vi.mock("../../src/arms/config.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/arms/config.js")>()),
-  readMemkeeperGlobalSettings: () => ({}),
+  readSessionOwlGlobalSettings: () => ({}),
 }));
 
 import type { WidgetPort } from "../../src/widget/active-widget.js";

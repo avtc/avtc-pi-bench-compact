@@ -268,11 +268,11 @@ describe("BENCH_SCHEMA", () => {
     it("armOmDefaultEnabled: boolean, default true", () => {
       expect(row("armOmDefaultEnabled")).toMatchObject({ type: "boolean", defaultValue: true });
     });
-    it("armMemkeeperObservationsRootEnabled: boolean, default true", () => {
-      expect(row("armMemkeeperObservationsRootEnabled")).toMatchObject({ type: "boolean", defaultValue: true });
+    it("armSessionOwlObservationsRootEnabled: boolean, default true", () => {
+      expect(row("armSessionOwlObservationsRootEnabled")).toMatchObject({ type: "boolean", defaultValue: true });
     });
-    it("armMemkeeperSelectedRootEnabled: boolean, default true", () => {
-      expect(row("armMemkeeperSelectedRootEnabled")).toMatchObject({ type: "boolean", defaultValue: true });
+    it("armSessionOwlSelectedRootEnabled: boolean, default true", () => {
+      expect(row("armSessionOwlSelectedRootEnabled")).toMatchObject({ type: "boolean", defaultValue: true });
     });
     it("armOmFullEnabled: boolean, default true", () => {
       expect(row("armOmFullEnabled")).toMatchObject({ type: "boolean", defaultValue: true });

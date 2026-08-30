@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Per-arm isolation via the configure-API model: write the arm's observational-memory
-// + memkeeper config, ask each extension's proxy to `reloadConfig()` (so every read
+// + session-owl config, ask each extension's proxy to `reloadConfig()` (so every read
 // site sees the new values), and set the tool allowlist so a disabled arm's recall
 // tool never reaches the evaluated agent. NO `ctx.reload()` — the command ctx stays
 // valid across arms (all extensions load once at startup; only their config + the
@@ -48,8 +48,8 @@ export interface MemoryConfigProxy {
  */
 export class ArmIsolationError extends Error {
   readonly arm: ArmId;
-  readonly provider: "observational-memory" | "memkeeper";
-  constructor(arm: ArmId, provider: "observational-memory" | "memkeeper", message: string) {
+  readonly provider: "observational-memory" | "session-owl";
+  constructor(arm: ArmId, provider: "observational-memory" | "session-owl", message: string) {
     super(message);
     this.name = "ArmIsolationError";
     this.arm = arm;
@@ -83,13 +83,13 @@ export const SUITE_TOOLS: readonly string[] = [
 ];
 
 /**
- * Isolate one arm for a compaction run: write its observational-memory + memkeeper
+ * Isolate one arm for a compaction run: write its observational-memory + session-owl
  * config, reload both extensions' live config, and set the tool allowlist. Sync —
  * every operation (file/env write, proxy reload, tool set) is synchronous.
  *
  * @param toolCtx — the tool-setting seam (the real `pi` satisfies this; tests pass a fake).
  * @param omProxy — the observational-memory config proxy (vendored subscribe-to-OM snippet).
- * @param mkProxy — the memkeeper config proxy (vendored subscribe-to-memkeeper snippet).
+ * @param mkProxy — the session-owl config proxy (vendored subscribe-to-session-owl snippet).
  * @param arm — the arm to isolate.
  * @param repoCwd — the scenario repo working dir (the agent's cwd; `.pi/` is gitignored).
  * @param opts — carries the om-full arm's threshold value from bench config.
@@ -109,7 +109,7 @@ export function configureArm(
 ): void {
   const def = ARM_DEFS[arm];
 
-  // 1. Write this arm's OM + memkeeper config to the sources those extensions read.
+  // 1. Write this arm's OM + session-owl config to the sources those extensions read.
   writeArmConfig(arm, repoCwd, opts);
 
   // 2. Reload both extensions' live config (no-op when a provider is absent — the
@@ -127,12 +127,12 @@ export function configureArm(
         "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure pi-observational-memory is in the loaded packages.",
     );
   }
-  if (def.memkeeperConfig.enabled && mkProxy.getConfig() === null) {
+  if (def.sessionOwlConfig.enabled && mkProxy.getConfig() === null) {
     throw new ArmIsolationError(
       arm,
-      "memkeeper",
-      `configureArm(${arm}): memkeeper is enabled for this arm but its extension proxy is not live ` +
-        "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure avtc-pi-memkeeper is in the loaded packages.",
+      "session-owl",
+      `configureArm(${arm}): session-owl is enabled for this arm but its extension proxy is not live ` +
+        "(extension not loaded, or older than the reloadConfig bridge). Stop and ensure avtc-pi-session-owl is in the loaded packages.",
     );
   }
 
@@ -172,7 +172,7 @@ export function isolateArmOrStop(
     configureArm(toolCtx, proxies.om, proxies.mk, arm, repoCwd, opts);
   } catch (err) {
     if (err instanceof ArmIsolationError) {
-      const pkg = err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-memkeeper";
+      const pkg = err.provider === "observational-memory" ? "pi-observational-memory" : "avtc-pi-session-owl";
       throw stop(
         `${context} ${err.provider} is enabled but its extension proxy is not live (extension not loaded, or older than the reloadConfig bridge). Stop and ensure ${pkg} is in the loaded packages.`,
       );

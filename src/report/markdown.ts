@@ -99,10 +99,10 @@ export function renderHeadline(result: BenchResultJson): string {
   lines.push(
     `Config: eval=${c.evaluatedModel ?? "(default)"} (${c.evaluatedThinkingLevel}) · judge=${c.judgeModel ?? "(default)"} (${c.judgeThinkingLevel})${judgeEnsemble} · N=${c.N} · compactionBoundary=${c.compactionBoundary} · arms ${c.armsEnabled.join(",")}`,
   );
-  // Memkeeper arm params (approved format): shape-defining knobs per memkeeper
-  // arm — present-when-set key=value pairs; the whole line only when a memkeeper
-  // arm ran (older snapshots without memkeeperArms render nothing).
-  const memkeeperEntries = (Object.entries(c.memkeeperArms ?? {}) as [ArmId, Record<string, unknown> | null][])
+  // SessionOwl arm params (approved format): shape-defining knobs per session-owl
+  // arm — present-when-set key=value pairs; the whole line only when a session-owl
+  // arm ran (older snapshots without sessionOwlArms render nothing).
+  const sessionOwlEntries = (Object.entries(c.sessionOwlArms ?? {}) as [ArmId, Record<string, unknown> | null][])
     .filter(([, params]) => params !== null)
     .map(([arm, paramsIn]) => {
       const params = paramsIn as Record<string, unknown>;
@@ -118,8 +118,8 @@ export function renderHeadline(result: BenchResultJson): string {
       );
       return `${arm} ${pairs.join(" ")}`;
     });
-  if (memkeeperEntries.length > 0) {
-    lines.push(`Memkeeper: ${memkeeperEntries.join("; ")}`);
+  if (sessionOwlEntries.length > 0) {
+    lines.push(`SessionOwl: ${sessionOwlEntries.join("; ")}`);
   }
   const toolLine = arms
     .map((a) => {

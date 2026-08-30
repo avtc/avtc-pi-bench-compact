@@ -6,11 +6,11 @@ The canonical operator flow: **configure → prepare a scenario → run every ar
 
 1. Install the memory extensions the enabled arms need (see the README):
    - **Forked `pi-observational-memory`** (OM-default `A2` + OM-full `A5`).
-   - **`avtc-pi-memkeeper`** (memkeeper-builder `A3` + memkeeper-selector `A4`).
+   - **`avtc-pi-session-owl`** (session-owl-builder `A3` + session-owl-selector `A4`).
    - The **C4 usage patches** on both (so compaction-cost is measurable for memory arms).
 2. Load the extension in pi's `.pi/settings.json` `packages` (the harness + the full avtc-pi suite).
 3. Configure the run via `/bench-compact:settings`: evaluated model + thinking level, judge model(s) + thinking level(s), `N` (continuations per arm), `compactionBoundary` (Phase-1 trigger), `latentProbes` (off / per-arm / shared), and which arms are enabled.
-4. Tune memkeeper via its OWN global settings (`/mk:settings`, persisted to `~/.pi/agent/avtc-pi-memkeeper-settings.json`): models, per-call timeout (`llmCallTimeoutMs`), thinking levels (e.g. `observerThinkingLevel`), max output tokens, and thresholds all reach the bench arms — the bench pins only the arm-defining keys (`enabled`, stage modes, `renderMode`) and merges your global settings underneath.
+4. Tune session-owl via its OWN global settings (`/owl:settings`, persisted to `~/.pi/agent/avtc-pi-session-owl-settings.json`): models, per-call timeout (`llmCallTimeoutMs`), thinking levels (e.g. `observerThinkingLevel`), max output tokens, and thresholds all reach the bench arms — the bench pins only the arm-defining keys (`enabled`, stage modes, `renderMode`) and merges your global settings underneath.
 
 ## Procedure
 

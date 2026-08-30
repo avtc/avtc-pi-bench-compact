@@ -69,8 +69,8 @@ export const DEFAULTS = {
   outputDir: null as string | null,
   armBarePiEnabled: true,
   armOmDefaultEnabled: true,
-  armMemkeeperObservationsRootEnabled: true,
-  armMemkeeperSelectedRootEnabled: true,
+  armSessionOwlObservationsRootEnabled: true,
+  armSessionOwlSelectedRootEnabled: true,
   armOmFullEnabled: true,
   omFullReflectionThresholdTokens: 4000,
 } as const;
@@ -449,17 +449,17 @@ const SETTINGS: readonly SettingSchema[] = [
     type: "boolean",
     defaultValue: DEFAULTS.armOmDefaultEnabled,
   }),
-  setting("armMemkeeperObservationsRootEnabled", {
-    label: "A3 — memkeeper (observations-root)",
-    description: "memkeeper renderMode=observations-root (Builder's full root view; Selector OFF).",
+  setting("armSessionOwlObservationsRootEnabled", {
+    label: "A3 — session-owl (observations-root)",
+    description: "session-owl renderMode=observations-root (Builder's full root view; Selector OFF).",
     type: "boolean",
-    defaultValue: DEFAULTS.armMemkeeperObservationsRootEnabled,
+    defaultValue: DEFAULTS.armSessionOwlObservationsRootEnabled,
   }),
-  setting("armMemkeeperSelectedRootEnabled", {
-    label: "A4 — memkeeper (selected-root)",
-    description: "memkeeper renderMode=selected-root (Selector-curated active set).",
+  setting("armSessionOwlSelectedRootEnabled", {
+    label: "A4 — session-owl (selected-root)",
+    description: "session-owl renderMode=selected-root (Selector-curated active set).",
     type: "boolean",
-    defaultValue: DEFAULTS.armMemkeeperSelectedRootEnabled,
+    defaultValue: DEFAULTS.armSessionOwlSelectedRootEnabled,
   }),
   setting("armOmFullEnabled", {
     label: "A5 — observational-memory (full)",
@@ -500,8 +500,8 @@ const TABS: readonly SettingsTabSchema[] = [
     settingIds: [
       "armBarePiEnabled",
       "armOmDefaultEnabled",
-      "armMemkeeperObservationsRootEnabled",
-      "armMemkeeperSelectedRootEnabled",
+      "armSessionOwlObservationsRootEnabled",
+      "armSessionOwlSelectedRootEnabled",
       "armOmFullEnabled",
       "omFullReflectionThresholdTokens",
     ],
@@ -567,7 +567,7 @@ const REGISTRATION_OPTIONS: RegisterSettingsOptions = {
 /** Indirection over registerSettingsCommand so tests can inject a fake WITHOUT
  *  vi.mock(avtc-pi-settings-ui) — the library loads the REAL settings stack + modal
  *  at import time, which a minimal fake `pi` cannot satisfy. The seam keeps the fake
- *  local + deterministic (memkeeper's pattern). */
+ *  local + deterministic (session-owl's pattern). */
 let registerFn: typeof registerSettingsCommand = registerSettingsCommand;
 
 /** Test-only: inject a fake registerSettingsCommand (pass null to restore the real one). */

@@ -154,9 +154,9 @@ describe("probeUsageFromSession (pure helper)", () => {
   it("counts recall-family calls: span call→result, injected tokens = chars/4; absent when none", () => {
     const base = [SESSION, USER("q")].join("\n");
     const mkCall = (ts: string) =>
-      `{"type":"message","id":"c1","timestamp":"${ts}","message":{"role":"assistant","content":[{"type":"toolCall","id":"t-1","name":"mk_recall","arguments":{"query":"deflation"}}],"usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.001}}}}`;
+      `{"type":"message","id":"c1","timestamp":"${ts}","message":{"role":"assistant","content":[{"type":"toolCall","id":"t-1","name":"owl_recall","arguments":{"query":"deflation"}}],"usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.001}}}}`;
     const mkResult = (ts: string) =>
-      `{"type":"message","id":"r1","timestamp":"${ts}","message":{"role":"toolResult","toolCallId":"t-1","toolName":"mk_recall","content":"${"x".repeat(40)}"}}`;
+      `{"type":"message","id":"r1","timestamp":"${ts}","message":{"role":"toolResult","toolCallId":"t-1","toolName":"owl_recall","content":"${"x".repeat(40)}"}}`;
     const withRecall = [
       SESSION,
       USER("q"),

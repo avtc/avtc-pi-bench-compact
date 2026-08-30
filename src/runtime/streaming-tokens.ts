@@ -32,7 +32,7 @@ export interface MessageUsage {
   input: number;
   output: number;
   cacheRead: number;
-  /** Prompt-cache WRITE tokens (cache-fill). Memkeeper's slice lacks this; the
+  /** Prompt-cache WRITE tokens (cache-fill). SessionOwl's slice lacks this; the
    *  bench's compaction-cost breakdown attributes cacheWrite $ per arm. */
   cacheWrite: number;
   cost: number;

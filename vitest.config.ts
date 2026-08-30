@@ -9,7 +9,7 @@ export default defineConfig({
     isolate: false,
     // Centralized module-singleton resets between tests (settings handle/seam,
     // logger, run-state globalThis) — the isolate:false leak fix, mirroring the
-    // sibling-repo setupFiles pattern (avtc-pi-memkeeper / avtc-pi-portrait).
+    // sibling-repo setupFiles pattern (avtc-pi-session-owl / avtc-pi-portrait).
     setupFiles: ["./tests/setup.ts"],
     // Pin the test process to UTC so LOCAL-time renders (timestamps render in
     // the host timezone) are deterministic: stored UTC instants render their

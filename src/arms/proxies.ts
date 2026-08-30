@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-// The cached observational-memory + memkeeper config proxies. `activate` subscribes
+// The cached observational-memory + session-owl config proxies. `activate` subscribes
 // to each extension's `:ready` event once (via the vendored snippets) and caches the
 // returned lazy proxies here on `globalThis` (PiCtx-style) so the orchestrator can
 // read them per arm without re-subscribing. The proxies are lazy — safe to cache

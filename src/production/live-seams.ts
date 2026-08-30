@@ -360,7 +360,7 @@ export type ConfigureArmOp = typeof configureArm;
 export type TriggerCompactOp = typeof triggerCompact;
 
 /** Disable the memory arms' hooks (configure the bare-pi arm) so the next compaction
- *  or build drive is NATIVE (no om or memkeeper custom entries). No-op when no memory
+ *  or build drive is NATIVE (no om or session-owl custom entries). No-op when no memory
  *  proxies are live (the hooks aren't loaded → already native). Shared by the trial
  *  compaction (native cut) + the build drive (raw backup). */
 function disableMemoryHooks(
@@ -599,7 +599,7 @@ export function buildDriveAndCaptureSeam(deps: DriveAndCaptureSeamDeps): BuildSe
       const pi = getPi();
       deps.widget?.startPhase("build", NO_DETAIL);
       // Disable the memory arms' hooks BEFORE driving so the build session stays raw
-      // (no om.*/memkeeper.* entries) — the backup is the pre-compaction input every arm
+      // (no om.*/session-owl.* entries) — the backup is the pre-compaction input every arm
       // compacts. Done once per load (idempotent); skipped when no memory proxies are live.
       disableMemoryHooks(pi, getProxies(), deps.repoPath, deps.omFullReflectionThresholdTokens, configure);
       const { stop, onStop } = makeDriveStop();

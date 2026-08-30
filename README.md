@@ -12,8 +12,8 @@ The bench compares five arms — all run within the full avtc-pi suite (todo + u
 |---|---|---|
 | Bare-pi | `bare-pi` | none (native pi LLM summary) |
 | OM-default | `om-default` | pi-observational-memory (passive, author-default threshold) |
-| Memkeeper-builder | `memkeeper-builder` | avtc-pi-memkeeper (`observations-root`, Selector OFF) |
-| Memkeeper-selector | `memkeeper-selector` | avtc-pi-memkeeper (`selected-root`, Selector runs) |
+| Session Owl-builder | `session-owl-builder` | avtc-pi-session-owl (`observations-root`, Selector OFF) |
+| Session Owl-selector | `session-owl-selector` | avtc-pi-session-owl (`selected-root`, Selector runs) |
 | OM-full | `om-full` | pi-observational-memory (passive, reflector/pruner forced via low `reflectionThresholdTokens`) |
 
 Bare-pi is the **baseline floor** — every other arm is compared against it. Disable it via the `armBarePiEnabled` setting to rank the memory arms standalone.
@@ -21,7 +21,7 @@ Bare-pi is the **baseline floor** — every other arm is compared against it. Di
 ### Prerequisites (install the memory extensions first)
 
 - **The OM-default and OM-full arms require the FORKED `pi-observational-memory`.** Upstream OM has a bug where `passive` mode (`PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) does **not** catch up observations at compaction — the fork fixes this so both arms catch up identically to non-passive. Without the fork, both arms are invalid (no observations produced). The harness sets `PI_OBSERVATIONAL_MEMORY_PASSIVE=1` itself at run start (env-only; no operator action needed).
-- **The memkeeper-builder and memkeeper-selector arms require `avtc-pi-memkeeper`** (on-compaction mode; `renderMode` switched per arm).
+- **The session-owl-builder and session-owl-selector arms require `avtc-pi-session-owl`** (on-compaction mode; `renderMode` switched per arm).
 - **The compaction-cost metric requires patching** the memory arms' `session_before_compact` hooks to emit per-stage LLM usage (so the bench can read `CompactionEntry.usage` uniformly across arms — bare-pi gets this natively).
 
 ### Arm isolation (no reload)
@@ -42,7 +42,7 @@ Enable the extension in pi's project or global settings (`.pi/settings.json`):
 {
   "packages": ["avtc-pi-bench-compact", "avtc-pi-todo", "avtc-pi-user-decisions",
                "avtc-pi-portrait", "avtc-pi-notification",
-               "pi-observational-memory", "avtc-pi-memkeeper"]
+               "pi-observational-memory", "avtc-pi-session-owl"]
 }
 ```
 

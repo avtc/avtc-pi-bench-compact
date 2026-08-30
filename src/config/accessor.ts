@@ -135,15 +135,15 @@ export function getBenchConfig(): BenchConfig {
     outputDir: asStringOrNull(raw, "outputDir", DEFAULTS.outputDir),
     armBarePiEnabled: asBoolean(raw, "armBarePiEnabled", DEFAULTS.armBarePiEnabled),
     armOmDefaultEnabled: asBoolean(raw, "armOmDefaultEnabled", DEFAULTS.armOmDefaultEnabled),
-    armMemkeeperObservationsRootEnabled: asBoolean(
+    armSessionOwlObservationsRootEnabled: asBoolean(
       raw,
-      "armMemkeeperObservationsRootEnabled",
-      DEFAULTS.armMemkeeperObservationsRootEnabled,
+      "armSessionOwlObservationsRootEnabled",
+      DEFAULTS.armSessionOwlObservationsRootEnabled,
     ),
-    armMemkeeperSelectedRootEnabled: asBoolean(
+    armSessionOwlSelectedRootEnabled: asBoolean(
       raw,
-      "armMemkeeperSelectedRootEnabled",
-      DEFAULTS.armMemkeeperSelectedRootEnabled,
+      "armSessionOwlSelectedRootEnabled",
+      DEFAULTS.armSessionOwlSelectedRootEnabled,
     ),
     armOmFullEnabled: asBoolean(raw, "armOmFullEnabled", DEFAULTS.armOmFullEnabled),
     omFullReflectionThresholdTokens: asNumber(

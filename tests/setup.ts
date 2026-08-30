@@ -7,10 +7,10 @@
  * The suite runs with `isolate: false` for speed, which shares ONE module
  * registry across every test file. That turns module singletons into
  * cross-test leak vectors — so they are reset here centrally, mirroring the
- * sibling-repo setupFiles pattern (avtc-pi-memkeeper / avtc-pi-portrait).
+ * sibling-repo setupFiles pattern (avtc-pi-session-owl / avtc-pi-portrait).
  *
  * No bench test uses `vi.mock` on a shared src module (all dependency-inject
- * their fakes via deps objects), so — unlike memkeeper — there is no centralized
+ * their fakes via deps objects), so — unlike session-owl — there is no centralized
  * vi.mock/stub-flag layer here. Only the singletons + the run-state globalThis
  * slot are reset.
  */
@@ -66,7 +66,7 @@ beforeEach(() => {
 });
 
 // Reset the config/settings singletons at the FILE boundary — the isolate:false
-// leak boundary (mirrors avtc-pi-memkeeper/tests/setup.ts, which resets in
+// leak boundary (mirrors avtc-pi-session-owl/tests/setup.ts, which resets in
 // afterAll). Resetting per-test (afterEach) would clash with files that install
 // a fake for the whole file in beforeAll (tests/smoke.test.ts installs a fake
 // registerSettingsCommand in beforeAll and asserts against it across all tests).

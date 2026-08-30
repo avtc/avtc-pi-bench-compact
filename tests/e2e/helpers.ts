@@ -332,7 +332,7 @@ function makeScoreDeps(args: BuildScoreDepsArgs): ScoreRunDeps {
 /** A fake tool-version resolver (A3 resolves to a git commit; A1 carries no version). */
 function makeVersionResolver(): VersionResolver {
   return {
-    resolveRoot: () => "/fake/memkeeper",
+    resolveRoot: () => "/fake/session-owl",
     gitHead: () => "abcdef1234567890",
     npmVersion: () => null,
   };
@@ -345,8 +345,8 @@ export const FINAL_CTX = { __finalCtx: true } as unknown as ExtensionCommandCont
 const ARM_TOOL: Record<ArmId, string> = {
   A1: "bare-pi",
   A2: "om-default",
-  A3: "memkeeper-builder",
-  A4: "memkeeper-selector",
+  A3: "session-owl-builder",
+  A4: "session-owl-selector",
   A5: "om-full",
 };
 

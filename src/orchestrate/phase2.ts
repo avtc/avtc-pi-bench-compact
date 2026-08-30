@@ -141,9 +141,9 @@ export interface Phase2Deps {
   readonly armBases: readonly ArmBase[];
   /** The bench config (evaluated model + compaction boundary → pacing target). */
   readonly config: BenchConfig;
-  /** The operator's global memkeeper settings, merged under the arm pins at every
+  /** The operator's global session-owl settings, merged under the arm pins at every
    *  configureArm (read once by the run driver; absent → pins only). */
-  readonly memkeeperGlobalSettings?: Record<string, unknown>;
+  readonly sessionOwlGlobalSettings?: Record<string, unknown>;
   /** The scenario manifest (its description seeds the simulator's system prompt). */
   readonly manifest: ScenarioManifest;
   /** The scenario repo path (holds the branches; tracks ONLY project files — the session transcript lives in `sessionsDir`). */
@@ -356,7 +356,7 @@ export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> 
           deps.repo,
           {
             omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
-            memkeeperGlobal: deps.memkeeperGlobalSettings ?? {},
+            sessionOwlGlobal: deps.sessionOwlGlobalSettings ?? {},
           },
           `arm ${base.arm} attempt ${attempt}`,
           (msg) => new Phase2StoppedError(base.arm, attempt, "config-failed", msg),

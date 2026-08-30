@@ -18,7 +18,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, write
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { clearArmConfig, readMemkeeperGlobalSettings } from "../arms/config.js";
+import { clearArmConfig, readSessionOwlGlobalSettings } from "../arms/config.js";
 import { ARM_DEFS } from "../arms/definitions.js";
 import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
 import { type JudgeAgentSpec, resolveBackgroundAgents } from "../config/background-agents.js";
@@ -248,13 +248,13 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
   mkdirSync(runPath, { recursive: true });
 
   // Read once here: the arm pins merge it (every configureArm) AND buildRunConfig
-  // records the effective memkeeper arm params (report + cfgId traceability).
-  const memkeeperGlobalSettings = readMemkeeperGlobalSettings(join(homedir(), ".pi"));
+  // records the effective session-owl arm params (report + cfgId traceability).
+  const sessionOwlGlobalSettings = readSessionOwlGlobalSettings(join(homedir(), ".pi"));
   const runConfig = buildRunConfig(
     deps.config,
     deps.versionResolver ?? DEFAULT_VERSION_RESOLVER,
     deps.manifest,
-    memkeeperGlobalSettings,
+    sessionOwlGlobalSettings,
   );
   const cfgId = buildCfgId(runConfig);
   // Hard cfg guard: the resumed namespace's cfg segment IS the crashed run's run
@@ -336,7 +336,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
     // --- Shared run inputs: the sessions store + the run's runtime pins ---
     const sessionsDir = join(dirname(deps.scenarioRepo), "sessions");
     const runtimePins = pinsFromSettings(deps.config.evaluatedModel, deps.config.evaluatedThinkingLevel);
-    // memkeeperGlobalSettings was read once before buildRunConfig (above) — it
+    // sessionOwlGlobalSettings was read once before buildRunConfig (above) — it
     // merges under the arm pins at every configureArm (Phase 1 + Phase 2), so
     // global panel tuning (models, timeouts, thinking levels, max tokens) reaches
     // the bench arms.
@@ -386,7 +386,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         cfgId: nsCfgId,
         toolVersions: runConfig.toolVersions,
         omFullReflectionThresholdTokens: deps.config.omFullReflectionThresholdTokens,
-        memkeeperGlobalSettings,
+        sessionOwlGlobalSettings,
         priorWalls,
         wallsPath,
         armsEnabled: armsToCompact,
@@ -523,7 +523,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         cmdCtx: ctxAfterPhase1,
         armBases: bases,
         config: deps.config,
-        memkeeperGlobalSettings,
+        sessionOwlGlobalSettings,
         manifest: deps.manifest,
         repo: deps.scenarioRepo,
         sessionsDir,

@@ -5,7 +5,7 @@
 // producing each arm's compacted base branch (the Phase-2 fork point).
 //
 // configure-API model: each arm is isolated in-place via
-// `configureArm` — write the arm's observational-memory + memkeeper config, call
+// `configureArm` — write the arm's observational-memory + session-owl config, call
 // each extension proxy's `reloadConfig()`, and set the tool allowlist. NO
 // `ctx.reload()`, so the command ctx stays valid across the whole inline for-loop
 // (reload would invalidate it with no `withSession`, breaking a per-arm loop). One
@@ -22,7 +22,7 @@
 
 import { existsSync } from "node:fs";
 import type { CompactionEntry, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { effectiveMemkeeperArmParams } from "../arms/config.js";
+import { effectiveSessionOwlArmParams } from "../arms/config.js";
 import { ARM_DEFS } from "../arms/definitions.js";
 import { isolateArmOrStop } from "../arms/switch.js";
 import { DEFAULT_VERSION_RESOLVER, resolveToolVersion, type VersionResolver } from "../arms/version.js";
@@ -160,9 +160,9 @@ export interface Phase1Deps {
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
   /** OM-full arm's threshold value (from bench config). */
   omFullReflectionThresholdTokens: number;
-  /** The operator's global memkeeper settings, merged under the arm pins at every
+  /** The operator's global session-owl settings, merged under the arm pins at every
    *  configureArm (read once by the run driver; absent → pins only). */
-  memkeeperGlobalSettings?: Record<string, unknown>;
+  sessionOwlGlobalSettings?: Record<string, unknown>;
   /** Enabled arms in processing order. */
   armsEnabled: ArmId[];
   /** Crash resume: an arm whose base branch is committed + session file exists is
@@ -202,7 +202,7 @@ export function buildRunConfig(
   config: BenchConfig,
   resolver: VersionResolver | null,
   manifest: ScenarioManifest,
-  memkeeperGlobal?: Record<string, unknown>,
+  sessionOwlGlobal?: Record<string, unknown>,
 ): RunConfig {
   const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const toolVersions: Partial<Record<ArmId, ToolVersion>> = {};
@@ -222,17 +222,17 @@ export function buildRunConfig(
     fastEval: config.fastEval,
     latentProbes: config.latentProbes,
     toolVersions,
-    // null (non-memkeeper arms) entries are dropped — the record keys are exactly
-    // the enabled memkeeper arms
-    memkeeperArms: Object.fromEntries(
+    // null (non-session-owl arms) entries are dropped — the record keys are exactly
+    // the enabled session-owl arms
+    sessionOwlArms: Object.fromEntries(
       config.armsEnabled
         .map(
           (arm) =>
             [
               arm,
-              effectiveMemkeeperArmParams(arm, {
+              effectiveSessionOwlArmParams(arm, {
                 omFullReflectionThresholdTokens: config.omFullReflectionThresholdTokens,
-                ...(memkeeperGlobal !== undefined ? { memkeeperGlobal } : {}),
+                ...(sessionOwlGlobal !== undefined ? { sessionOwlGlobal } : {}),
               }),
             ] as [ArmId, Readonly<Record<string, unknown>> | null],
         )
@@ -264,7 +264,7 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
     cfgId,
     toolVersions,
     omFullReflectionThresholdTokens,
-    memkeeperGlobalSettings,
+    sessionOwlGlobalSettings,
     armsEnabled,
     resume,
     reuseBases,
@@ -381,13 +381,13 @@ export async function runPhase1(deps: Phase1Deps): Promise<Phase1Result> {
       ({ compactionEntry, wallMs } = await ops.loadSession(currentCtx, sessionPath, async (sessionCtx) => {
         currentCtx = sessionCtx;
         const pi = getBenchPi();
-        // Isolate the arm IN-PLACE: write OM+memkeeper config → reloadConfig ×2 (fresh
+        // Isolate the arm IN-PLACE: write OM+session-owl config → reloadConfig ×2 (fresh
         // proxies) → setActiveTools (fresh pi). NO ctx.reload().
         isolateArmOrStop(
           pi,
           arm,
           scenarioRepo,
-          { omFullReflectionThresholdTokens, memkeeperGlobal: memkeeperGlobalSettings ?? {} },
+          { omFullReflectionThresholdTokens, sessionOwlGlobal: sessionOwlGlobalSettings ?? {} },
           `arm ${arm}`,
           (msg) => new Phase1StoppedError(arm, "config-failed", msg),
         );

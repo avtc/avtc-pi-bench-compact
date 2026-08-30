@@ -28,8 +28,8 @@ describe("branch naming", () => {
   const common = { date: "2026-08-10", id: 1, cfgId: "cfg-a3f2c1" };
 
   it("buildArmBaseBranch: arm-{tool}-{ver}", () => {
-    expect(buildArmBaseBranch({ ...common, tool: "memkeeper-builder", ver: "g4a2f8e" })).toBe(
-      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-memkeeper-builder-g4a2f8e",
+    expect(buildArmBaseBranch({ ...common, tool: "session-owl-builder", ver: "g4a2f8e" })).toBe(
+      "bench-compact/run-2026-08-10-1/cfg-a3f2c1/arm-session-owl-builder-g4a2f8e",
     );
   });
   it("A1 (bare-pi) OMITS {ver} (no tool version)", () => {

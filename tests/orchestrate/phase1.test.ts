@@ -255,10 +255,10 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
       expect.any(Function),
     );
     expect(ops.commit).toHaveBeenCalledWith(repo, expect.stringContaining("phase-1"));
-    // arm 2 (memkeeper-builder) carries the resolved tool version
+    // arm 2 (session-owl-builder) carries the resolved tool version
     const b2 = bases[1] as ArmBase;
     expect(b2.arm).toBe("A3");
-    expect(b2.tool).toBe("memkeeper-builder");
+    expect(b2.tool).toBe("session-owl-builder");
     expect(b2.ver).toBeUndefined(); // A3 has no toolVersions entry in the fake deps
   });
 
@@ -268,7 +268,7 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     await runPhase1(
       makeDeps({ ops, scenarioRepo: repo, sessionsDir: join(repo, "sessions"), armsEnabled: ["A1", "A3"], widget }),
     );
-    expect(widget.arms).toEqual(["1/2:bare-pi", "2/2:memkeeper-builder"]);
+    expect(widget.arms).toEqual(["1/2:bare-pi", "2/2:session-owl-builder"]);
   });
 
   it("reads the FRESH pi from globalThis inside each withSession (not the stale command-handler pi)", async () => {
@@ -281,9 +281,9 @@ describe("runPhase1 — per-arm configure + fork + compact + commit (NO ctx.relo
     );
 
     expect(ops.freshPis).toHaveLength(2);
-    // arm 1's fresh pi received A2's allowlist (recall); arm 2's fresh pi received A3's (mk_recall).
+    // arm 1's fresh pi received A2's allowlist (recall); arm 2's fresh pi received A3's (owl_recall).
     expect(ops.freshPis[0]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "recall"]);
-    expect(ops.freshPis[1]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "mk_recall"]);
+    expect(ops.freshPis[1]?.setActiveTools).toHaveBeenCalledWith([...BUILTIN_TOOLS, ...SUITE_TOOLS, "owl_recall"]);
     // the anti-peek entry is APPENDED to the arm session file (no agent turn fires —
     // sendUserMessage would start one) + the trigger ran against the FRESH pi (arm 1)
     expect(ops.appendAntiPeek).toHaveBeenCalledWith(expect.stringContaining("arm-om-default"), ANTI_PEEK_PROMPT);
@@ -550,7 +550,7 @@ describe("runPhase1 — crash resume (skip committed arm bases)", () => {
           date: "2026-08-11",
           id: 1,
           cfgId: "cfg-test1",
-          tool: "memkeeper-builder",
+          tool: "session-owl-builder",
           ver: undefined,
         }),
       ),
@@ -582,7 +582,7 @@ describe("buildRunConfig", () => {
     expect(rc.toolVersions.A2).toEqual({ source: "git", commit: "gabcdef", full: "abcdef1234567890" });
   });
 
-  it("records the effective memkeeper arm params (shape keys) per enabled memkeeper arm", () => {
+  it("records the effective session-owl arm params (shape keys) per enabled session-owl arm", () => {
     const resolver: VersionResolver = {
       resolveRoot: () => "/fake/root",
       gitHead: () => "abcdef1234567890",
@@ -593,8 +593,8 @@ describe("buildRunConfig", () => {
       rootViewStrategy: "task",
       observerModel: "local-server/Qwen3.8-27B", // tuning — must NOT appear in the projection
     });
-    expect(rc.memkeeperArms?.A1).toBeUndefined(); // bare-pi arm has no entry (not memkeeper-enabled)
-    expect(rc.memkeeperArms?.A3).toEqual({
+    expect(rc.sessionOwlArms?.A1).toBeUndefined(); // bare-pi arm has no entry (not session-owl-enabled)
+    expect(rc.sessionOwlArms?.A3).toEqual({
       enabled: true,
       renderMode: "observations-root",
       rootViewTargetNodes: 160,
@@ -604,7 +604,7 @@ describe("buildRunConfig", () => {
       selectorMode: "on-compaction",
       ignoreConflicts: true,
     });
-    expect(rc.memkeeperArms?.A4).toEqual({
+    expect(rc.sessionOwlArms?.A4).toEqual({
       enabled: true,
       renderMode: "selected-root",
       rootViewTargetNodes: 160,
@@ -626,8 +626,8 @@ describe("buildRunConfig", () => {
 describe("phase-1 sanity", () => {
   it("ARM_DEFS tool names (used for branch naming) are intact", () => {
     expect(ARM_DEFS.A1.tool).toBe("bare-pi");
-    expect(ARM_DEFS.A3.tool).toBe("memkeeper-builder");
-    expect(ARM_DEFS.A4.tool).toBe("memkeeper-selector");
+    expect(ARM_DEFS.A3.tool).toBe("session-owl-builder");
+    expect(ARM_DEFS.A4.tool).toBe("session-owl-selector");
     expect(ARM_DEFS.A5.tool).toBe("om-full");
   });
 

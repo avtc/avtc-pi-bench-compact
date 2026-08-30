@@ -259,7 +259,7 @@ describe("startRun end-to-end (mocked phases + real score) -> result-v1 + report
     expect(a3).toBeDefined();
     if (a1 === undefined || a3 === undefined) return;
     expect(a1.tool).toBe("bare-pi");
-    expect(a3.tool).toBe("memkeeper-builder");
+    expect(a3.tool).toBe("session-owl-builder");
     expect(a1.runsCompleted).toBe(1);
     expect(a1.runsFailed).toBe(0);
     expect(a3.runsCompleted).toBe(1);
@@ -367,8 +367,8 @@ describe("run-scenario command handler -> real executeRun -> startRun wiring", (
       backupMode: "build",
       armBarePiEnabled: true,
       armOmDefaultEnabled: false,
-      armMemkeeperObservationsRootEnabled: true,
-      armMemkeeperSelectedRootEnabled: false,
+      armSessionOwlObservationsRootEnabled: true,
+      armSessionOwlSelectedRootEnabled: false,
       armOmFullEnabled: false,
       omFullReflectionThresholdTokens: 4000,
     };

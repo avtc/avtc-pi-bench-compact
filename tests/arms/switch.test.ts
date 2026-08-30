@@ -104,12 +104,12 @@ describe("arms/switch — configureArm presence check (stop-and-surface)", () =>
     expect(() => configureArm(toolCtx, omAbsent, mk, "A5", repo, OPTS)).toThrow(/observational-memory/i);
   });
 
-  it("throws when a memkeeper-enabled arm's memkeeper proxy is not live (getConfig null)", () => {
+  it("throws when a session-owl-enabled arm's session-owl proxy is not live (getConfig null)", () => {
     const toolCtx = makeToolCtx();
     const om = makeProxy(true);
     const mkAbsent = makeProxy(false);
-    expect(() => configureArm(toolCtx, om, mkAbsent, "A3", repo, OPTS)).toThrow(/memkeeper/i);
-    expect(() => configureArm(toolCtx, om, mkAbsent, "A4", repo, OPTS)).toThrow(/memkeeper/i);
+    expect(() => configureArm(toolCtx, om, mkAbsent, "A3", repo, OPTS)).toThrow(/session-owl/i);
+    expect(() => configureArm(toolCtx, om, mkAbsent, "A4", repo, OPTS)).toThrow(/session-owl/i);
   });
 
   it("does NOT throw for a disabled arm whose proxy is absent (A1 — both disabled)", () => {

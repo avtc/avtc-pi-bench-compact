@@ -13,8 +13,8 @@ export const ARM_IDS: readonly ArmId[] = ["A1", "A2", "A3", "A4", "A5"];
 export const ARM_LABELS: Record<ArmId, string> = {
   A1: "bare-pi",
   A2: "om-default",
-  A3: "memkeeper-builder",
-  A4: "memkeeper-selector",
+  A3: "session-owl-builder",
+  A4: "session-owl-selector",
   A5: "om-full",
 };
 
@@ -26,8 +26,8 @@ export const ARM_LABELS: Record<ArmId, string> = {
 export const ARM_ENABLED_KEY: Record<ArmId, keyof BenchConfig> = {
   A1: "armBarePiEnabled",
   A2: "armOmDefaultEnabled",
-  A3: "armMemkeeperObservationsRootEnabled",
-  A4: "armMemkeeperSelectedRootEnabled",
+  A3: "armSessionOwlObservationsRootEnabled",
+  A4: "armSessionOwlSelectedRootEnabled",
   A5: "armOmFullEnabled",
 };
 
@@ -142,8 +142,8 @@ export interface BenchConfig extends JudgeEnsembleConfig {
   // Arms tab
   armBarePiEnabled: boolean;
   armOmDefaultEnabled: boolean;
-  armMemkeeperObservationsRootEnabled: boolean;
-  armMemkeeperSelectedRootEnabled: boolean;
+  armSessionOwlObservationsRootEnabled: boolean;
+  armSessionOwlSelectedRootEnabled: boolean;
   armOmFullEnabled: boolean;
   omFullReflectionThresholdTokens: number;
   /** Derived: enabled arm ids in canonical order. */

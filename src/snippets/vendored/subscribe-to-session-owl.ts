@@ -3,12 +3,12 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** API object emitted on the `memkeeper:ready` event. Lets a host reconfigure
- *  memkeeper LIVE (reload the in-memory settings cache from PI_SETTINGS_MEMKEEPER
+/** API object emitted on the `session-owl:ready` event. Lets a host reconfigure
+ *  session-owl LIVE (reload the in-memory settings cache from PI_SETTINGS_SESSION_OWL
  *  env / files) without `ctx.reload()` (which would invalidate the command ctx).
  *  `getConfig` may be absent on older bridges — the proxy returns null then. */
-export interface MemkeeperReadyApi {
-  /** Re-read settings from env (PI_SETTINGS_MEMKEEPER) first, then files —
+export interface SessionOwlReadyApi {
+  /** Re-read settings from env (PI_SETTINGS_SESSION_OWL) first, then files —
    *  refreshes the in-memory cache. */
   reloadConfig: () => void;
   /** Read the current effective config (snapshot). May be absent on older
@@ -17,7 +17,7 @@ export interface MemkeeperReadyApi {
 }
 
 /**
- * Subscribe to memkeeper:ready and expose its reloadConfig/getConfig lazily.
+ * Subscribe to session-owl:ready and expose its reloadConfig/getConfig lazily.
  *
  * Reload-safe: session_shutdown fires before reload, cleaning all listeners.
  * Copy this file into your consumer's src/snippets/vendored/ directory verbatim — no changes needed.
@@ -27,14 +27,14 @@ export interface MemkeeperReadyApi {
  * Before :ready fires (or when the bridge is absent/older): reloadConfig is a
  * no-op and getConfig returns null (safe defaults — graceful degrade).
  */
-export function subscribeToMemkeeper(pi: ExtensionAPI): {
+export function subscribeToSessionOwl(pi: ExtensionAPI): {
   reloadConfig(): void;
   getConfig(): unknown;
 } {
   const unsubs: Array<() => void> = [];
 
   // Internal API ref — populated when :ready fires
-  let _api: MemkeeperReadyApi | null = null;
+  let _api: SessionOwlReadyApi | null = null;
 
   // On session_shutdown (fires before reload): clean pi.events.on listeners
   pi.on("session_shutdown", () => {
@@ -44,8 +44,8 @@ export function subscribeToMemkeeper(pi: ExtensionAPI): {
 
   // Register :ready listener
   unsubs.push(
-    pi.events.on("memkeeper:ready", (api: unknown) => {
-      _api = api as MemkeeperReadyApi;
+    pi.events.on("session-owl:ready", (api: unknown) => {
+      _api = api as SessionOwlReadyApi;
     }),
   );
 

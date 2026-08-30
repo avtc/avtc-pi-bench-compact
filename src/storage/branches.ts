@@ -47,12 +47,12 @@ export interface RunConfig extends JudgeEnsembleConfig {
   latentProbes: LatentProbesMode;
   /** Per-arm resolved tool versions. The bare-pi arm is typically absent (no memory tool). */
   toolVersions: Partial<Record<ArmId, ToolVersion>>;
-  /** Effective memkeeper arm params (shape-defining keys: renderMode + root-view
-   *  knobs + stage modes), recorded per enabled memkeeper arm for traceability —
+  /** Effective session-owl arm params (shape-defining keys: renderMode + root-view
+   *  knobs + stage modes), recorded per enabled session-owl arm for traceability —
    *  the report renders them and cfgId fingerprints them (structure affects
    *  results; model/timeout tuning deliberately stays out). Absent in older
-   *  snapshots. Entries: null for arms with memkeeper disabled. */
-  memkeeperArms?: Partial<Record<ArmId, Readonly<Record<string, unknown>>>>;
+   *  snapshots. Entries: null for arms with session-owl disabled. */
+  sessionOwlArms?: Partial<Record<ArmId, Readonly<Record<string, unknown>>>>;
 }
 
 // --- {ver} token formatters ------------------------------------------------
@@ -70,7 +70,7 @@ interface BranchBase {
   date: string; // calendar date the bench RUN started (fixed across all arms/attempt)
   id: number; // 1-based, incremented per bench-run started on {date}
   cfgId: string; // cfg-<hex>
-  tool: string; // arm tool name (bare-pi · om-default · memkeeper-builder · memkeeper-selector · om-full)
+  tool: string; // arm tool name (bare-pi · om-default · session-owl-builder · session-owl-selector · om-full)
   /** Short tool-version token ({ver}); undefined for the bare-pi arm → omitted from the branch name. */
   ver: string | undefined;
 }
@@ -153,9 +153,9 @@ export function buildCfgId(rc: RunConfig): string {
         return v === undefined ? null : [a, v.source, v.commit, v.full];
       })
       .filter((x): x is [ArmId, string, string, string] => x !== null),
-    memkeeperArms: Object.keys(rc.memkeeperArms ?? {})
+    sessionOwlArms: Object.keys(rc.sessionOwlArms ?? {})
       .sort()
-      .map((a) => [a, rc.memkeeperArms?.[a as ArmId] ?? null]),
+      .map((a) => [a, rc.sessionOwlArms?.[a as ArmId] ?? null]),
   };
   const hash = createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
   return `cfg-${hash.slice(0, 6)}`;

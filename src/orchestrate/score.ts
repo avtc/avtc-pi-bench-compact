@@ -660,7 +660,7 @@ export interface ComparativeRoutingDeps {
   readonly verdicts?: VerdictStore | null;
 }
 
-/** The distinct arm ids present in the input, in canonical order (bare-pi, om-default, memkeeper-builder, memkeeper-selector, om-full). */
+/** The distinct arm ids present in the input, in canonical order (bare-pi, om-default, session-owl-builder, session-owl-selector, om-full). */
 function uniqueArmIds(input: ScoreRunInput): ArmId[] {
   return [...new Set(input.map((run) => run.arm))].sort();
 }

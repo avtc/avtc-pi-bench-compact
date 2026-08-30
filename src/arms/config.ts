@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 // Per-arm config writes for the configure-API isolation model. The harness writes
-// each arm's observational-memory + memkeeper config to the SAME sources those
+// each arm's observational-memory + session-owl config to the SAME sources those
 // extensions already read, then calls each extension's `reloadConfig()` (in
 // `configureArm`) so every read site sees the new values with no per-site patching.
 //
@@ -11,8 +11,8 @@
 // `observational-memory` section → env (`PI_OBSERVATIONAL_MEMORY_ENABLED` /
 // `PI_OBSERVATIONAL_MEMORY_PASSIVE`). Because env WINS, every arm sets both env
 // keys explicitly to '1'/'0' so a stale value from a prior arm can never override
-// this arm's intent. memkeeper reads `PI_SETTINGS_MEMKEEPER` env JSON first, so
-// every arm sets it (carrying `enabled:false` for non-memkeeper arms) — same
+// this arm's intent. session-owl reads `PI_SETTINGS_SESSION_OWL` env JSON first, so
+// every arm sets it (carrying `enabled:false` for non-session-owl arms) — same
 // deterministic-isolation reasoning.
 //
 // Pure file/env writes — no `reloadConfig()` here (that is `configureArm`'s job).
@@ -28,16 +28,16 @@ import { ARM_DEFS, type OmArmConfig } from "./definitions.js";
 /** Carries the om-full arm's threshold value (from bench config `omFullReflectionThresholdTokens`). */
 export interface WriteArmConfigOpts {
   omFullReflectionThresholdTokens: number;
-  /** The operator's GLOBAL memkeeper settings (parsed `avtc-pi-memkeeper-settings.json`),
+  /** The operator's GLOBAL session-owl settings (parsed `avtc-pi-session-owl-settings.json`),
    *  merged UNDER the arm pins — the bench pins only the arm-defining keys
    *  (enabled/modes/renderMode); everything else (models, timeouts, thinking levels,
    *  max tokens, thresholds) comes from here, so global panel tuning reaches the
    *  bench arms. Absent → pins only. */
-  memkeeperGlobal?: Record<string, unknown>;
+  sessionOwlGlobal?: Record<string, unknown>;
 }
 
-/** avtc-pi-settings-ui env transport for memkeeper (read FIRST on load — factory.ts). */
-const MEMKEEPER_ENV = "PI_SETTINGS_MEMKEEPER";
+/** avtc-pi-settings-ui env transport for session-owl (read FIRST on load — factory.ts). */
+const SESSION_OWL_ENV = "PI_SETTINGS_SESSION_OWL";
 /** observational-memory env knobs (env precedence WINS over settings.json — see file header). */
 const OM_ENABLED_ENV = "PI_OBSERVATIONAL_MEMORY_ENABLED";
 const OM_PASSIVE_ENV = "PI_OBSERVATIONAL_MEMORY_PASSIVE";
@@ -72,7 +72,7 @@ function writeSettings(repoCwd: string, settings: Record<string, unknown>): void
 }
 
 /**
- * Write one arm's observational-memory + memkeeper config to the sources those
+ * Write one arm's observational-memory + session-owl config to the sources those
  * extensions read, so a subsequent `reloadConfig()` on each proxy applies it.
  * Deterministic: always sets every managed env key (no stale override from a prior arm).
  */
@@ -89,37 +89,37 @@ export function writeArmConfig(arm: ArmId, repoCwd: string, opts: WriteArmConfig
   process.env[OM_ENABLED_ENV] = def.omConfig.enabled ? "1" : "0";
   process.env[OM_PASSIVE_ENV] = def.omConfig.passive ? "1" : "0";
 
-  // 3. memkeeper env JSON — always set (env-first precedence; `{enabled:false}` for
-  //    non-memkeeper arms clears any stale config a prior memkeeper arm left behind).
+  // 3. session-owl env JSON — always set (env-first precedence; `{enabled:false}` for
+  //    non-session-owl arms clears any stale config a prior session-owl arm left behind).
   //    The env document REPLACES the whole config (settings files never load while it
   //    is set), so the operator's global settings are merged UNDER the pins — without
-  //    this, every unpinned knob would silently fall back to memkeeper's built-in
+  //    this, every unpinned knob would silently fall back to session-owl's built-in
   //    defaults instead of the operator's panel values.
   //    `ignoreConflicts: true` is pinned AFTER the merge: the bench deliberately
-  //    co-runs memkeeper with other compaction-handling extensions (the OM fork),
-  //    and memkeeper stays dormant while paused — a global `false` riding into the
-  //    arm doc would keep it paused for memkeeper arms.
-  process.env[MEMKEEPER_ENV] = JSON.stringify(buildMemkeeperArmDoc(def, opts));
+  //    co-runs session-owl with other compaction-handling extensions (the OM fork),
+  //    and session-owl stays dormant while paused — a global `false` riding into the
+  //    arm doc would keep it paused for session-owl arms.
+  process.env[SESSION_OWL_ENV] = JSON.stringify(buildSessionOwlArmDoc(def, opts));
 }
 
-/** The memkeeper env doc one arm runs with: the operator's global settings
+/** The session-owl env doc one arm runs with: the operator's global settings
  *  merged UNDER the arm pins, with the bench's ignoreConflicts pin on top (the
- *  bench deliberately co-runs memkeeper with other compaction extensions).
+ *  bench deliberately co-runs session-owl with other compaction extensions).
  *  Single source of truth for writeArmConfig AND the report's arm-params record. */
-function buildMemkeeperArmDoc(def: (typeof ARM_DEFS)[ArmId], opts: WriteArmConfigOpts): Record<string, unknown> {
-  return { ...(opts.memkeeperGlobal ?? {}), ...def.memkeeperConfig, ignoreConflicts: true };
+function buildSessionOwlArmDoc(def: (typeof ARM_DEFS)[ArmId], opts: WriteArmConfigOpts): Record<string, unknown> {
+  return { ...(opts.sessionOwlGlobal ?? {}), ...def.sessionOwlConfig, ignoreConflicts: true };
 }
 
-/** The traceability projection of one arm's effective memkeeper config: the
+/** The traceability projection of one arm's effective session-owl config: the
  *  shape-defining keys only (structure affects results — report + cfgId record
- *  them; model/timeout tuning deliberately stays out). Null for non-memkeeper arms. */
-export function effectiveMemkeeperArmParams(
+ *  them; model/timeout tuning deliberately stays out). Null for non-session-owl arms. */
+export function effectiveSessionOwlArmParams(
   arm: ArmId,
   opts: WriteArmConfigOpts,
 ): Readonly<Record<string, unknown>> | null {
   const def = ARM_DEFS[arm];
-  if (!def.memkeeperConfig.enabled) return null;
-  const doc = buildMemkeeperArmDoc(def, opts);
+  if (!def.sessionOwlConfig.enabled) return null;
+  const doc = buildSessionOwlArmDoc(def, opts);
   const out: Record<string, unknown> = {};
   for (const key of [
     "enabled",
@@ -136,15 +136,15 @@ export function effectiveMemkeeperArmParams(
   return out;
 }
 
-/** The memkeeper settings filename convention (avtc-pi-settings-ui `settingsFilePaths`). */
-const MEMKEEPER_SETTINGS_FILE = "avtc-pi-memkeeper-settings.json";
+/** The session-owl settings filename convention (avtc-pi-settings-ui `settingsFilePaths`). */
+const SESSION_OWL_SETTINGS_FILE = "avtc-pi-session-owl-settings.json";
 
-/** Read the operator's GLOBAL memkeeper settings (`<~/.pi>/agent/avtc-pi-memkeeper-settings.json`).
- *  Absent or corrupt → {} (the arms then run the pinned keys + memkeeper defaults).
+/** Read the operator's GLOBAL session-owl settings (`<~/.pi>/agent/avtc-pi-session-owl-settings.json`).
+ *  Absent or corrupt → {} (the arms then run the pinned keys + session-owl defaults).
  *  Global only — a project-level file would live inside the scenario repo (agent-visible). */
-export function readMemkeeperGlobalSettings(globalDir: string | null): Record<string, unknown> {
+export function readSessionOwlGlobalSettings(globalDir: string | null): Record<string, unknown> {
   const base = globalDir ?? join(homedir(), ".pi");
-  const path = join(base, "agent", MEMKEEPER_SETTINGS_FILE);
+  const path = join(base, "agent", SESSION_OWL_SETTINGS_FILE);
   if (!existsSync(path)) return {};
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
@@ -184,5 +184,5 @@ export function clearArmConfig(repoCwd: string): void {
 export function clearArmEnv(): void {
   delete process.env[OM_ENABLED_ENV];
   delete process.env[OM_PASSIVE_ENV];
-  delete process.env[MEMKEEPER_ENV];
+  delete process.env[SESSION_OWL_ENV];
 }

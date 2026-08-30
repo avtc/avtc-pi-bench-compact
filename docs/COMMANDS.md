@@ -128,8 +128,8 @@ The bench **stops and surfaces** failures via notification (never auto-retries o
 |---|---|---|
 | `A1` | Bare-pi | `bare-pi` |
 | `A2` | OM-default | `om-default` |
-| `A3` | Memkeeper-builder | `memkeeper-builder` |
-| `A4` | Memkeeper-selector | `memkeeper-selector` |
+| `A3` | Session Owl-builder | `session-owl-builder` |
+| `A4` | Session Owl-selector | `session-owl-selector` |
 | `A5` | OM-full | `om-full` |
 
 Use these in the `:arms` subset syntax (e.g. `/bench-compact:results <runId>:A1,A3`).

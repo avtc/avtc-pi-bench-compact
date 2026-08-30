@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { renderHeadline } from "../../src/report/markdown.js";
 import type { BenchResultJson } from "../../src/report/result-json.js";
 
-/** A synthetic result-JSON: A1 (bare) + A3 (memkeeper). A3 beats A1 on E4/"E5.1"
+/** A synthetic result-JSON: A1 (bare) + A3 (session-owl). A3 beats A1 on E4/"E5.1"
  * (higher rate → positive Δ) but is WORSE on C1 footprint (higher tokens →
  * net-negative ⚠, lowerBetter polarity). Exercises ΔvsA1 both signs + a ⚠. */
 function syntheticResult(omitA1: boolean | null): BenchResultJson {
@@ -13,7 +13,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
     omitA1 === true
       ? {
           A3: {
-            tool: "memkeeper-builder",
+            tool: "session-owl-builder",
             runsCompleted: 9,
             runsFailed: 1,
             metrics: {
@@ -57,7 +57,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
             },
           },
           A3: {
-            tool: "memkeeper-builder",
+            tool: "session-owl-builder",
             runsCompleted: 9,
             runsFailed: 1,
             metrics: {
@@ -203,13 +203,13 @@ describe("renderHeadline", () => {
     expect(md).not.toContain("K="); // K=1 (single judge) omits the ensemble suffix
   });
 
-  it("renders the Memkeeper arm-params line (variable shape keys only; omitted without memkeeper arms)", () => {
+  it("renders the SessionOwl arm-params line (variable shape keys only; omitted without session-owl arms)", () => {
     const base = syntheticResult(false);
     const withMk = renderHeadline({
       ...base,
       config: {
         ...base.config,
-        memkeeperArms: {
+        sessionOwlArms: {
           A3: {
             enabled: true,
             renderMode: "observations-root",
@@ -222,10 +222,10 @@ describe("renderHeadline", () => {
       },
     });
     expect(withMk).toContain(
-      "Memkeeper: A3 render=observations-root rootTarget=160 rootStrategy=task; A4 render=selected-root",
+      "SessionOwl: A3 render=observations-root rootTarget=160 rootStrategy=task; A4 render=selected-root",
     );
-    // absent memkeeperArms (older snapshots) → no line at all
-    expect(renderHeadline(base)).not.toContain("Memkeeper:");
+    // absent sessionOwlArms (older snapshots) → no line at all
+    expect(renderHeadline(base)).not.toContain("SessionOwl:");
   });
 
   it("surfaces the multi-judge ensemble in the config line when judgesNumber > 1", () => {
@@ -328,7 +328,7 @@ describe("C3 rows (probes-only per-answer compound + live totals)", () => {
           probes: [{ probeId: "1", axis: "E6", question: "q", passes: [true], usages: [usage(0.02, 30000)] }],
         },
         A3: {
-          tool: "memkeeper-builder",
+          tool: "session-owl-builder",
           runsCompleted: 0,
           runsFailed: 0,
           metrics: { C3: { dollars: 0.007, wallMs: 16000, answers: 2 } },

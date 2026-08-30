@@ -5,7 +5,7 @@
  * Root bench-compact logger.
  *
  * Thin wrapper over the shared `avtc-pi-logger` library — the convention every
- * avtc-pi sibling follows (memkeeper/subagent/portrait/user-decisions). The
+ * avtc-pi sibling follows (session-owl/subagent/portrait/user-decisions). The
  * implementation (file backend, rotation, retention, level formatting) lives in
  * the library; this module only owns the bench-compact singleton + the debug gate.
  *

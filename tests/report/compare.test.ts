@@ -71,14 +71,14 @@ describe("renderComparison", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-1",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
       config: { N: 10, judgeModel: "judge-a" },
       toolVersions: { A3: { source: "git", commit: "g4a2f8e", full: "f" } },
     });
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-2",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
       config: { N: 5, judgeModel: "judge-b" },
       toolVersions: { A3: { source: "git", commit: "g9b1c3", full: "f2" } },
     });
@@ -101,13 +101,13 @@ describe("renderComparison", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-1",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
       config: { judgesNumber: 1 },
     });
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-2",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
       config: { judgesNumber: 3 },
     });
     const md = renderComparison(
@@ -126,12 +126,12 @@ describe("renderComparison", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-1",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1200, ci: [1100, 1300] } } } },
     });
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-2",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
     });
     const md = renderComparison(
       [run1, run2],
@@ -160,7 +160,7 @@ describe("renderComparison", () => {
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-2",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { E4: { rate: 0.6, ci: [0.5, 0.7], n: 10 } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { E4: { rate: 0.6, ci: [0.5, 0.7], n: 10 } } } },
       config: { armsEnabled: ["A3"] },
     });
     const md = renderComparison(
@@ -187,7 +187,7 @@ describe("renderComparison", () => {
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-2",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 5000, ci: [4500, 5500] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 5000, ci: [4500, 5500] } } } },
       config: { armsEnabled: ["A3"] },
     });
     const md = renderComparison(
@@ -206,7 +206,7 @@ describe("renderComparison", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-1",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } },
     });
     const md = renderComparison([run1], [{ runId: "run1", arms: ["A3"] }]);
     expect(md).toContain("run1·A3");
@@ -217,13 +217,13 @@ describe("renderComparison", () => {
     const run1 = mkResult({
       runId: "run1",
       cfgId: "cfg-aaa",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } },
       toolVersions: { A3: { source: "git", commit: "g4a2f8e", full: "f" } },
     });
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-bbb",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 800, ci: [700, 900] } } } },
       toolVersions: { A3: { source: "git", commit: "g9b1c3", full: "f2" } },
     });
     const md = renderComparison(
@@ -235,7 +235,7 @@ describe("renderComparison", () => {
     );
     expect(md).toContain("cfg-aaa"); // cfgId present
     expect(md).toContain("cfg-bbb");
-    expect(md).toContain("memkeeper-builder@g4a2f8e"); // tool@version in column header
+    expect(md).toContain("session-owl-builder@g4a2f8e"); // tool@version in column header
   });
 
   it("derives the metricDefs from the first result (self-describing)", () => {
@@ -247,7 +247,7 @@ describe("renderComparison", () => {
     const run2 = mkResult({
       runId: "run2",
       cfgId: "cfg-2",
-      arms: { A3: { tool: "memkeeper-builder", metrics: { E4: { rate: 0.9, ci: [0.8, 0.96], n: 10 } } } },
+      arms: { A3: { tool: "session-owl-builder", metrics: { E4: { rate: 0.9, ci: [0.8, 0.96], n: 10 } } } },
     });
     const md = renderComparison(
       [run1, run2],

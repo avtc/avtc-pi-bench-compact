@@ -16,13 +16,13 @@ describe("arm-env leak guard (global beforeEach clears configureArm env between 
   it("test 1: writes the three managed arm-config env keys", () => {
     process.env.PI_OBSERVATIONAL_MEMORY_ENABLED = "1";
     process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE = "1";
-    process.env.PI_SETTINGS_MEMKEEPER = '{"enabled":true}';
+    process.env.PI_SETTINGS_SESSION_OWL = '{"enabled":true}';
   });
 
   it("test 2: sees clean env (global beforeEach cleared test 1's writes)", () => {
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
-    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+    expect(process.env.PI_SETTINGS_SESSION_OWL).toBeUndefined();
   });
 });
 

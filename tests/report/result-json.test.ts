@@ -32,7 +32,7 @@ const runConfig: RunConfig = {
   toolVersions: { A3: gitVer("aabbccdd"), A2: npmVer("0.4.2") },
 };
 
-// A synthetic aggregate: A1 (bare) + A3 (memkeeper). Binary E2/E4/"E5.1"; comparative
+// A synthetic aggregate: A1 (bare) + A3 (session-owl). Binary E2/E4/"E5.1"; comparative
 // E1 (A3 beats A1); exact C1/C2/C3/C4. Exercises every channel shape.
 const aggregate: AggregateResult = {
   arms: {
@@ -106,7 +106,7 @@ const baseDeps = {
       run: 4,
       phase: "resume",
       reason: "agent hang (idle 2m)",
-      traceBranch: "run-.../arm-memkeeper-builder-g4a2f8e-4",
+      traceBranch: "run-.../arm-session-owl-builder-g4a2f8e-4",
       resolved: true,
     },
   ],

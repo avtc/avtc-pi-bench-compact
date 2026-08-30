@@ -310,7 +310,7 @@ export function serializeResultJson(deps: WriteResultJsonDeps): BenchResultJson 
   };
 }
 
-/** The arm's tool name (bare-pi / om-default / memkeeper-builder / memkeeper-selector / om-full). */
+/** The arm's tool name (bare-pi / om-default / session-owl-builder / session-owl-selector / om-full). */
 function armToolName(armId: ArmId): string {
   return ARM_LABELS[armId];
 }

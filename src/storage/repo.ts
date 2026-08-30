@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Bench-internal, never tracked scenario content: `.pi/` holds the arm-isolation settings
- *  (`settings.json` observational-memory section + memkeeper env) that `writeArmConfig` writes per arm.
+ *  (`settings.json` observational-memory section + session-owl env) that `writeArmConfig` writes per arm.
  *  Committing them would (a) reveal the active arm to the agent (anti-peek violation) + (b) pollute
  *  every arm branch's diff vs `main`. `.git/info/exclude` is local-only + doesn't survive a fresh
  *  clone, so a committed `.gitignore` is the robust choice. */

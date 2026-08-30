@@ -3,7 +3,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { type MemkeeperReadyApi, subscribeToMemkeeper } from "../../../src/snippets/vendored/subscribe-to-memkeeper.js";
+import { type SessionOwlReadyApi, subscribeToSessionOwl } from "../../../src/snippets/vendored/subscribe-to-session-owl.js";
 
 /** Minimal fake pi: captures `on`/`events.on` listeners; `events.on` returns a
  * real unsub (mirrors pi's shared eventBus); `fire` dispatches all listeners. */
@@ -45,22 +45,22 @@ function fire(pi: FakePi, event: string, ...args: unknown[]): void {
   for (const h of pi._handlers.get(event) ?? []) h(...args);
 }
 
-describe("subscribeToMemkeeper (vendored snippet)", () => {
+describe("subscribeToSessionOwl (vendored snippet)", () => {
   it("returns safe defaults before :ready fires (provider absent)", () => {
     const pi = makeFakePi();
-    const proxy = subscribeToMemkeeper(pi as unknown as ExtensionAPI);
+    const proxy = subscribeToSessionOwl(pi as unknown as ExtensionAPI);
     expect(proxy.getConfig()).toBeNull();
     // no-op reloadConfig must not throw
     expect(() => proxy.reloadConfig()).not.toThrow();
   });
 
-  it("delegates to the api after memkeeper:ready fires", () => {
+  it("delegates to the api after session-owl:ready fires", () => {
     const pi = makeFakePi();
-    const proxy = subscribeToMemkeeper(pi as unknown as ExtensionAPI);
+    const proxy = subscribeToSessionOwl(pi as unknown as ExtensionAPI);
     const reloadConfig = vi.fn();
     const getConfig = vi.fn(() => ({ enabled: false }));
-    const api: MemkeeperReadyApi = { reloadConfig, getConfig };
-    fire(pi, "memkeeper:ready", api);
+    const api: SessionOwlReadyApi = { reloadConfig, getConfig };
+    fire(pi, "session-owl:ready", api);
 
     proxy.reloadConfig();
     expect(reloadConfig).toHaveBeenCalledTimes(1);
@@ -71,21 +71,21 @@ describe("subscribeToMemkeeper (vendored snippet)", () => {
 
   it("returns null from getConfig when the bridge is older (no getConfig method)", () => {
     const pi = makeFakePi();
-    const proxy = subscribeToMemkeeper(pi as unknown as ExtensionAPI);
-    // older memkeeper: has reloadConfig but NOT getConfig
-    fire(pi, "memkeeper:ready", { reloadConfig() {} });
+    const proxy = subscribeToSessionOwl(pi as unknown as ExtensionAPI);
+    // older session-owl: has reloadConfig but NOT getConfig
+    fire(pi, "session-owl:ready", { reloadConfig() {} });
     expect(proxy.getConfig()).toBeNull();
     expect(() => proxy.reloadConfig()).not.toThrow();
   });
 
   it("session_shutdown cleans the :ready listener (reload-safe)", () => {
     const pi = makeFakePi();
-    subscribeToMemkeeper(pi as unknown as ExtensionAPI);
+    subscribeToSessionOwl(pi as unknown as ExtensionAPI);
     // before shutdown, both listeners are registered
-    expect((pi._handlers.get("memkeeper:ready") ?? []).length).toBe(1);
+    expect((pi._handlers.get("session-owl:ready") ?? []).length).toBe(1);
     expect((pi._handlers.get("session_shutdown") ?? []).length).toBe(1);
     fire(pi, "session_shutdown");
     // after shutdown, listeners are cleared
-    expect((pi._handlers.get("memkeeper:ready") ?? []).length).toBe(0);
+    expect((pi._handlers.get("session-owl:ready") ?? []).length).toBe(0);
   });
 });

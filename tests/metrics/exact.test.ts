@@ -200,7 +200,7 @@ describe("computeC4 (compaction cost: tokens + dollars + wall-clock)", () => {
     expect(computeC4(trace, pricing).stages).toEqual(["Observer", "Builder"]);
   });
 
-  it("reads an OBJECT-shaped compactionStages map (stage → usage, e.g. memkeeper's) as its keys", () => {
+  it("reads an OBJECT-shaped compactionStages map (stage → usage, e.g. session-owl's) as its keys", () => {
     const objStages = compaction("c1", "u0", "summary", makeUsage(1, 1), {
       details: { compactionStages: { observe: { input: 1 }, build: { input: 2 }, select: { input: 3 } } },
     });

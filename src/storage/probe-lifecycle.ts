@@ -58,8 +58,8 @@ export interface RecallToolUsage {
   readonly wallMs: number;
 }
 
-/** The tool names that constitute a memory recall (observational-memory + memkeeper). */
-const RECALL_TOOL_NAMES = new Set(["recall", "mk_recall"]);
+/** The tool names that constitute a memory recall (observational-memory + session-owl). */
+const RECALL_TOOL_NAMES = new Set(["recall", "owl_recall"]);
 
 /** Sum the probe-tail (added past the base) assistant-message usage + wall-clock.
  *  Pure transformation of the two file contents (testable in isolation). Returns

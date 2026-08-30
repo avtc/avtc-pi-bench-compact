@@ -9,7 +9,7 @@
 //   assistant reply → inject it via `pi.sendUserMessage({deliverAs:"followUp"})`.
 //
 // **Trigger = agent_settled, not turn_end.** The design cites `turn_end` as the
-// observation-mechanism heritage (memkeeper observes every turn_end); but the
+// observation-mechanism heritage (session-owl observes every turn_end); but the
 // simulator must produce exactly ONE user message per agent RUN (injecting on every
 // turn_end would queue multiple followUps mid-run). The control flow is
 // authoritative: "agent works → agent_end → harness measures context." So the

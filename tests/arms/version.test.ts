@@ -42,9 +42,9 @@ describe("arms/version — resolveToolVersion", () => {
     expect(v?.full).toBe(hash);
   });
 
-  it("A3 (memkeeper, local-folder/git install) → git short+full", () => {
+  it("A3 (session-owl, local-folder/git install) → git short+full", () => {
     const hash = "deadbeefcaffbabe1234";
-    const r = fakeResolver({ "avtc-pi-memkeeper": "/path/to/mk" }, { "/path/to/mk": hash }, {});
+    const r = fakeResolver({ "avtc-pi-session-owl": "/path/to/mk" }, { "/path/to/mk": hash }, {});
     const v = resolveToolVersion("A3", r);
     expect(v?.source).toBe("git");
     expect(v?.commit).toBe("gdeadbe");
@@ -63,8 +63,8 @@ describe("arms/version — resolveToolVersion", () => {
     expect(v?.full).toBe("1.4.2");
   });
 
-  it("A4 (memkeeper, npm install) → npm short+full", () => {
-    const r = fakeResolver({ "avtc-pi-memkeeper": "/nm/mk" }, { "/nm/mk": null }, { "/nm/mk": "0.9.0" });
+  it("A4 (session-owl, npm install) → npm short+full", () => {
+    const r = fakeResolver({ "avtc-pi-session-owl": "/nm/mk" }, { "/nm/mk": null }, { "/nm/mk": "0.9.0" });
     const v = resolveToolVersion("A4", r);
     expect(v?.source).toBe("npm");
     expect(v?.commit).toBe("npm0.9.0");
@@ -78,14 +78,14 @@ describe("arms/version — resolveToolVersion", () => {
 
   it("is deterministic — same root resolves to the same version (same checkout)", () => {
     const hash = "112233445566";
-    const r = fakeResolver({ "avtc-pi-memkeeper": "/p" }, { "/p": hash }, {});
+    const r = fakeResolver({ "avtc-pi-session-owl": "/p" }, { "/p": hash }, {});
     expect(resolveToolVersion("A3", r)).toEqual(resolveToolVersion("A3", r));
   });
 
   it("throws if the package install root cannot be resolved", () => {
     const r = fakeResolver({}, {}, {}); // resolveRoot returns null for everything
     expect(() => resolveToolVersion("A2", r)).toThrow(/cannot resolve.*pi-observational-memory/i);
-    expect(() => resolveToolVersion("A3", r)).toThrow(/cannot resolve.*avtc-pi-memkeeper/i);
+    expect(() => resolveToolVersion("A3", r)).toThrow(/cannot resolve.*avtc-pi-session-owl/i);
   });
 
   it("throws if the root resolves but neither git nor a version can be determined", () => {
@@ -137,7 +137,7 @@ describe("resolveRootFromSettings (local-folder installs in pi packages settings
   it("matches a Windows folder-path entry by basename (the pi-agent dev setup)", () => {
     const settings = mkSettings([
       "npm:pi-tool-display",
-      "E:\\sync\\unique\\work\\git\\pi\\avtc-pi-memkeeper",
+      "E:\\sync\\unique\\work\\git\\pi\\avtc-pi-session-owl",
       "E:/sync/unique/work/git/pi/pi-observational-memory",
     ]);
     const readers = { read: (p: string) => (p === "/s1.json" ? settings : '{"packages":[]}') };

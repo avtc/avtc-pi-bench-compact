@@ -90,12 +90,12 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
 
   it("fork + checkout + commit round-trip: diff isolates the changed file", () => {
     initScenarioRepo(repo);
-    forkBranch(repo, "main", "bench-compact/run-d-1/cfg-x/arm-memkeeper-builder-g1-1");
-    checkout(repo, "bench-compact/run-d-1/cfg-x/arm-memkeeper-builder-g1-1");
+    forkBranch(repo, "main", "bench-compact/run-d-1/cfg-x/arm-session-owl-builder-g1-1");
+    checkout(repo, "bench-compact/run-d-1/cfg-x/arm-session-owl-builder-g1-1");
     writeFileSync(path.join(repo, "game.ts"), "export const x = 2;\n");
     commitAll(repo, "attempt 1");
 
-    expect(diffNameOnly(repo, "main", "bench-compact/run-d-1/cfg-x/arm-memkeeper-builder-g1-1")).toEqual(["game.ts"]);
+    expect(diffNameOnly(repo, "main", "bench-compact/run-d-1/cfg-x/arm-session-owl-builder-g1-1")).toEqual(["game.ts"]);
   });
 
   it("diffNameOnly is empty when branches are identical", () => {

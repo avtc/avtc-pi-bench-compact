@@ -10,8 +10,8 @@ describe("elideMiddle", () => {
     expect(elideMiddle("hello", 5)).toBe("hello");
   });
   it("middle-elides to head + … + tail when too long", () => {
-    expect(elideMiddle("memkeeper-builder-selector", 12)).toMatch(/^m.+r$/);
-    expect(elideMiddle("memkeeper-builder-selector", 12)).toContain("…");
+    expect(elideMiddle("session-owl-builder-selector", 12)).toMatch(/^s.+r$/);
+    expect(elideMiddle("session-owl-builder-selector", 12)).toContain("…");
   });
   it("returns empty for maxLen<=0 (never overflows); ellipsis for maxLen==1", () => {
     expect(elideMiddle("anything", 0)).toBe("");
@@ -46,7 +46,7 @@ describe("fitLine", () => {
 
   it("middle-elides the elastic tail when the assembled line overflows", () => {
     // fixed prefix + elastic tail that's far too long for a narrow terminal.
-    const segs: Segment[] = ["🅑 1/5", { prefix: "", tail: "memkeeper-builder-very-long-tool-name" }, "■■■◧□□ eval"];
+    const segs: Segment[] = ["🅑 1/5", { prefix: "", tail: "session-owl-builder-very-long-tool-name" }, "■■■◧□□ eval"];
     const out = fitLine(segs, 30);
     expect(out).toContain("…");
     expect(out.length).toBeLessThanOrEqual(30);
@@ -56,7 +56,7 @@ describe("fitLine", () => {
   });
 
   it("keeps the elastic segment's fixed prefix when eliding its tail", () => {
-    const segs: Segment[] = ["pre", { prefix: "tool=", tail: "memkeeper-builder-selector-xyz" }, "post"];
+    const segs: Segment[] = ["pre", { prefix: "tool=", tail: "session-owl-builder-selector-xyz" }, "post"];
     const out = fitLine(segs, 24);
     expect(out).toContain("tool=");
     expect(out).toContain("…");

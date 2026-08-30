@@ -53,7 +53,7 @@ export function toStageReasoning(level: CoreThinkingLevel | null): ThinkingLevel
 const SEQUENTIAL = "sequential" as const;
 
 /** Per-run usage accumulated by a stage. `cacheWrite` is the bench extension over
- *  memkeeper (the compaction-cost breakdown attributes cache-write tokens + $ per arm). */
+ *  session-owl (the compaction-cost breakdown attributes cache-write tokens + $ per arm). */
 interface StageUsage {
   input: number;
   output: number;

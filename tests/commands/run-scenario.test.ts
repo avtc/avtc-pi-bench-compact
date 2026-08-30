@@ -129,9 +129,9 @@ describe("makeRunScenarioHandler — --resume", () => {
   // The crashed run's arm-base branches (A1-A4 committed; A5 mid-arm).
   const RUN4_BRANCHES = [
     "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-default",
-    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-memkeeper-builder",
-    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-memkeeper-pruner",
-    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-memkeeper-full",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-session-owl-builder",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-session-owl-pruner",
+    "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-session-owl-full",
     "bench-compact/run-2026-08-16-4/cfg-bd0f9a/arm-om-full-g9785fb",
     // an OLDER complete run — its results.json exists (see completeRunIds)
     "bench-compact/run-2026-08-16-3/cfg-bd0f9a/arm-om-default",

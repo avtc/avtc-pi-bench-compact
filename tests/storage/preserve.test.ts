@@ -144,7 +144,7 @@ describe("findPreservedArms", () => {
 
   it("parses a versioned base branch segment into ver", () => {
     const fx = makeFixture();
-    const branch = "bench-compact/run-2026-08-23-2/cfg-680f35/arm-memkeeper-builder-g12ab34";
+    const branch = "bench-compact/run-2026-08-23-2/cfg-680f35/arm-session-owl-builder-g12ab34";
     sourceSession(fx.sessionsDir, branch, "summary", "cut-1");
     sourcePool(fx.runsRoot, "2026-08-23-2", "A3", "summary", "cut-1");
     const ops: FakeOps = {
@@ -155,7 +155,7 @@ describe("findPreservedArms", () => {
     const result = findPreservedArms(depsFor(fx, ops, ["A3"], null));
 
     expect(result.found[0]?.ver).toBe("g12ab34");
-    expect(result.found[0]?.tool).toBe("memkeeper-builder");
+    expect(result.found[0]?.tool).toBe("session-owl-builder");
   });
 
   it("honors a pinned source run id (from) and ignores newer runs", () => {

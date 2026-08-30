@@ -9,7 +9,7 @@
 //    extension's handler map). This is the ONLY surface agent_settled / turn_end /
 //    message_end / session_before_compact / session_compact ever reach.
 //  - `pi.events.on(channel, handler)` — a separate bus for CUSTOM inter-extension
-//    channels (e.g. `memkeeper:ready`); the only emitter onto it is another
+//    channels (e.g. `session-owl:ready`); the only emitter onto it is another
 //    extension's `pi.events.emit`.
 // The bench subscribes to agent events via `pi.on` (see {@link subscribeAgentEvent}).
 // `pi.on` returns void — no unsubscribe — so disposers here are GUARD FLAGS: a

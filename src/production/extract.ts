@@ -4,7 +4,7 @@
 // Extract a pre-compaction backup from a REAL session (extract mode). The
 // session must be UN-compacted (no CompactionEntry) and coherent with the current
 // working directory (header.cwd === cwd — the codebase on disk IS the project
-// files). Memory-extension custom entries (memkeeper.* / om.*) are stripped
+// files). Memory-extension custom entries (session-owl.* / om.*) are stripped
 // so the bench re-runs compaction fresh with its own memory arm; renderable raw
 // types (message/text/thinking/custom_message/branch_summary + non-memory customs)
 // are kept.
@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** Custom-entry-type prefixes belonging to memory extensions (stripped on extract). */
-const DEFAULT_MEMORY_CUSTOM_TYPE_PREFIXES = ["memkeeper.", "om."] as const;
+const DEFAULT_MEMORY_CUSTOM_TYPE_PREFIXES = ["session-owl.", "om."] as const;
 
 /** A minimal entry shape (enough for guard + strip decisions). */
 interface EntryLike {
@@ -42,7 +42,7 @@ export interface ExtractOptions {
   readonly outputPath: string;
   /** The required working directory (header.cwd must match). Defaults to process.cwd(). */
   readonly cwd?: string;
-  /** Memory custom-type prefixes to strip (defaults to memkeeper. + om.). */
+  /** Memory custom-type prefixes to strip (defaults to session-owl. + om.). */
   readonly memoryCustomTypePrefixes?: readonly string[];
 }
 

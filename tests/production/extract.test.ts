@@ -88,14 +88,14 @@ describe("extractBackup — guards", () => {
 });
 
 describe("extractBackup — strip memory-extension entries", () => {
-  it("strips memkeeper.* + om.* custom entries, keeps renderable types", () => {
+  it("strips session-owl.* + om.* custom entries, keeps renderable types", () => {
     const dir = mkdtempSync(join(tmpdir(), "bench-extract-"));
     try {
       const src = writeSession(dir, "src.jsonl", [
         header(CWD),
         msg("e1", "user", "hi"),
-        custom("e2", "memkeeper.observation"),
-        custom("e3", "memkeeper.selection"),
+        custom("e2", "session-owl.observation"),
+        custom("e3", "session-owl.selection"),
         custom("e4", "om.observation"),
         msg("e5", "assistant", "yo"),
       ]);
@@ -107,7 +107,7 @@ describe("extractBackup — strip memory-extension entries", () => {
         .map((l) => JSON.parse(l) as { id: string; customType?: string });
       const ids = cleaned.map((e) => e.id);
       expect(ids).toEqual(["s1", "e1", "e5"]); // header + messages; memory customs dropped
-      expect(cleaned.some((e) => e.customType?.startsWith("memkeeper."))).toBe(false);
+      expect(cleaned.some((e) => e.customType?.startsWith("session-owl."))).toBe(false);
       expect(cleaned.some((e) => e.customType?.startsWith("om."))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -121,7 +121,7 @@ describe("extractBackup — strip memory-extension entries", () => {
         header(CWD),
         msg("e1", "user", "hi"),
         custom("e2", "todo.task"),
-        custom("e3", "memkeeper.observation"),
+        custom("e3", "session-owl.observation"),
       ]);
       const out = join(dir, "clean.jsonl");
       extractBackup({ fromSessionPath: src, outputPath: out, cwd: CWD });
@@ -130,7 +130,7 @@ describe("extractBackup — strip memory-extension entries", () => {
         .split("\n")
         .map((l) => JSON.parse(l) as { id: string; customType?: string });
       const customTypes = cleaned.filter((e) => e.customType).map((e) => e.customType);
-      expect(customTypes).toEqual(["todo.task"]); // todo kept, memkeeper stripped
+      expect(customTypes).toEqual(["todo.task"]); // todo kept, session-owl stripped
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

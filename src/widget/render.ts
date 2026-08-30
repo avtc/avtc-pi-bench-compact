@@ -163,7 +163,7 @@ function phaseBarThemed(state: WidgetState, theme: Theme): string {
 }
 
 /** Format a token count with adaptive k/M suffix and one-decimal-below-10 —
- *  the same convention as the memkeeper widget + pi's own footer (raw under 1K,
+ *  the same convention as the session-owl widget + pi's own footer (raw under 1K,
  *  `9.5k` under 10K, `223k` under 1M), so the two widgets stacked on screen read
  *  alike. */
 function formatTokens(n: number): string {

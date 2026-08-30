@@ -4,7 +4,7 @@
 // The bench-compact extension activate entry point. Initializes the settings panel
 // (/bench-compact:settings via registerBenchSettings) + registers every other
 // /bench-compact:* command (registerBenchCommands). Subscribes to the observational-
-// memory + memkeeper `:ready` events (vendored snippets) + stashes the fresh `pi` +
+// memory + session-owl `:ready` events (vendored snippets) + stashes the fresh `pi` +
 // the lazy config proxies on globalThis so the orchestrator can reconfigure each arm
 // live (configureArm: writeArmConfig + reloadConfig + setActiveTools — no ctx.reload()).
 //
@@ -23,7 +23,7 @@ import { registerCrashWitness } from "./crash-guard.js";
 import { log } from "./log.js";
 import { setBenchPi } from "./orchestrate/bench-ctx.js";
 import { subscribeToDialogCoordinator } from "./snippets/vendored/subscribe-to-dialog-coordinator.js";
-import { subscribeToMemkeeper } from "./snippets/vendored/subscribe-to-memkeeper.js";
+import { subscribeToSessionOwl } from "./snippets/vendored/subscribe-to-session-owl.js";
 import { subscribeToNotificationApi } from "./snippets/vendored/subscribe-to-notifications.js";
 import { subscribeToObservationalMemory } from "./snippets/vendored/subscribe-to-observational-memory.js";
 
@@ -49,7 +49,7 @@ export default function activate(pi: ExtensionAPI): void {
   // before :ready fires (reloadConfig no-op, getConfig null); configureArm reads them
   // per arm and asserts presence for an enabled arm.
   const om = subscribeToObservationalMemory(pi);
-  const mk = subscribeToMemkeeper(pi);
+  const mk = subscribeToSessionOwl(pi);
   setMemoryProxies({ om, mk });
 
   // Operator-facing UI plumbing (both no-ops when the extensions are absent):

@@ -23,8 +23,8 @@ function run4Branches(): string[] {
     `${ns("om-default", "g9785fb")}-1`,
     `${ns("om-default", "g9785fb")}-2`,
     `${ns("om-default", "g9785fb")}-probe-1-1`,
-    ns("memkeeper-builder", "gf18193"),
-    ns("memkeeper-selector", "gf18193"),
+    ns("session-owl-builder", "gf18193"),
+    ns("session-owl-selector", "gf18193"),
     ns("om-full", "g9785fb"),
   ];
 }

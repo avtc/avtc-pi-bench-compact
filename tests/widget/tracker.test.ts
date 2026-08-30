@@ -69,11 +69,11 @@ describe("WidgetController", () => {
   it("is inert until show() (mutations queue no renders)", () => {
     const cap = capturingDeps(TERM_WIDE);
     const c = new WidgetController(cap.deps, { phase: "compact" });
-    c.setArm(1, 5, "memkeeper-builder");
+    c.setArm(1, 5, "session-owl-builder");
     expect(cap.lines).toHaveLength(0);
     c.show();
     expect(cap.lines).toHaveLength(1);
-    expect(cap.lines[0]).toContain("1/5 memkeeper-builder");
+    expect(cap.lines[0]).toContain("1/5 session-owl-builder");
   });
 
   it("throttles rapid mutations: leading render + one trailing flush", () => {
@@ -207,7 +207,7 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
       phase: "latent",
       armIndex: 1,
       armTotal: 2,
-      tool: "memkeeper-builder",
+      tool: "session-owl-builder",
       ctxWindow: 262_144,
     });
     c.show();
@@ -316,13 +316,13 @@ describe("WidgetController.onEvent — two-tier tok + ctx usage", () => {
       phase: "compact",
       armIndex: 1,
       armTotal: 5,
-      tool: "memkeeper-builder",
+      tool: "session-owl-builder",
       ctxUsage: 5000,
       tok: 999,
     });
     c.show();
     vi.advanceTimersByTime(200);
-    expect(cap.lines.at(-1)).toBe("🅑 1/5 memkeeper-builder · ■■◧□□□□ compact");
+    expect(cap.lines.at(-1)).toBe("🅑 1/5 session-owl-builder · ■■◧□□□□ compact");
   });
 });
 

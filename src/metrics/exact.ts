@@ -78,7 +78,7 @@ function readStages(details: unknown): string[] {
     if (Array.isArray(stages)) {
       return stages.map((stage) => stageNameOf(stage as StageDetail));
     }
-    // Object shape (a stage → usage map, e.g. memkeeper's `{observe, build, select}`):
+    // Object shape (a stage → usage map, e.g. session-owl's `{observe, build, select}`):
     // the keys are the stage names.
     if (stages !== null && typeof stages === "object") {
       return Object.keys(stages);

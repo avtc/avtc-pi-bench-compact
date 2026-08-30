@@ -10,7 +10,7 @@ import {
 
 /** Minimal fake pi: captures `on`/`events.on` listeners; `events.on` returns a
  * real unsub (mirrors pi's shared eventBus); `fire` dispatches all listeners.
- * Same shape as the canonical-consumer test in the memkeeper repo. */
+ * Same shape as the canonical-consumer test in the session-owl repo. */
 interface FakePi {
   _handlers: Map<string, Array<(...args: unknown[]) => void>>;
   on(event: string, handler: (...args: unknown[]) => void): void;

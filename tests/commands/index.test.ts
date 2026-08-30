@@ -104,8 +104,8 @@ describe("registerBenchCommands", () => {
       fakeHandle({
         armBarePiEnabled: false,
         armOmDefaultEnabled: false,
-        armMemkeeperObservationsRootEnabled: false,
-        armMemkeeperSelectedRootEnabled: false,
+        armSessionOwlObservationsRootEnabled: false,
+        armSessionOwlSelectedRootEnabled: false,
         armOmFullEnabled: false,
       }),
     );

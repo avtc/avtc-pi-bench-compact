@@ -49,8 +49,8 @@ function validConfig(): BenchConfig {
     outputDir: null,
     armBarePiEnabled: true,
     armOmDefaultEnabled: true,
-    armMemkeeperObservationsRootEnabled: true,
-    armMemkeeperSelectedRootEnabled: true,
+    armSessionOwlObservationsRootEnabled: true,
+    armSessionOwlSelectedRootEnabled: true,
     armOmFullEnabled: true,
     omFullReflectionThresholdTokens: 4000,
     armsEnabled: ["A1", "A2", "A3", "A4", "A5"] as ArmId[],
@@ -67,8 +67,8 @@ describe("validateBenchConfig", () => {
     const cfg = validConfig();
     cfg.armBarePiEnabled = false;
     cfg.armOmDefaultEnabled = false;
-    cfg.armMemkeeperObservationsRootEnabled = false;
-    cfg.armMemkeeperSelectedRootEnabled = false;
+    cfg.armSessionOwlObservationsRootEnabled = false;
+    cfg.armSessionOwlSelectedRootEnabled = false;
     cfg.armOmFullEnabled = false;
     cfg.armsEnabled = [];
     const result = validateBenchConfig(cfg);

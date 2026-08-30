@@ -5,21 +5,21 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearArmConfig, clearArmEnv, readMemkeeperGlobalSettings, writeArmConfig } from "../../src/arms/config.js";
+import { clearArmConfig, clearArmEnv, readSessionOwlGlobalSettings, writeArmConfig } from "../../src/arms/config.js";
 
 const OPTS = { omFullReflectionThresholdTokens: 4000 };
 
 interface EnvSnapshot {
   enabled: string | undefined;
   passive: string | undefined;
-  memkeeper: string | undefined;
+  sessionOwl: string | undefined;
 }
 
 function snapshotEnv(): EnvSnapshot {
   return {
     enabled: process.env.PI_OBSERVATIONAL_MEMORY_ENABLED,
     passive: process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE,
-    memkeeper: process.env.PI_SETTINGS_MEMKEEPER,
+    sessionOwl: process.env.PI_SETTINGS_SESSION_OWL,
   };
 }
 
@@ -30,7 +30,7 @@ function restoreEnv(s: EnvSnapshot): void {
         ? "PI_OBSERVATIONAL_MEMORY_ENABLED"
         : key === "passive"
           ? "PI_OBSERVATIONAL_MEMORY_PASSIVE"
-          : "PI_SETTINGS_MEMKEEPER";
+          : "PI_SETTINGS_SESSION_OWL";
     if (val === undefined) delete process.env[envKey];
     else process.env[envKey] = val;
   }
@@ -42,8 +42,8 @@ function readSettings(repo: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
 }
 
-function readMemkeeperEnv(): Record<string, unknown> {
-  return JSON.parse(process.env.PI_SETTINGS_MEMKEEPER ?? "{}") as Record<string, unknown>;
+function readSessionOwlEnv(): Record<string, unknown> {
+  return JSON.parse(process.env.PI_SETTINGS_SESSION_OWL ?? "{}") as Record<string, unknown>;
 }
 
 describe("arms/config — writeArmConfig writes OM settings.json observational-memory section", () => {
@@ -54,7 +54,7 @@ describe("arms/config — writeArmConfig writes OM settings.json observational-m
     env = snapshotEnv();
     delete process.env.PI_OBSERVATIONAL_MEMORY_ENABLED;
     delete process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE;
-    delete process.env.PI_SETTINGS_MEMKEEPER;
+    delete process.env.PI_SETTINGS_SESSION_OWL;
   });
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
@@ -71,7 +71,7 @@ describe("arms/config — writeArmConfig writes OM settings.json observational-m
     expect(readSettings(repo)["observational-memory"]).toEqual({ enabled: true, passive: true });
   });
 
-  it("memkeeper arms: OM disabled (OM section present but off)", () => {
+  it("session-owl arms: OM disabled (OM section present but off)", () => {
     writeArmConfig("A3", repo, OPTS);
     expect(readSettings(repo)["observational-memory"]).toEqual({ enabled: false });
   });
@@ -115,37 +115,37 @@ describe("arms/config — writeArmConfig sets OM env deterministically (env prec
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBe("0");
   });
 
-  it("memkeeper arms (OM-disabled) still set ENABLED=0 + PASSIVE=0 (deterministic)", () => {
+  it("session-owl arms (OM-disabled) still set ENABLED=0 + PASSIVE=0 (deterministic)", () => {
     writeArmConfig("A3", repo, OPTS);
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("0");
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBe("0");
   });
 });
 
-describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per arm", () => {
+describe("arms/config — writeArmConfig sets PI_SETTINGS_SESSION_OWL env JSON per arm", () => {
   let repo: string;
   let env: EnvSnapshot;
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), "bench-armmk-"));
     env = snapshotEnv();
-    delete process.env.PI_SETTINGS_MEMKEEPER;
+    delete process.env.PI_SETTINGS_SESSION_OWL;
   });
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
     restoreEnv(env);
   });
 
-  it("non-memkeeper arms set {enabled:false} (no stale override from a prior memkeeper arm)", () => {
-    writeArmConfig("A3", repo, OPTS); // seed a memkeeper env
-    expect(readMemkeeperEnv().enabled).toBe(true);
+  it("non-session-owl arms set {enabled:false} (no stale override from a prior session-owl arm)", () => {
+    writeArmConfig("A3", repo, OPTS); // seed a session-owl env
+    expect(readSessionOwlEnv().enabled).toBe(true);
 
-    writeArmConfig("A1", repo, OPTS); // switching to a non-memkeeper arm must clear it
-    expect(readMemkeeperEnv()).toEqual({ enabled: false, ignoreConflicts: true });
+    writeArmConfig("A1", repo, OPTS); // switching to a non-session-owl arm must clear it
+    expect(readSessionOwlEnv()).toEqual({ enabled: false, ignoreConflicts: true });
   });
 
-  it("memkeeper-builder arm: observations-root (Selector OFF), all stages on-compaction", () => {
+  it("session-owl-builder arm: observations-root (Selector OFF), all stages on-compaction", () => {
     writeArmConfig("A3", repo, OPTS);
-    expect(readMemkeeperEnv()).toEqual({
+    expect(readSessionOwlEnv()).toEqual({
       ignoreConflicts: true,
       enabled: true,
       renderMode: "observations-root",
@@ -155,9 +155,9 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
     });
   });
 
-  it("memkeeper-selector arm: selected-root (Selector runs)", () => {
+  it("session-owl-selector arm: selected-root (Selector runs)", () => {
     writeArmConfig("A4", repo, OPTS);
-    expect(readMemkeeperEnv()).toEqual({
+    expect(readSessionOwlEnv()).toEqual({
       enabled: true,
       ignoreConflicts: true,
       renderMode: "selected-root",
@@ -167,17 +167,17 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
     });
   });
 
-  it("memkeeperGlobal merges the operator's global settings UNDER the arm pins (pins win)", () => {
+  it("sessionOwlGlobal merges the operator's global settings UNDER the arm pins (pins win)", () => {
     writeArmConfig("A4", repo, {
       ...OPTS,
-      memkeeperGlobal: {
+      sessionOwlGlobal: {
         llmCallTimeoutMs: 180_000,
         observerThinkingLevel: "low",
         renderMode: "observations-root", // a pin the arm must OVERRIDE
         observerModel: "local-server/Qwen3.8-27B",
       },
     });
-    expect(readMemkeeperEnv()).toEqual({
+    expect(readSessionOwlEnv()).toEqual({
       llmCallTimeoutMs: 180_000,
       observerThinkingLevel: "low",
       observerModel: "local-server/Qwen3.8-27B",
@@ -190,13 +190,13 @@ describe("arms/config — writeArmConfig sets PI_SETTINGS_MEMKEEPER env JSON per
     });
   });
 
-  it("non-memkeeper arm with global settings: {...global, enabled:false} (knobs ride along, stages stay off)", () => {
-    writeArmConfig("A1", repo, { ...OPTS, memkeeperGlobal: { observerThinkingLevel: "low" } });
-    expect(readMemkeeperEnv()).toEqual({ observerThinkingLevel: "low", ignoreConflicts: true, enabled: false });
+  it("non-session-owl arm with global settings: {...global, enabled:false} (knobs ride along, stages stay off)", () => {
+    writeArmConfig("A1", repo, { ...OPTS, sessionOwlGlobal: { observerThinkingLevel: "low" } });
+    expect(readSessionOwlEnv()).toEqual({ observerThinkingLevel: "low", ignoreConflicts: true, enabled: false });
   });
 });
 
-describe("arms/config — readMemkeeperGlobalSettings (global file reader)", () => {
+describe("arms/config — readSessionOwlGlobalSettings (global file reader)", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "bench-mkglobal-"));
@@ -205,23 +205,23 @@ describe("arms/config — readMemkeeperGlobalSettings (global file reader)", () 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("parses <dir>/agent/avtc-pi-memkeeper-settings.json when present", () => {
+  it("parses <dir>/agent/avtc-pi-session-owl-settings.json when present", () => {
     mkdirSync(join(dir, "agent"), { recursive: true });
     writeFileSync(
-      join(dir, "agent", "avtc-pi-memkeeper-settings.json"),
+      join(dir, "agent", "avtc-pi-session-owl-settings.json"),
       JSON.stringify({ observerThinkingLevel: "low", llmCallTimeoutMs: 180_000 }),
       "utf-8",
     );
-    expect(readMemkeeperGlobalSettings(dir)).toEqual({ observerThinkingLevel: "low", llmCallTimeoutMs: 180_000 });
+    expect(readSessionOwlGlobalSettings(dir)).toEqual({ observerThinkingLevel: "low", llmCallTimeoutMs: 180_000 });
   });
 
   it("returns {} when the file is absent, corrupt, or non-object", () => {
-    expect(readMemkeeperGlobalSettings(dir)).toEqual({});
+    expect(readSessionOwlGlobalSettings(dir)).toEqual({});
     mkdirSync(join(dir, "agent"), { recursive: true });
-    writeFileSync(join(dir, "agent", "avtc-pi-memkeeper-settings.json"), "{not json", "utf-8");
-    expect(readMemkeeperGlobalSettings(dir)).toEqual({});
-    writeFileSync(join(dir, "agent", "avtc-pi-memkeeper-settings.json"), "[1,2]", "utf-8");
-    expect(readMemkeeperGlobalSettings(dir)).toEqual({});
+    writeFileSync(join(dir, "agent", "avtc-pi-session-owl-settings.json"), "{not json", "utf-8");
+    expect(readSessionOwlGlobalSettings(dir)).toEqual({});
+    writeFileSync(join(dir, "agent", "avtc-pi-session-owl-settings.json"), "[1,2]", "utf-8");
+    expect(readSessionOwlGlobalSettings(dir)).toEqual({});
   });
 });
 
@@ -233,7 +233,7 @@ describe("arms/config — writeArmConfig preserves other .pi/settings.json keys 
     env = snapshotEnv();
     delete process.env.PI_OBSERVATIONAL_MEMORY_ENABLED;
     delete process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE;
-    delete process.env.PI_SETTINGS_MEMKEEPER;
+    delete process.env.PI_SETTINGS_SESSION_OWL;
   });
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
@@ -273,7 +273,7 @@ describe("arms/config — clearArmConfig teardown", () => {
     expect(readSettings(repo)["observational-memory"]).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
-    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+    expect(process.env.PI_SETTINGS_SESSION_OWL).toBeUndefined();
   });
 
   it("keeps the settings.json file when it has other keys, removes it when empty", () => {
@@ -313,13 +313,13 @@ describe("arms/config — clearArmEnv (env-only teardown, no repo)", () => {
     writeArmConfig("A2", repo, OPTS);
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBe("1");
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBe("1");
-    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeDefined();
+    expect(process.env.PI_SETTINGS_SESSION_OWL).toBeDefined();
     expect(readSettings(repo)["observational-memory"]).toBeDefined();
 
     clearArmEnv();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
-    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+    expect(process.env.PI_SETTINGS_SESSION_OWL).toBeUndefined();
     // env-only: the settings.json section is NOT cleared (that's clearArmConfig's job)
     expect(readSettings(repo)["observational-memory"]).toBeDefined();
   });
@@ -328,11 +328,11 @@ describe("arms/config — clearArmEnv (env-only teardown, no repo)", () => {
     clearArmEnv();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_ENABLED).toBeUndefined();
     expect(process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE).toBeUndefined();
-    expect(process.env.PI_SETTINGS_MEMKEEPER).toBeUndefined();
+    expect(process.env.PI_SETTINGS_SESSION_OWL).toBeUndefined();
   });
 });
 
-describe("arms/config — ignoreConflicts pin (memkeeper co-runs despite other compaction extensions)", () => {
+describe("arms/config — ignoreConflicts pin (session-owl co-runs despite other compaction extensions)", () => {
   let repo: string;
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), "bench-mkignore-"));
@@ -341,8 +341,8 @@ describe("arms/config — ignoreConflicts pin (memkeeper co-runs despite other c
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it("pins ignoreConflicts:true AFTER the global merge — a global false cannot keep memkeeper paused", () => {
-    writeArmConfig("A4", repo, { ...OPTS, memkeeperGlobal: { ignoreConflicts: false } });
-    expect(readMemkeeperEnv().ignoreConflicts).toBe(true);
+  it("pins ignoreConflicts:true AFTER the global merge — a global false cannot keep session-owl paused", () => {
+    writeArmConfig("A4", repo, { ...OPTS, sessionOwlGlobal: { ignoreConflicts: false } });
+    expect(readSessionOwlEnv().ignoreConflicts).toBe(true);
   });
 });

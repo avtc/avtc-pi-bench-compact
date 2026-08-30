@@ -166,8 +166,8 @@ describe("getBenchConfig", () => {
       fakeHandle({
         armBarePiEnabled: true,
         armOmDefaultEnabled: false,
-        armMemkeeperObservationsRootEnabled: true,
-        armMemkeeperSelectedRootEnabled: false,
+        armSessionOwlObservationsRootEnabled: true,
+        armSessionOwlSelectedRootEnabled: false,
         armOmFullEnabled: true,
       }),
     );
@@ -179,8 +179,8 @@ describe("getBenchConfig", () => {
       fakeHandle({
         armBarePiEnabled: true,
         armOmDefaultEnabled: true,
-        armMemkeeperObservationsRootEnabled: true,
-        armMemkeeperSelectedRootEnabled: true,
+        armSessionOwlObservationsRootEnabled: true,
+        armSessionOwlSelectedRootEnabled: true,
         armOmFullEnabled: true,
       }),
     );
@@ -192,8 +192,8 @@ describe("getBenchConfig", () => {
       fakeHandle({
         armBarePiEnabled: false,
         armOmDefaultEnabled: false,
-        armMemkeeperObservationsRootEnabled: false,
-        armMemkeeperSelectedRootEnabled: false,
+        armSessionOwlObservationsRootEnabled: false,
+        armSessionOwlSelectedRootEnabled: false,
         armOmFullEnabled: false,
       }),
     );
