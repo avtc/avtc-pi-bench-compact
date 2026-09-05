@@ -1,6 +1,6 @@
 # avtc-pi-bench-compact
 
-A pi extension that benchmarks compaction/memory approaches (**arms**) on an identical authored workload. For each arm it drives a harness-paced build up to a compaction boundary, then samples post-compaction agent behavior over `N` continuation runs and scores **effectiveness + cost** via a multi-judge LLM ensemble (judge-graded) and exact trace signals (no judge).
+Benchmarks compaction-memory extensions for [pi](https://pi.dev) head-to-head — judges what a post-compaction agent retains and recalls, whether it redoes work, and what that memory costs in tokens.
 
 The full specification (design + task plan) lives in the project's `.featyard/` storage (managed, not committed). Run `/bench-compact:status` to check the current run state.
 

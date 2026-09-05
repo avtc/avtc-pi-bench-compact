@@ -69,7 +69,8 @@ function asThinkingLevelOrNull(
 }
 
 function asFastEvalMode(raw: Record<string, unknown>, key: string, fallback: FastEvalMode): FastEvalMode {
-  return raw[key] === "probes-only" ? "probes-only" : fallback;
+  const v = raw[key];
+  return v === "off" || v === "probes-only" ? v : fallback;
 }
 
 function asLatentProbesMode(raw: Record<string, unknown>, key: string, fallback: LatentProbesMode): LatentProbesMode {

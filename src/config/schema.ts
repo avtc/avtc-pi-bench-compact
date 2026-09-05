@@ -39,7 +39,7 @@ export const DEFAULTS = {
   judge3ThinkingLevel: null as ThinkingLevel | null,
   N: 10,
   compactionBoundary: 140000,
-  fastEval: "off" as FastEvalMode,
+  fastEval: "probes-only" as FastEvalMode,
   latentProbes: "per-arm" as LatentProbesMode,
   judgeMaxTokens: null as number | null,
   latentStageMaxTokens: null as number | null,

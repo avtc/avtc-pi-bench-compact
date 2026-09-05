@@ -90,8 +90,8 @@ describe("BENCH_SCHEMA", () => {
     it("latentProbes: string, default per-arm", () => {
       expect(row("latentProbes")).toMatchObject({ type: "string", defaultValue: "per-arm" });
     });
-    it("fastEval: string, default off", () => {
-      expect(row("fastEval")).toMatchObject({ type: "string", defaultValue: "off" });
+    it("fastEval: string, default probes-only", () => {
+      expect(row("fastEval")).toMatchObject({ type: "string", defaultValue: "probes-only" });
     });
     it("fastEval presets are exactly [off, probes-only]", () => {
       expect(row("fastEval").presets).toEqual(["off", "probes-only"]);
