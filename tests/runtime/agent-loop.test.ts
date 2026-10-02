@@ -16,6 +16,7 @@ import {
   runBenchStage,
   StageRunError,
   type StageRunInput,
+  type TurnPayload,
   toStageReasoning,
 } from "../../src/runtime/agent-loop.js";
 import { _resetStageClocks, activeStageClock, type StageClock } from "../../src/ui/operator-wait.js";
@@ -44,13 +45,11 @@ function fakeLoop(
         yield event;
         await Promise.resolve(); // yield to the microtask queue (lets fake-clock timers fire)
         if (signal.aborted) return;
-        if (event.type === "turn_end" && typeof config.shouldStopAfterTurn === "function") {
-          if (
-            await config.shouldStopAfterTurn(
-              {} as unknown as Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0],
-            )
-          )
-            return;
+        if (event.type === "turn_end" && typeof config.finishTurn === "function") {
+          // pi's AgentTurnContext always carries the completed assistant message;
+          // a normal stopReason keeps the fake faithful to the hook contract.
+          const decision = await config.finishTurn({ message: { stopReason: "stop" } } as unknown as TurnPayload);
+          if (decision?.action === "end") return;
         }
       }
     },
@@ -441,14 +440,13 @@ describe("runBenchStage", () => {
 describe("makeTurnCap", () => {
   it("returns false until the Nth call, then true (null = never)", () => {
     const cap = makeTurnCap(3);
-    expect(cap({} as unknown as Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0])).toBe(false); // after turn 1
-    expect(cap({} as unknown as Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0])).toBe(false); // after turn 2
-    expect(cap({} as unknown as Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0])).toBe(true); // after turn 3 -> stop
+    expect(cap({} as unknown as TurnPayload)).toBe(false); // after turn 1
+    expect(cap({} as unknown as TurnPayload)).toBe(false); // after turn 2
+    expect(cap({} as unknown as TurnPayload)).toBe(true); // after turn 3 -> stop
   });
   it("null -> never stops", () => {
     const never = makeTurnCap(null);
-    for (let i = 0; i < 50; i++)
-      expect(never({} as unknown as Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0])).toBe(false);
+    for (let i = 0; i < 50; i++) expect(never({} as unknown as TurnPayload)).toBe(false);
   });
 });
 

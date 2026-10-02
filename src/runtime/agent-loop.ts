@@ -177,13 +177,16 @@ function emptyUsage(): StageUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0, elapsedMs: 0 };
 }
 
+/** The completed-turn payload the loop's `finishTurn` hook receives — pi's
+ *  `AgentTurnContext` (assistant message, its tool results, the run context,
+ *  and the messages this loop invocation will return). */
+export type TurnPayload = Parameters<NonNullable<AgentLoopConfig["finishTurn"]>>[0];
+
 /**
- * Build a `shouldStopAfterTurn` that caps a run at `maxTurns` completed turns
- * (counted from `turn_end` callbacks). `null` ⇒ never stop.
+ * Build a turn predicate that caps a run at `maxTurns` completed turns
+ * (one invocation per completed turn). `null` ⇒ never stop.
  */
-export function makeTurnCap(
-  maxTurns: number | null,
-): (context: Parameters<NonNullable<AgentLoopConfig["shouldStopAfterTurn"]>>[0]) => boolean {
+export function makeTurnCap(maxTurns: number | null): (turn: TurnPayload) => boolean {
   if (maxTurns === null) {
     const never = (): boolean => false;
     return never;
@@ -192,6 +195,17 @@ export function makeTurnCap(
   return (): boolean => {
     count += 1;
     return count >= maxTurns;
+  };
+}
+
+/** Adapt a stop predicate to the loop's `finishTurn` hook (pi ≥0.87 replaced
+ *  `shouldStopAfterTurn` with `finishTurn`; the decision applies after
+ *  `turn_end`). Error and aborted turns are hard exits whose decision pi
+ *  ignores, so return undefined WITHOUT invoking the predicate for them. */
+export function makeFinishTurn(stop: (turn: TurnPayload) => boolean): NonNullable<AgentLoopConfig["finishTurn"]> {
+  return (turn) => {
+    if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return undefined;
+    return stop(turn) ? { action: "end" } : undefined;
   };
 }
 
@@ -209,8 +223,11 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
 
   try {
     const context: AgentContext = {
-      systemPrompt: input.systemPrompt,
-      messages: input.messages,
+      // pi ≥0.87: the system prompt rides as the transcript's LEADING system
+      // message (AgentContext.systemPrompt was removed). input.messages stay in
+      // history AND are passed as the loop's prompts below — the resulting
+      // double-send is pre-existing (unchanged) stage behavior.
+      messages: [{ role: "system", content: input.systemPrompt, timestamp: Date.now() }, ...input.messages],
       tools: input.tools,
     };
 
@@ -265,7 +282,7 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
       // so the AgentMessage[]->Message[] transform is an identity cast.
       convertToLlm: (msgs: AgentMessage[]) => msgs as unknown as Message[],
       toolExecution: SEQUENTIAL,
-      shouldStopAfterTurn: makeTurnCap(input.maxTurns),
+      finishTurn: makeFinishTurn(makeTurnCap(input.maxTurns)),
       getApiKey: () => input.apiKey,
       // Per-turn output cap (applied to every provider request; a truncated
       // response's tool calls are rejected by agentLoop).
