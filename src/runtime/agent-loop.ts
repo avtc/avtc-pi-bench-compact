@@ -224,10 +224,14 @@ export async function runBenchStage(input: StageRunInput): Promise<StageRunResul
   try {
     const context: AgentContext = {
       // pi ≥0.87: the system prompt rides as the transcript's LEADING system
-      // message (AgentContext.systemPrompt was removed). input.messages stay in
-      // history AND are passed as the loop's prompts below — the resulting
-      // double-send is pre-existing (unchanged) stage behavior.
-      messages: [{ role: "system", content: input.systemPrompt, timestamp: Date.now() }, ...input.messages],
+      // message (AgentContext.systemPrompt was removed). input.messages are the
+      // NEW prompts for this self-contained stage call — judge, tail-check and
+      // simulator all pass fresh per-call user messages — and agentLoop seeds
+      // its LLM context with [...context.messages, ...prompts], so carrying them
+      // here too would send every stage input to the provider TWICE. (That
+      // double-send was the pre-migration behavior, fixed 2026-10-02: input-token
+      // metrics after this change are NOT comparable to older stored runs.)
+      messages: [{ role: "system", content: input.systemPrompt, timestamp: Date.now() }],
       tools: input.tools,
     };
 

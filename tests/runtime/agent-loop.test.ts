@@ -509,4 +509,24 @@ describe("runBenchStage — streamFn (provider retries for background stages)", 
     await runBenchStage(baseInput({ loopFn: captureLoop, streamFn: mine }));
     expect(seen).toBe(mine);
   });
+
+  it("passes ONLY the system message as context history (input.messages are the prompts — agentLoop concatenates)", async () => {
+    const inMsg = [{ role: "user", content: "x", timestamp: 0 }] as unknown as AgentMessage[];
+    let seen: AgentContext | undefined;
+    const captureLoop = ((
+      messages: AgentMessage[],
+      ctx: AgentContext,
+      config: AgentLoopConfig,
+      signal: AbortSignal,
+      stream: unknown,
+    ) => {
+      seen = ctx;
+      return fakeLoop([], [])(messages, ctx, config, signal, stream as unknown as StreamFn);
+    }) as unknown as StageRunInput["loopFn"];
+    await runBenchStage(baseInput({ loopFn: captureLoop, messages: inMsg }));
+    // pi ≥0.87: the system prompt is the transcript's leading system message; a
+    // non-empty history BEYOND it would duplicate the prompts into the request
+    // (agentLoop seeds with [...context.messages, ...prompts]).
+    expect(seen?.messages).toEqual([{ role: "system", content: "", timestamp: expect.any(Number) }]);
+  });
 });
