@@ -576,7 +576,7 @@ describe("buildRunConfig", () => {
       gitHead: (dir: string) => (dir === "/fake/root" ? "abcdef1234567890" : null),
       npmVersion: () => null,
     };
-    const rc = buildRunConfig(makeConfig(["A1", "A2"]), resolver, manifestOf(null));
+    const rc = buildRunConfig(makeConfig(["A1", "A2"]), resolver, manifestOf(null), null);
     expect(rc.armsEnabled).toEqual(["A1", "A2"]);
     expect(rc.toolVersions.A1).toBeUndefined();
     expect(rc.toolVersions.A2).toEqual({ source: "git", commit: "gabcdef", full: "abcdef1234567890" });
@@ -618,8 +618,8 @@ describe("buildRunConfig", () => {
 
   it("backupMode comes from the frozen manifest (extract stamped at freeze; absent = build)", () => {
     const resolver: VersionResolver = { resolveRoot: () => "/fake", gitHead: () => null, npmVersion: () => null };
-    expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf("extract")).backupMode).toBe("extract");
-    expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf(null)).backupMode).toBe("build");
+    expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf("extract"), null).backupMode).toBe("extract");
+    expect(buildRunConfig(makeConfig(["A1"]), resolver, manifestOf(null), null).backupMode).toBe("build");
   });
 });
 

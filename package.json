@@ -1,6 +1,6 @@
 {
   "name": "avtc-pi-bench-compact",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Benchmarks compaction-memory extensions for pi head-to-head — judges what a post-compaction agent retains and recalls, whether it redoes work, and what that memory costs in tokens.",
   "type": "module",
   "license": "MIT",
@@ -22,6 +22,7 @@
   "files": [
     "index.ts",
     "src/",
+    "docs/",
     "LICENSE",
     "README.md"
   ],
@@ -29,7 +30,7 @@
     "lint": "biome check .",
     "lint:optional-params": "node scripts/no-optional-params.cjs src/arms src/commands src/config src/judge src/manifest src/metrics src/orchestrate src/production src/runtime src/session src/simulator src/storage src/widget src/log.ts src/index.ts tests/",
     "lint:bare-literals": "node scripts/no-bare-literals.cjs src/ index.ts",
-    "lint:design-refs": "node scripts/no-design-refs.cjs src/ tests/ index.ts README.md",
+    "lint:design-refs": "node scripts/no-design-refs.cjs src/ tests/ index.ts README.md docs/CONFIGURATION.md",
     "lint:as-never": "node scripts/no-as-never.cjs src/ tests/ index.ts",
     "lint:bundled-imports": "node scripts/no-bundled-extension-imports.cjs src/ index.ts",
     "knip": "knip --production",
@@ -55,5 +56,13 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
-  "author": "avtc <tarasenkov@gmail.com>"
+  "author": "avtc <tarasenkov@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avtc/avtc-pi-bench-compact.git"
+  },
+  "bugs": {
+    "url": "https://github.com/avtc/avtc-pi-bench-compact/issues"
+  },
+  "homepage": "https://github.com/avtc/avtc-pi-bench-compact"
 }

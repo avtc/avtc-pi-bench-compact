@@ -202,7 +202,7 @@ export function buildRunConfig(
   config: BenchConfig,
   resolver: VersionResolver | null,
   manifest: ScenarioManifest,
-  sessionOwlGlobal?: Record<string, unknown>,
+  sessionOwlGlobal: Record<string, unknown> | null,
 ): RunConfig {
   const r = resolver ?? DEFAULT_VERSION_RESOLVER;
   const toolVersions: Partial<Record<ArmId, ToolVersion>> = {};
@@ -232,7 +232,7 @@ export function buildRunConfig(
               arm,
               effectiveSessionOwlArmParams(arm, {
                 omFullReflectionThresholdTokens: config.omFullReflectionThresholdTokens,
-                ...(sessionOwlGlobal !== undefined ? { sessionOwlGlobal } : {}),
+                ...(sessionOwlGlobal !== null ? { sessionOwlGlobal } : {}),
               }),
             ] as [ArmId, Readonly<Record<string, unknown>> | null],
         )

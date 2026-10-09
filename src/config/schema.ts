@@ -46,7 +46,7 @@ export const DEFAULTS = {
   judgeTurnTimeoutMs: null as number | null,
   testspecTimeoutMs: 120000,
   backgroundModel: NO_MODEL,
-  backgroundThinkingLevel: "xhigh" as ThinkingLevel | null,
+  backgroundThinkingLevel: null as ThinkingLevel | null,
   backgroundMaxTokens: 65536,
   backgroundTimeoutMs: 1200000,
   stageProviderMaxRetries: 3,
@@ -85,11 +85,16 @@ const TESTSPEC_TIMEOUT_PRESETS: readonly (readonly [string, number])[] = [
   ["5m", 300000],
   ["10m", 600000],
 ];
-/** Thinking-level presets for background agents: "none" (null — omit the reasoning
- *  field entirely, the model default) + the standard ladder (mirrors the type-def's
- *  THINKING_LEVEL_PRESETS; presets override replaces, so the ladder is restated). */
-const BACKGROUND_THINKING_PRESETS: readonly (readonly [string, string | null])[] = [
-  ["none", null],
+/** Thinking-level presets shared by every thinking-level row: "default" (null = inherit)
+ *  + the standard ladder, FULL PAIRS not bare strings — the thinking-level type parse is
+ *  a closed-enum membership check that the settings-ui preset normalizer runs against an
+ *  EMPTY preset ctx (a bare string fails it and throws at extension load; pairs pass
+ *  through un-parsed). "default" reads per row: the background row = the session's
+ *  thinking level (then the model default), per-agent rows = the background level.
+ *  "off" stops the chain (the reasoning field stays omitted → the model default).
+ *  Presets override replaces, so the ladder lives in ONE list both rows share. */
+const BACKGROUND_THINKING_PRESETS: readonly PresetElement[] = [
+  ["default", null],
   ["off", "off"],
   ["minimal", "minimal"],
   ["low", "low"],
@@ -108,21 +113,9 @@ const BACKGROUND_TIMEOUT_PRESETS: readonly string[] = ["5m", "10m", "20m", "60m"
 const AGENT_MAX_TOKENS_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_MAX_TOKENS_PRESETS];
 /** Per-agent timeout presets: "default" = inherit the background setting, then the shared picks. */
 const AGENT_TIMEOUT_PRESETS: readonly PresetElement[] = [["default", null], ...BACKGROUND_TIMEOUT_PRESETS];
-/** Per-agent thinking presets: "default" (null = inherit the background level), then the
- *  standard ladder starting at "off" (the no-thinking level). FULL PAIRS, not bare
- *  strings: the thinking-level type parse is a closed-enum membership check that the
- *  settings-ui preset normalizer runs against an EMPTY preset ctx — a bare string always
- *  fails it and throws at extension load (pairs pass through un-parsed). */
-const AGENT_THINKING_PRESETS: readonly PresetElement[] = [
-  ["default", null],
-  ["off", "off"],
-  ["minimal", "minimal"],
-  ["low", "low"],
-  ["medium", "medium"],
-  ["high", "high"],
-  ["xhigh", "xhigh"],
-  ["max", "max"],
-];
+/** The per-agent thinking presets = the shared list above. FULL PAIRS, not bare
+ *  strings (closed-enum membership check — see the note on {@link BACKGROUND_THINKING_PRESETS}). */
+const AGENT_THINKING_PRESETS: readonly PresetElement[] = BACKGROUND_THINKING_PRESETS;
 
 /** Helper: build a SettingSchema from an id + the non-id fields. */
 function setting(id: string, over: Omit<SettingSchema, "id">): SettingSchema {
@@ -155,7 +148,7 @@ const SETTINGS: readonly SettingSchema[] = [
   }),
   setting("judgeThinkingLevel", {
     label: "Judge thinking level",
-    description: "Thinking level for the judge. default = the background thinking level.",
+    description: "Thinking level for the judge. default = the background level, then the session's.",
     type: "thinking-level",
     defaultValue: DEFAULTS.judgeThinkingLevel,
     presets: AGENT_THINKING_PRESETS,
@@ -173,13 +166,13 @@ const SETTINGS: readonly SettingSchema[] = [
   setting("judge2Model", {
     label: "Judge 2 model",
     description:
-      "Second judge model (used when ensemble size >= 2). Empty = background default, then the session default.",
+      "Second judge model (used when ensemble size >= 2). Empty = judge 1's model, then background, then the session.",
     type: "model",
     defaultValue: DEFAULTS.judge2Model,
   }),
   setting("judge2ThinkingLevel", {
     label: "Judge 2 thinking level",
-    description: "Thinking level for judge 2. default = the background thinking level.",
+    description: "Thinking level for judge 2. default = judge 1's, then background, then the session level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.judge2ThinkingLevel,
     presets: AGENT_THINKING_PRESETS,
@@ -187,13 +180,13 @@ const SETTINGS: readonly SettingSchema[] = [
   setting("judge3Model", {
     label: "Judge 3 model",
     description:
-      "Third judge model (used when ensemble size >= 3). Empty = background default, then the session default.",
+      "Third judge model (used when ensemble size >= 3). Empty = judge 1's model, then background, then the session.",
     type: "model",
     defaultValue: DEFAULTS.judge3Model,
   }),
   setting("judge3ThinkingLevel", {
     label: "Judge 3 thinking level",
-    description: "Thinking level for judge 3. default = the background thinking level.",
+    description: "Thinking level for judge 3. default = judge 1's, then background, then the session level.",
     type: "thinking-level",
     defaultValue: DEFAULTS.judge3ThinkingLevel,
     presets: AGENT_THINKING_PRESETS,
@@ -272,7 +265,7 @@ const SETTINGS: readonly SettingSchema[] = [
   setting("backgroundThinkingLevel", {
     label: "Background default thinking level",
     description:
-      "Thinking level for every background agent unless overridden per agent. none = omit the reasoning field (the model's default).",
+      "Thinking level for every background agent unless overridden per agent. Unset = the session's thinking level; off = omit the reasoning field (the model's default).",
     type: "thinking-level",
     defaultValue: DEFAULTS.backgroundThinkingLevel,
     presets: BACKGROUND_THINKING_PRESETS,

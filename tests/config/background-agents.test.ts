@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import { resolveBackgroundAgents } from "../../src/config/background-agents.js";
 import type { BenchConfig } from "../../src/config/types.js";
 
 /** A minimal config with every background-agent setting at its default
- *  (per-agent null; background xhigh/64K/20m). Each test overrides what it exercises. */
+ *  (per-agent nulls; background null = the session level applies). Each test
+ *  overrides what it exercises; the second argument is the session thinking level. */
 function cfg(overrides: Partial<BenchConfig>): BenchConfig {
   return {
     evaluatedModel: "eval/model",
@@ -20,7 +22,7 @@ function cfg(overrides: Partial<BenchConfig>): BenchConfig {
     judgeMaxTokens: null,
     judgeTurnTimeoutMs: null,
     backgroundModel: null,
-    backgroundThinkingLevel: "xhigh",
+    backgroundThinkingLevel: null,
     backgroundMaxTokens: 65536,
     backgroundTimeoutMs: 1200000,
     authorModel: null,
@@ -44,41 +46,41 @@ function cfg(overrides: Partial<BenchConfig>): BenchConfig {
 }
 
 describe("resolveBackgroundAgents", () => {
-  it("resolves all defaults: per-agent nulls fall back to the background settings; model bases differ", () => {
-    const agents = resolveBackgroundAgents(cfg({}));
+  it("resolves all defaults: per-agent nulls fall back to background → session; model bases differ", () => {
+    const agents = resolveBackgroundAgents(cfg({}), "high");
     expect(agents.author).toEqual({
       model: "eval/model",
-      thinking: "xhigh",
+      thinking: "high",
       maxTokens: 65536,
       timeoutMs: 1200000,
     });
     expect(agents.probeValidate).toEqual({
       model: "eval/model",
-      thinking: "xhigh",
+      thinking: "high",
       maxTokens: 65536,
       timeoutMs: 1200000,
     });
     expect(agents.simulator).toEqual({
       model: "eval/model",
-      thinking: "xhigh",
+      thinking: "high",
       maxTokens: 65536,
       timeoutMs: 1200000,
     });
     // The latent authoring agent's model base is the session default (null).
-    expect(agents.latent).toEqual({ model: null, thinking: "xhigh", maxTokens: 65536, timeoutMs: 1200000 });
+    expect(agents.latent).toEqual({ model: null, thinking: "high", maxTokens: 65536, timeoutMs: 1200000 });
     // Judge members: model base is the session default (null); budget falls back to background.
     expect(agents.judge).toEqual({
       members: [
-        { model: null, thinking: "xhigh" },
-        { model: null, thinking: "xhigh" },
-        { model: null, thinking: "xhigh" },
+        { model: null, thinking: "high" },
+        { model: null, thinking: "high" },
+        { model: null, thinking: "high" },
       ],
       maxTokens: 65536,
       timeoutMs: 1200000,
     });
   });
 
-  it("per-agent model/thinking override the background defaults; background overrides the bases", () => {
+  it("per-agent model/thinking override the background defaults; background overrides the session + bases", () => {
     const agents = resolveBackgroundAgents(
       cfg({
         backgroundModel: "bg/model",
@@ -87,6 +89,7 @@ describe("resolveBackgroundAgents", () => {
         authorThinkingLevel: "high",
         latentModel: "latent/model",
       }),
+      "high",
     );
     expect(agents.author.model).toBe("author/model");
     expect(agents.author.thinking).toBe("high");
@@ -96,7 +99,8 @@ describe("resolveBackgroundAgents", () => {
     expect(agents.simulator.thinking).toBe("low");
     expect(agents.latent.model).toBe("latent/model");
     expect(agents.latent.thinking).toBe("low");
-    // Judge members inherit the background model/thinking when unset.
+    // Judge members keep their model base (the session default) and judge 1's
+    // thinking still follows the background level (its knob is unset).
     expect(agents.judge.members[0]?.model).toBe("bg/model");
     expect(agents.judge.members[1]?.thinking).toBe("low");
   });
@@ -110,6 +114,7 @@ describe("resolveBackgroundAgents", () => {
         simulatorTurnTimeoutMs: 30000,
         latentStageMaxTokens: 65536,
       }),
+      null,
     );
     expect(agents.author.maxTokens).toBe(8192);
     expect(agents.author.timeoutMs).toBe(60000);
@@ -121,7 +126,7 @@ describe("resolveBackgroundAgents", () => {
     expect(agents.latent.timeoutMs).toBe(60000);
   });
 
-  it("judge members: per-member model/thinking override the background defaults; budget falls back per-judge → background", () => {
+  it("judge members: per-member knobs override; unset members inherit judge 1's resolved model + thinking", () => {
     const agents = resolveBackgroundAgents(
       cfg({
         backgroundModel: "bg/model",
@@ -132,11 +137,31 @@ describe("resolveBackgroundAgents", () => {
         judgeMaxTokens: 8192,
         judgeTurnTimeoutMs: 45000,
       }),
+      "high",
     );
     expect(agents.judge.members[0]).toEqual({ model: "j1/model", thinking: "minimal" });
-    expect(agents.judge.members[1]).toEqual({ model: "j2/model", thinking: "xhigh" }); // inherits background
-    expect(agents.judge.members[2]).toEqual({ model: "bg/model", thinking: "medium" });
+    // model set explicitly, thinking falls through judge 1 (not the background level)
+    expect(agents.judge.members[1]).toEqual({ model: "j2/model", thinking: "minimal" });
+    // model unset → judge 1's model; thinking set explicitly
+    expect(agents.judge.members[2]).toEqual({ model: "j1/model", thinking: "medium" });
     expect(agents.judge.maxTokens).toBe(8192);
     expect(agents.judge.timeoutMs).toBe(45000);
+  });
+
+  it("an all-unset ensemble follows a single chain: background model → session thinking", () => {
+    const withBackground = resolveBackgroundAgents(cfg({ backgroundModel: "bg/model" }), "high");
+    expect(withBackground.judge.members).toEqual([
+      { model: "bg/model", thinking: "high" },
+      { model: "bg/model", thinking: "high" },
+      { model: "bg/model", thinking: "high" },
+    ]);
+    const sessionOnly: ThinkingLevel | null = "xhigh";
+    const noBackground = resolveBackgroundAgents(cfg({ backgroundThinkingLevel: null }), sessionOnly);
+    expect(noBackground.author.thinking).toBe("xhigh");
+    expect(noBackground.judge.members).toEqual([
+      { model: null, thinking: "xhigh" },
+      { model: null, thinking: "xhigh" },
+      { model: null, thinking: "xhigh" },
+    ]);
   });
 });

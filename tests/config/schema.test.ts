@@ -135,10 +135,10 @@ describe("BENCH_SCHEMA", () => {
     it("backgroundModel: model, default null", () => {
       expect(row("backgroundModel")).toMatchObject({ type: "model", defaultValue: null });
     });
-    it("backgroundThinkingLevel: thinking-level, default xhigh, presets incl. none(null) + the full ladder", () => {
-      expect(row("backgroundThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: "xhigh" });
+    it("backgroundThinkingLevel: thinking-level, default null (session level applies), presets incl. default(null) + the full ladder", () => {
+      expect(row("backgroundThinkingLevel")).toMatchObject({ type: "thinking-level", defaultValue: null });
       expect(row("backgroundThinkingLevel").presets).toEqual([
-        ["none", null],
+        ["default", null],
         ["off", "off"],
         ["minimal", "minimal"],
         ["low", "low"],

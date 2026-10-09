@@ -1063,7 +1063,7 @@ describe("startRun — crash resume (identity reuse + cfg guard + threading)", (
   /** The cfgId the deps' config + resolver produce (the guard's "current" side). */
   function currentCfgId(arms: BenchConfig["armsEnabled"]): string {
     const resolver = { resolveRoot: () => "/fake", gitHead: () => "abcdef1234567890", npmVersion: () => null };
-    return buildCfgId(buildRunConfig(makeConfig(arms), resolver, MANIFEST));
+    return buildCfgId(buildRunConfig(makeConfig(arms), resolver, MANIFEST, null));
   }
 
   it("resumes reuse the runId's date+id (no nextRunId) and thread resume into the phases", async () => {
@@ -1408,7 +1408,9 @@ describe("startRun — preserved arms (reuse compaction + latent pools)", () => 
     deps.preserveArms = preserveFake([preservedBase("A1", "2026-08-23-2")]) as unknown as typeof preserveArmsForRun;
     deps.resume = {
       runId: "2026-08-10-9",
-      cfgId: buildCfgId(buildRunConfig(deps.config, null as unknown as Parameters<typeof buildRunConfig>[1], MANIFEST)),
+      cfgId: buildCfgId(
+        buildRunConfig(deps.config, null as unknown as Parameters<typeof buildRunConfig>[1], MANIFEST, null),
+      ),
       allowConfigChange: true,
     } as unknown as StartRunDeps["resume"];
 

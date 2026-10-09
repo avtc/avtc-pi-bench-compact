@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
 import { describe, expect, it } from "vitest";
-import { ARM_DEFS, SESSION_OWL_PACKAGE, OM_PACKAGE } from "../../src/arms/definitions.js";
+import { ARM_DEFS, OM_PACKAGE, SESSION_OWL_PACKAGE } from "../../src/arms/definitions.js";
 import { ARM_IDS, ARM_LABELS, type ArmId } from "../../src/config/types.js";
 
 describe("arms/definitions — package-name constants", () => {

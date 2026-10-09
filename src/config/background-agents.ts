@@ -49,14 +49,28 @@ export interface BackgroundAgents {
   readonly judge: JudgeAgents;
 }
 
-/** Resolve the background agents' effective parameters. Pure. */
-export function resolveBackgroundAgents(config: BenchConfig): BackgroundAgents {
+/** Resolve the background agents' effective parameters. Pure. `sessionThinking`
+ *  (the session's current thinking level — `ctx.thinkingLevel`) is the step between
+ *  the background settings and the model default: per-agent → background → session →
+ *  model default. */
+export function resolveBackgroundAgents(config: BenchConfig, sessionThinking: ThinkingLevel | null): BackgroundAgents {
   const model = (agentModel: string | null, base: string | null): string | null =>
     agentModel ?? config.backgroundModel ?? base;
   const thinking = (agentThinking: ThinkingLevel | null): ThinkingLevel | null =>
-    agentThinking ?? config.backgroundThinkingLevel;
+    agentThinking ?? config.backgroundThinkingLevel ?? sessionThinking;
   const maxTokens = (agentMaxTokens: number | null): number => agentMaxTokens ?? config.backgroundMaxTokens;
   const timeoutMs = (agentTimeoutMs: number | null): number => agentTimeoutMs ?? config.backgroundTimeoutMs;
+  // Judge 2/3 resolve judge 1 first: member knob → judge 1's model/thinking →
+  // the shared background → session chain. The ensemble's budget stays shared
+  // (one maxTokens/timeout setting for all K judges).
+  const judge1: JudgeAgentSpec = {
+    model: model(config.judgeModel, NO_MODEL),
+    thinking: thinking(config.judgeThinkingLevel),
+  };
+  const judgeMember = (memberModel: string | null, memberThinking: ThinkingLevel | null): JudgeAgentSpec => ({
+    model: memberModel === null ? judge1.model : model(memberModel, NO_MODEL),
+    thinking: memberThinking ?? judge1.thinking,
+  });
   return {
     author: {
       model: model(config.authorModel, config.evaluatedModel),
@@ -83,13 +97,11 @@ export function resolveBackgroundAgents(config: BenchConfig): BackgroundAgents {
       maxTokens: maxTokens(config.latentStageMaxTokens),
       timeoutMs: timeoutMs(config.latentTimeoutMs),
     },
-    // Judge members share the evaluated model's absence of a base (session default);
-    // the ensemble's budget is shared (one maxTokens/timeout setting for all K judges).
     judge: {
       members: [
-        { model: model(config.judgeModel, NO_MODEL), thinking: thinking(config.judgeThinkingLevel) },
-        { model: model(config.judge2Model, NO_MODEL), thinking: thinking(config.judge2ThinkingLevel) },
-        { model: model(config.judge3Model, NO_MODEL), thinking: thinking(config.judge3ThinkingLevel) },
+        judge1,
+        judgeMember(config.judge2Model, config.judge2ThinkingLevel),
+        judgeMember(config.judge3Model, config.judge3ThinkingLevel),
       ],
       maxTokens: maxTokens(config.judgeMaxTokens),
       timeoutMs: timeoutMs(config.judgeTurnTimeoutMs),

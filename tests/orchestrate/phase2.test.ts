@@ -678,7 +678,7 @@ describe("runContinuations — stop-and-surface (run failure / hang)", () => {
     // The default factory (used when ops.makeSimulator isn't overridden) builds the
     // system prompt + a SimulatorDriver bound to the args. This smoke test verifies the
     // wiring constructs without error + exposes the driver contract (onAgentSettled).
-    const factory = createDefaultSimulatorFactory(makeConfig(1), MANIFEST);
+    const factory = createDefaultSimulatorFactory(makeConfig(1), MANIFEST, null);
     const args: MakeSimulatorArgs = {
       pi: { events: { on: () => () => {} } } as unknown as MakeSimulatorArgs["pi"],
       ctx: { sessionManager: { getBranch: () => [] } } as unknown as MakeSimulatorArgs["ctx"],

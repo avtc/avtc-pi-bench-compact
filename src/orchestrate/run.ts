@@ -434,7 +434,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
         widget?.startPhase("latent", NO_DETAIL);
         const latentMode = deps.config.latentProbes === "per-arm" ? "per-arm" : "shared";
         const stage = deps.latentStage ?? runLatentStage;
-        const latentAgents = resolveBackgroundAgents(deps.config);
+        const latentAgents = resolveBackgroundAgents(deps.config, deps.cmdCtx.thinkingLevel ?? null);
         const latentAgent = latentAgents.latent;
         const probeValidateAgent = latentAgents.probeValidate;
         // The latent authoring is a BACKGROUND agent — wire the widget hooks like the
@@ -609,7 +609,7 @@ export async function startRun(deps: StartRunDeps): Promise<RunResult> {
       latent: latentMap,
       readEntries: readSessionEntries,
     });
-    const judgeAgents = resolveBackgroundAgents(deps.config).judge;
+    const judgeAgents = resolveBackgroundAgents(deps.config, deps.cmdCtx.thinkingLevel ?? null).judge;
     const scoreDeps = {
       ...buildScoreDeps({
         ctx: probeCtx,

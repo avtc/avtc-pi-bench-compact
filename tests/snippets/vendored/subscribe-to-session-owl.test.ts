@@ -3,7 +3,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { type SessionOwlReadyApi, subscribeToSessionOwl } from "../../../src/snippets/vendored/subscribe-to-session-owl.js";
+import {
+  type SessionOwlReadyApi,
+  subscribeToSessionOwl,
+} from "../../../src/snippets/vendored/subscribe-to-session-owl.js";
 
 /** Minimal fake pi: captures `on`/`events.on` listeners; `events.on` returns a
  * real unsub (mirrors pi's shared eventBus); `fire` dispatches all listeners. */

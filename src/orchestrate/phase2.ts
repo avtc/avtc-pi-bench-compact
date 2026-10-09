@@ -22,6 +22,7 @@
 // per-run turn-cap: the run is bounded by context monitoring (steer to wrap up as
 // usage approaches the model's window) + the notification extension's idle-alert.
 
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionCommandContext, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { isolateArmOrStop } from "../arms/switch.js";
 import { resolveBackgroundAgents } from "../config/background-agents.js";
@@ -208,12 +209,16 @@ function makeCompactionTimer(pi: ExtensionAPI): { wallMsMap: Map<string, number>
  * wired to the fresh session ctx (branch + model resolution) + the bench agent-loop
  * runner, using the anti-peek-wrapped inject seam. The system prompt is seeded from
  * the manifest description + the canonical condition topics.
+ *
+ * `sessionThinking` is the session's current thinking level (`ctx.thinkingLevel`)
+ * — the step between the background settings and the model default.
  */
 export function createDefaultSimulatorFactory(
   config: BenchConfig,
   manifest: ScenarioManifest,
+  sessionThinking: ThinkingLevel | null,
 ): (args: MakeSimulatorArgs) => ContinuationDriver {
-  const simulator = resolveBackgroundAgents(config).simulator;
+  const simulator = resolveBackgroundAgents(config, sessionThinking).simulator;
   return (args: MakeSimulatorArgs): ContinuationDriver =>
     buildSimulatorDriver({
       pi: args.pi,
@@ -270,7 +275,9 @@ async function awaitSettle(
  * @throws {Phase2StoppedError} on a run failure (simulator error) or hang (no settle).
  */
 export async function runContinuations(deps: Phase2Deps): Promise<Phase2Result> {
-  const makeSimulator = deps.ops?.makeSimulator ?? createDefaultSimulatorFactory(deps.config, deps.manifest);
+  const makeSimulator =
+    deps.ops?.makeSimulator ??
+    createDefaultSimulatorFactory(deps.config, deps.manifest, deps.cmdCtx.thinkingLevel ?? null);
   const ops: Phase2Ops = {
     loadSession: deps.ops?.loadSession ?? loadSession,
     fork: deps.ops?.fork ?? forkBranch,

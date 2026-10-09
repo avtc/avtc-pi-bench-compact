@@ -4,8 +4,7 @@
     "index.ts",
     "scripts/no-optional-params.cjs",
     "scripts/no-bare-literals.cjs",
-    "scripts/test-low-priority.cjs",
-    "scripts/run-parallel.cjs"
+    "scripts/test-low-priority.cjs"
   ],
   "project": [
     "index.ts",

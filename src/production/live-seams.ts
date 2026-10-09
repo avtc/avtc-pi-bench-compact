@@ -813,7 +813,7 @@ export interface BuildLiveSeamsArgs {
  *  prior ctx). Extract mode reuses only `trialCompact` + `author` (driveAndCapture unused). */
 export function buildLiveSeams(args: BuildLiveSeamsArgs): LiveSeamsBundle {
   const holder: CtxHolder = { current: args.cmdCtx };
-  const agents = resolveBackgroundAgents(args.config);
+  const agents = resolveBackgroundAgents(args.config, args.cmdCtx.thinkingLevel ?? null);
   const scenarioCtx: ScenarioContext = {
     id: args.scenarioId,
     description: args.scenarioDescription,

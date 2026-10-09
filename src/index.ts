@@ -23,9 +23,9 @@ import { registerCrashWitness } from "./crash-guard.js";
 import { log } from "./log.js";
 import { setBenchPi } from "./orchestrate/bench-ctx.js";
 import { subscribeToDialogCoordinator } from "./snippets/vendored/subscribe-to-dialog-coordinator.js";
-import { subscribeToSessionOwl } from "./snippets/vendored/subscribe-to-session-owl.js";
 import { subscribeToNotificationApi } from "./snippets/vendored/subscribe-to-notifications.js";
 import { subscribeToObservationalMemory } from "./snippets/vendored/subscribe-to-observational-memory.js";
+import { subscribeToSessionOwl } from "./snippets/vendored/subscribe-to-session-owl.js";
 
 export default function activate(pi: ExtensionAPI): void {
   log.debug("bench-compact activated");

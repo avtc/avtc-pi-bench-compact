@@ -68,7 +68,9 @@ describe("runResultsCommand", () => {
     const outcome = runResultsCommand(
       "run1",
       seams({
-        run1: mkResult("run1", { A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } } }),
+        run1: mkResult("run1", {
+          A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] } } },
+        }),
       }),
     );
     expect(outcome.error).toBeUndefined();
