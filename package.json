@@ -1,6 +1,6 @@
 {
   "name": "avtc-pi-bench-compact",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Benchmarks compaction-memory extensions for pi head-to-head — judges what a post-compaction agent retains and recalls, whether it redoes work, and what that memory costs in tokens.",
   "type": "module",
   "license": "MIT",
