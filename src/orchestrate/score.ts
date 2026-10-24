@@ -119,6 +119,9 @@ export interface ScoreRunMeta {
   readonly runId: string;
   readonly cfgId: string;
   readonly timestamp: string;
+  /** The pi runtime version the run executed under (compaction metrics are only
+   *  comparable within one pi version — see BenchResultJson.piVersion). */
+  readonly piVersion: string | null;
   /** The scenario reference (id + manifest path). */
   readonly scenario: ResultScenario;
   /** The full run config (config block + toolVersions are split out by the serializer). */
@@ -375,6 +378,7 @@ export async function scoreRun(input: ScoreRunInput, deps: ScoreRunDeps): Promis
     runId: deps.meta.runId,
     cfgId: deps.meta.cfgId,
     timestamp: deps.meta.timestamp,
+    piVersion: deps.meta.piVersion,
     scenario: deps.meta.scenario,
     runConfig: deps.meta.runConfig,
     aggregate,

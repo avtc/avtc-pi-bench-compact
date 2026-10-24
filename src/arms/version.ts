@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ArmId } from "../config/types.js";
 import { shortGitVersion, shortNpmVersion, type ToolVersion } from "../storage/branches.js";
 import { ARM_DEFS } from "./definitions.js";
@@ -121,6 +122,49 @@ function tryNpmVersion(dir: string): string | null {
   try {
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as { version?: string };
     return pkg.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the pi runtime's own package version (the host the bench runs inside).
+ * `nodeRequire.resolve` on the package's main export gives the HOST install's dist
+ * file (not the bench's devDependency); walk up at most a few levels to the first
+ * package.json and read its version. Returns null when resolution fails — the
+ * version is result metadata, never a gate (the bench must run regardless).
+ *
+ * WHY this matters: pi 1.2.0 changed `serializeConversation()` (thinking blocks no
+ * longer feed the summarization request) and pi 1.4.0 removed the summary output
+ * cap (`reserveTokens` now only triggers auto-compaction). Compaction metrics
+ * (footprint C1, compaction-cost C4, post-compaction run-cost C3) are only
+ * comparable WITHIN one pi version — every result-JSON records the version it ran
+ * under so cross-version result sets are detectable (never silently compared).
+ */
+export function resolvePiRuntimeVersion(): string | null {
+  try {
+    // ESM resolution: the package exposes only an `import` condition for "." — a CJS
+    // require.resolve of the bare specifier throws "No 'exports' main defined".
+    // Inside the host pi this resolves to the HOST's install (the version that ran
+    // the bench), not the bench's devDependency.
+    const mainPath = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+    // Bounded walk up from the resolved entry (dist/index.js) to the package root.
+    let dir = dirname(mainPath);
+    for (let i = 0; i < 4; i++) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
+          name?: string;
+          version?: string;
+        };
+        if (pkg.name === "@earendil-works/pi-coding-agent") return pkg.version ?? null;
+      } catch {
+        // no package.json at this level — keep walking
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break; // filesystem root
+      dir = parent;
+    }
+    return null;
   } catch {
     return null;
   }

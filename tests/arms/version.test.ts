@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_VERSION_RESOLVER,
+  resolvePiRuntimeVersion,
   resolveRootFromSettings,
   resolveToolVersion,
   type VersionResolver,
@@ -171,5 +172,24 @@ describe("resolveRootFromSettings (local-folder installs in pi packages settings
     const root = DEFAULT_VERSION_RESOLVER.resolveRoot("pi-observational-memory");
     if (root === null) return; // settings without the folder install — environment-dependent, skip
     expect(root.length).toBeGreaterThan(0);
+  });
+});
+
+describe("arms/version — resolvePiRuntimeVersion", () => {
+  it("resolves the pi-coding-agent version the module context can see (live node_modules)", () => {
+    // Live resolution: the bench's module context resolves @earendil-works/pi-coding-agent
+    // to the installed devDependency — assert against that same package.json so the test
+    // survives dependency bumps.
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const { fileURLToPath } = require("node:url") as typeof import("node:url");
+    // ESM resolution — the package exposes only an `import` condition for "." (a CJS
+    // require.resolve of the bare specifier throws "No 'exports' main defined").
+    const main = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(path.dirname(main), "..", "package.json"), "utf-8"),
+    ) as { version?: string };
+    expect(pkg.version).toBeDefined();
+    expect(resolvePiRuntimeVersion()).toBe(pkg.version ?? null);
   });
 });

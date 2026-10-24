@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearArmConfig, readSessionOwlGlobalSettings } from "../arms/config.js";
 import { ARM_DEFS } from "../arms/definitions.js";
-import { DEFAULT_VERSION_RESOLVER, type VersionResolver } from "../arms/version.js";
+import { DEFAULT_VERSION_RESOLVER, resolvePiRuntimeVersion, type VersionResolver } from "../arms/version.js";
 import { type JudgeAgentSpec, resolveBackgroundAgents } from "../config/background-agents.js";
 import { type ArmId, type BenchConfig, judgeEnsembleFields } from "../config/types.js";
 import { BenchJudgeError, type JudgeErrorCategory } from "../judge/errors.js";
@@ -827,6 +827,7 @@ function buildScoreMeta(
     runId,
     cfgId,
     timestamp: now().toISOString(),
+    piVersion: resolvePiRuntimeVersion(),
     scenario: { id: deps.manifest.id, manifestRef: scenarioManifest(root, deps.manifest.id) },
     runConfig,
     armRunCounts,

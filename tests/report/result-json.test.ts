@@ -93,6 +93,7 @@ const baseDeps = {
   runId: "2026-08-10T14-32Z",
   cfgId: "cfg-a3f2c1",
   timestamp: "2026-08-10T14:32:00Z",
+  piVersion: "1.4.0",
   scenario: { id: "tycoon", manifestRef: "/path/manifest.json" },
   runConfig,
   aggregate,
@@ -125,6 +126,7 @@ describe("serializeResultJson", () => {
     expect(json.runId).toBe(baseDeps.runId);
     expect(json.cfgId).toBe(baseDeps.cfgId);
     expect(json.timestamp).toBe(baseDeps.timestamp);
+    expect(json.piVersion).toBe("1.4.0");
     expect(json.scenario).toEqual(baseDeps.scenario);
   });
 
@@ -259,6 +261,7 @@ describe("normalizeLegacyResultJson", () => {
   it("is a no-op on post-split results (E5.1 already present)", () => {
     const post = {
       ...legacy,
+      piVersion: "1.4.0",
       arms: {
         A1: {
           tool: "bare-pi",
@@ -270,5 +273,25 @@ describe("normalizeLegacyResultJson", () => {
       },
     } as unknown as Parameters<typeof normalizeLegacyResultJson>[0];
     expect(normalizeLegacyResultJson(post)).toBe(post);
+  });
+
+  it("defaults a missing piVersion to null on untouched legacy results (pre-pi-version dimension)", () => {
+    const untouched = {
+      ...legacy,
+      arms: {
+        A1: {
+          tool: "bare-pi",
+          runsCompleted: 1,
+          runsFailed: 0,
+          metrics: { "E5.1": { rate: 1, ci: [1, 1], n: 2 } },
+          probes: undefined,
+        },
+      },
+    } as unknown as Parameters<typeof normalizeLegacyResultJson>[0];
+    const out = normalizeLegacyResultJson(untouched);
+    expect(out.piVersion).toBeNull();
+    // Touched legacy results carry the default too.
+    const mapped = normalizeLegacyResultJson(legacy);
+    expect(mapped.piVersion).toBeNull();
   });
 });

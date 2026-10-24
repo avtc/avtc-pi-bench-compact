@@ -31,6 +31,7 @@ function mkResult(
     runId,
     cfgId: `cfg-${runId}`,
     timestamp: "t",
+    piVersion: null,
     scenario: { id: "tycoon", manifestRef: "/m.json" },
     config: {
       evaluatedModel: "eval",

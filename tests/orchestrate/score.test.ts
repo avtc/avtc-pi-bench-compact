@@ -868,6 +868,7 @@ function integMeta(): ScoreRunMeta {
     runId: "run-1",
     cfgId: "cfg-abc123",
     timestamp: "2026-08-12T00:00:00Z",
+    piVersion: "1.4.0",
     scenario: { id: "scen-integ", manifestRef: "/manifest.json" },
     runConfig: INTEG_RUN_CONFIG,
     armRunCounts: { A1: { completed: 1, failed: 0 }, A3: { completed: 1, failed: 0 } },

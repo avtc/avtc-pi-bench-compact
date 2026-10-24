@@ -37,6 +37,7 @@ function mkResult(opts: {
     runId: opts.runId,
     cfgId: opts.cfgId,
     timestamp: "2026-08-10T14:32:00Z",
+    piVersion: null,
     scenario: { id: "tycoon", manifestRef: "/p/m.json" },
     config: {
       evaluatedModel: "eval",

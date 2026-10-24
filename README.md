@@ -103,6 +103,15 @@ Judge reliability runs as an **optional multi-judge ensemble**. Set `judgesNumbe
 
 ## Benchmarks
 
+### Pi-version comparability
+
+Compaction metrics are only comparable **within one pi version** — every result-JSON records the pi version it ran under (`piVersion`; `null` on results written before the field existed). Two semantic changes make cross-version comparison invalid:
+
+- **pi 1.2.0**: `serializeConversation()` no longer feeds `[Assistant thinking]` blocks into the summarization request (summary input shrank; requests no longer overflow the context they summarize).
+- **pi 1.4.0**: the summary output cap was removed (was `0.8 × reserveTokens ≈ 13K` tokens) — summaries now run to the model's output limit, so footprint (C1) and post-compaction context grow; `compaction.reserveTokens` only controls when auto-compaction starts. The `AUTO_COMPACT_RESERVE_TOKENS` mirror in the drive seam tracks the trigger, which is unchanged.
+
+Results from pi ≤ 1.1.x and pi ≥ 1.2.0/1.4.0 must never land in the same comparison — check `piVersion` first.
+
 Self-run evidence from this harness: one authored scenario, `N = 3` continuations per arm, LLM-judge scoring, bare-pi as the baseline. Evaluated model glm-5.3, background qwen3.8-27B:
 
 | Recall accuracy (per-probe rate) | bare pi | om-default | session-owl-builder | session-owl-selector | om-full |

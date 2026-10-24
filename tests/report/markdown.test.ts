@@ -83,6 +83,7 @@ function syntheticResult(omitA1: boolean | null): BenchResultJson {
     runId: "2026-08-10T14-32Z",
     cfgId: "cfg-a3f2c1",
     timestamp: "2026-08-10T14:32:00Z",
+    piVersion: null,
     scenario: { id: "tycoon", manifestRef: "/p/manifest.json" },
     config: {
       evaluatedModel: "eval-model",

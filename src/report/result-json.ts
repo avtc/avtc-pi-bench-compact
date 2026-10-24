@@ -88,6 +88,9 @@ export interface ArmResultJson {
  *  re-rendered reports keep the row instead of silently dropping it (semantics:
  *  those runs probed only planted facts). No-op on post-split results. */
 export function normalizeLegacyResultJson(result: BenchResultJson): BenchResultJson {
+  // Results written before the pi-version dimension lack piVersion — default it to
+  // null FIRST (both the touched and untouched return paths must carry the field).
+  const source: BenchResultJson = result.piVersion === undefined ? { ...result, piVersion: null } : result;
   const mapMetrics = <T>(m: Readonly<Partial<Record<MetricId, T>>>): Readonly<Partial<Record<MetricId, T>>> => {
     const legacy = m as Readonly<Record<string, T | undefined>>;
     if (!("E5" in legacy) || legacy.E5 === undefined || legacy["E5.1"] !== undefined) return m;
@@ -108,8 +111,8 @@ export function normalizeLegacyResultJson(result: BenchResultJson): BenchResultJ
     if (metrics !== entry.metrics || probes !== entry.probes) touched = true;
     arms[arm] = probes === undefined ? { ...entry, metrics } : { ...entry, metrics, probes };
   }
-  if (!touched) return result;
-  return { ...result, arms };
+  if (!touched) return source;
+  return { ...source, arms };
 }
 
 /** One probe's per-attempt binary grades (the report's probe breakdown). */
@@ -180,6 +183,11 @@ export interface BenchResultJson {
   readonly runId: string;
   readonly cfgId: string;
   readonly timestamp: string;
+  /** The pi runtime version the bench ran under (null when unresolvable). Compaction
+   *  semantics changed at pi 1.2.0 (serializeConversation drops thinking) and 1.4.0
+   *  (summary output uncapped) — compaction metrics are only comparable within one
+   *  pi version. Absent on results written before this field existed. */
+  readonly piVersion: string | null;
   readonly scenario: ResultScenario;
   readonly config: Omit<RunConfig, "toolVersions">;
   readonly toolVersions: Partial<Record<ArmId, ToolVersion>>;
@@ -195,6 +203,8 @@ export interface WriteResultJsonDeps {
   readonly runId: string;
   readonly cfgId: string;
   readonly timestamp: string;
+  /** The pi runtime version the run executed under (see {@link BenchResultJson.piVersion}). */
+  readonly piVersion: string | null;
   readonly scenario: ResultScenario;
   /** The full run config (config block + toolVersions are split out of it). */
   readonly runConfig: RunConfig;
@@ -299,6 +309,7 @@ export function serializeResultJson(deps: WriteResultJsonDeps): BenchResultJson 
     runId: deps.runId,
     cfgId: deps.cfgId,
     timestamp: deps.timestamp,
+    piVersion: deps.piVersion,
     scenario: deps.scenario,
     config: configRest,
     toolVersions: deps.runConfig.toolVersions,
