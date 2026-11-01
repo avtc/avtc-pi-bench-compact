@@ -15,11 +15,12 @@
  * slot are reset.
  */
 
-import { afterAll, beforeEach } from "vitest";
+import { afterAll, afterEach, beforeEach } from "vitest";
 import { clearArmEnv } from "../src/arms/config.js";
 import { _setHandleForTest } from "../src/config/accessor.js";
 import { _setRegisterSettingsCommand } from "../src/config/schema.js";
 import { _setBaseLoggerForTest } from "../src/log.js";
+import { sweepTempDirs } from "./temp-dirs.js";
 
 // Tests must NEVER write to the real production log file (~/.pi/logs/...). The
 // real avtc-pi-logger is created at log.ts module load (shared under
@@ -63,6 +64,11 @@ beforeEach(() => {
   // resets above address). Clear them centrally so no test inherits another's arm
   // config — e.g. arms/config.test.ts (asserts these undefined) is order-safe.
   clearArmEnv();
+  // Temp-dir sweep AFTER every test: tests using tempDir() get their folders
+  // removed here once their own (earlier-registered) afterEach has run — files
+  // with their own rmSync cleanups converge on the same dirs, which `force`
+  // tolerates. Registered-but-never-swept dirs are the leak this replaces.
+  sweepTempDirs();
 });
 
 // Reset the config/settings singletons at the FILE boundary — the isolate:false
@@ -76,6 +82,7 @@ beforeEach(() => {
 afterAll(() => {
   _setHandleForTest(null);
   _setRegisterSettingsCommand(null);
+  sweepTempDirs(); // last test's dirs — nothing can reference them now
   for (const key of GLOBAL_KEYS) {
     delete (globalThis as Record<string, unknown>)[key];
   }

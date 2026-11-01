@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { LatentProbe } from "../../src/manifest/latent.js";
@@ -13,6 +12,7 @@ import {
   summaryDigest,
   writeLatentPool,
 } from "../../src/storage/latent-pool.js";
+import { tempDir } from "../temp-dirs.js";
 
 const probe: LatentProbe = {
   id: "l1",
@@ -35,14 +35,14 @@ const pool: LatentPoolFile = {
 
 describe("latent pool persistence", () => {
   it("round-trips through JSON losslessly", () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-pool-"));
+    const dir = tempDir("latent-pool-");
     const path = join(dir, "latent-pool.json");
     writeLatentPool(path, pool);
     expect(readLatentPool(path)).toEqual(pool);
   });
 
   it("throws on a corrupt pool file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-pool-"));
+    const dir = tempDir("latent-pool-");
     const path = join(dir, "latent-pool.json");
     writeFileSync(path, '{"mode":"per-arm","probes":"not-an-array"}');
     expect(() => readLatentPool(path)).toThrow("corrupt latent pool");

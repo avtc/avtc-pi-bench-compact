@@ -12,7 +12,7 @@
 // uncommitted mid-run). One branch live at a time → no worktrees.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Bench-internal, never tracked scenario content: `.pi/` holds the arm-isolation settings
@@ -61,8 +61,20 @@ export function initScenarioRepo(repoPath: string, opts: { message?: string } = 
   }
   runGit(repoPath, ["init", "-b", "main"]);
   // local identity — a fresh repo has none, so commits would fail without this.
-  runGit(repoPath, ["config", "user.email", "bench-compact@local"]);
-  runGit(repoPath, ["config", "user.name", "bench-compact"]);
+  // Written straight into `.git/config` (the INI git itself writes) instead of two
+  // `git config` spawns: each spawn costs ~70-80ms on Windows, per scenario built.
+  // Skip when the identity is already there (re-init on an existing repo).
+  const gitConfigPath = join(repoPath, ".git", "config");
+  let gitConfig = "";
+  try {
+    gitConfig = readFileSync(gitConfigPath, "utf-8");
+  } catch {
+    gitConfig = ""; // init just ran — unreachable in practice; treat as fresh
+  }
+  if (!gitConfig.includes("bench-compact@local")) {
+    const sep = gitConfig.length > 0 && !gitConfig.endsWith("\n") ? "\n" : "";
+    appendFileSync(gitConfigPath, `${sep}[user]\n\temail = bench-compact@local\n\tname = bench-compact\n`, "utf-8");
+  }
   runGit(repoPath, ["add", "-A"]);
   runGit(repoPath, ["commit", "-m", opts.message ?? "prepare scenario"]);
   return repoPath;

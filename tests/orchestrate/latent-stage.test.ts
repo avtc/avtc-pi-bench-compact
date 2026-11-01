@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { JsonToolStageSeams } from "../../src/judge/stage-runner.js";
@@ -21,6 +20,7 @@ import { appendProbeAttempt } from "../../src/storage/branches.js";
 import { readLatentPool, summaryDigest } from "../../src/storage/latent-pool.js";
 import { branchSessionFile } from "../../src/storage/paths.js";
 import { branchExists, forkBranch, initScenarioRepo, listBranches } from "../../src/storage/repo.js";
+import { tempDir } from "../temp-dirs.js";
 
 const SIGNAL = new AbortController().signal;
 const NO_SEAMS: JsonToolStageSeams = null as unknown as JsonToolStageSeams; // the fake author never uses them
@@ -99,7 +99,7 @@ function baseDeps(dir: string, over: Partial<LatentStageDeps> | null): LatentSta
 
 describe("runLatentStagePerArm — validator widget wiring", () => {
   it("deps.widget feeds the probe validator's live-progress hooks (second slot)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const validatorEvents: string[] = [];
     const widget = {
       onValidatorEvent: (e: { type: string }): void => {
@@ -170,7 +170,7 @@ describe("runLatentStagePerArm — validator widget wiring", () => {
 
 describe("runLatentStagePerArm", () => {
   it("fires onArm per arm (1-based index + total) and forwards onAdd to the authoring agent", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const arms: { arm: string; index: number; total: number }[] = [];
     let onAddSeen: ((counts: { cued: number; uncued: number }) => void) | null = null;
     const calls = { n: 0 };
@@ -197,7 +197,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("authors missing pools and persists them with digests", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     const r = await runLatentStagePerArm(baseDeps(dir, { author: fakeAuthor({ calls }).deps }));
     expect(r.kind).toBe("done");
@@ -210,7 +210,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("reuses a pool whose digest still matches (no authoring call)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     // pre-write both pools with the CURRENT digests
     for (const [arm, summary] of [
@@ -243,7 +243,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("re-authors an arm whose summary digest changed", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     writeFileSync(
       join(dir, "latent-pool-A1.json"),
@@ -264,7 +264,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("reports no re-authored arms on a full reuse (nothing to purge)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     for (const [arm, summary] of [
       ["A1", "summary one"],
@@ -310,7 +310,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("purgeLatentProbeArtifacts deletes only the arm's l-probe branches + session files", () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-purge-"));
+    const dir = tempDir("latent-purge-");
     const repo = join(dir, "repo");
     mkdirSync(repo);
     initScenarioRepo(repo);
@@ -334,7 +334,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("a persisted pool failing validation on reuse stops with the remediation message", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     writeFileSync(
       join(dir, "latent-pool-A1.json"),
@@ -364,7 +364,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("stopped outcome carries the approved message with arm + counts", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     const r = await runLatentStagePerArm(
       baseDeps(dir, {
@@ -379,7 +379,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("stops instead of persisting an invalid fresh pool (add-time gates bypassed — regression net)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     const author: LatentStageDeps["author"] = async () => {
       calls.n += 1;
@@ -398,7 +398,7 @@ describe("runLatentStagePerArm", () => {
   });
 
   it("throws when an arm session has no compaction record", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     // a distinct filename — baseDeps' default-arm sessions must not overwrite this one
     const bare = join(dir, "bare.jsonl");
     writeFileSync(bare, `${JSON.stringify({ id: "e1", type: "message", content: "x" })}\n`);
@@ -419,14 +419,14 @@ describe("latentDetailFromCounts", () => {
 
 describe("activeLatentForArm", () => {
   it("returns [] when off, or when no pool file exists", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     expect(activeLatentForArm(dir, "off", "A1")).toEqual([]);
     expect(activeLatentForArm(dir, "per-arm", "A1")).toEqual([]);
     expect(activeLatentForArm(dir, "shared", "A1")).toEqual([]);
   });
 
   it("per-arm pool: only the owning arm's absent probes; shared pool: probes absent for THAT arm", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const r = await runLatentStagePerArm(baseDeps(dir, { author: fakeAuthor({ calls: { n: 0 } }).deps }));
     if (r.kind !== "done") throw new Error("expected done");
     const active = activeLatentForArm(dir, "per-arm", "A1");
@@ -446,7 +446,7 @@ describe("activeLatentForArm", () => {
 
 describe("runLatentStageShared", () => {
   it("refuses when arms disagree on the tail anchor", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     const r = await runLatentStageShared(
       baseDeps(dir, {
@@ -466,7 +466,7 @@ describe("runLatentStageShared", () => {
   });
 
   it("stops instead of persisting an invalid fresh shared pool", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     const author: LatentStageDeps["author"] = async () => {
       calls.n += 1;
@@ -487,7 +487,7 @@ describe("runLatentStageShared", () => {
   });
 
   it("one authoring run → one pool under every arm key with all digests", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-"));
+    const dir = tempDir("latent-stage-");
     const calls = { n: 0 };
     const r = await runLatentStageShared(
       baseDeps(dir, {
@@ -512,7 +512,7 @@ describe("runLatentStageShared", () => {
 // ── partial pools: incremental persistence + resume continuation ──
 describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   it("a PARTIAL per-arm pool (below min, matching envelope) seeds the author + counts as re-authored", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-partial-"));
+    const dir = tempDir("latent-stage-partial-");
     // A1 has a 2-cued/1-uncued partial pool with CURRENT digests (incremental writes)
     writeFileSync(
       join(dir, "latent-pool-A1.json"),
@@ -545,7 +545,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("persistPartial writes the pool file with the envelope + kept probes (crash-safe collection)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-persist-"));
+    const dir = tempDir("latent-stage-persist-");
     const author: LatentStageDeps["author"] = async (a) => {
       a.persistPartial?.([probe("l1", "cued"), probe("l2", "uncued")]);
       return { kind: "stopped", counts: { cued: 1, uncued: 1 } };
@@ -560,7 +560,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("a partial SHARED pool seeds the shared authoring run", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-shared-"));
+    const dir = tempDir("latent-stage-shared-");
     const digests = { A1: summaryDigest("summary one"), A3: summaryDigest("summary three") };
     writeFileSync(
       join(dir, "latent-pool.json"),
@@ -586,7 +586,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("an operator-accepted SHARED pool is reused + the marker persisted", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-shared-accepted-"));
+    const dir = tempDir("latent-stage-shared-accepted-");
     const calls = { n: 0 };
     const author: LatentStageDeps["author"] = async () => {
       calls.n += 1;
@@ -607,7 +607,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("a COMPLETE pool with matching digests is still reused (no seeds, no authoring)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-complete-"));
+    const dir = tempDir("latent-stage-complete-");
     writeFileSync(
       join(dir, "latent-pool-A1.json"),
       JSON.stringify({
@@ -639,7 +639,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("an operator-accepted below-minimum authoring writes the marker into the pool file", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-accepted-"));
+    const dir = tempDir("latent-stage-accepted-");
     const calls = { n: 0 };
     const author: LatentStageDeps["author"] = async () => {
       calls.n += 1;
@@ -659,7 +659,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("an operator-accepted pool is REUSED on the next stage entry — the decision is durable across resumes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-accepted-reuse-"));
+    const dir = tempDir("latent-stage-accepted-reuse-");
     writeFileSync(
       join(dir, "latent-pool-A1.json"),
       JSON.stringify({
@@ -685,7 +685,7 @@ describe("runLatentStage — partial pools (stopped pass, resume)", () => {
   });
 
   it("a below-minimum pool WITHOUT the marker still re-authors (a plain partial pool)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-stage-partial-nomarker-"));
+    const dir = tempDir("latent-stage-partial-nomarker-");
     writeFileSync(
       join(dir, "latent-pool-A1.json"),
       JSON.stringify({

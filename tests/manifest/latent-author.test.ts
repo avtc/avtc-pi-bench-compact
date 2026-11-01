@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, join as joinPath } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentEvent, AgentTool } from "@earendil-works/pi-agent-core";
@@ -34,6 +33,7 @@ import {
 import { LATENT_PER_ARM_SYSTEM_PROMPT, LATENT_SHARED_SYSTEM_PROMPT } from "../../src/manifest/latent-prompt.js";
 import { StageRunError } from "../../src/runtime/agent-loop.js";
 import type { AskUi } from "../../src/ui/ask.js";
+import { tempDir } from "../temp-dirs.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const perArmFixture = readFileSync(joinPath(here, "fixtures/latent-per-arm-prompt.txt"), "utf8").trimEnd();
@@ -467,7 +467,7 @@ describe("buildLatentTools", () => {
 
 describe("spanContentEntryIds", () => {
   it("keeps only content types before the tail anchor, intersected across files", () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-span-"));
+    const dir = tempDir("latent-span-");
     const span = [
       { id: "s1", type: "message", content: "user says" },
       { id: "s2", type: "model_change", content: "meta" },
@@ -505,7 +505,7 @@ describe("spanContentEntryIds", () => {
 
 describe("spanCitationIndex", () => {
   it("reports the tail-start line (1-based, first file that has it)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-cite-"));
+    const dir = tempDir("latent-cite-");
     const path = join(dir, "arm.jsonl");
     writeFileSync(
       path,
@@ -560,7 +560,7 @@ describe("runLatentAuthoringAgent", () => {
     tool.execute("call", args);
 
   it("per-arm: 3+3 probes → validated pool stamped with arm + absent verdict", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const dir = tempDir("latent-run-");
     const session = makeSession(dir, "arm.jsonl");
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
@@ -591,7 +591,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("numeric citations (line positions from the read view) resolve to the id at that line", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const dir = tempDir("latent-run-");
     // lines: 1 header, 2 e1, 3 e2, 4 tail, 5 compaction — the agent cites "2"/"3" (positions)
     const path = join(dir, "arm.jsonl");
     const entries = [
@@ -630,7 +630,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("a TAIL-position citation (line past firstKeptEntryId) is rejected AT ADD TIME", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const dir = tempDir("latent-run-");
     const path = join(dir, "arm.jsonl");
     const entries = [
       { id: "e1", type: "message", content: "span" },
@@ -680,7 +680,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("shared: verdicts stamped for every enabled arm", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const dir = tempDir("latent-run-");
     const session = makeSession(dir, "arm.jsonl");
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
@@ -711,7 +711,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("operator stop (null ui, below min, no progress) → { kind: stopped }", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const dir = tempDir("latent-run-");
     const session = makeSession(dir, "arm.jsonl");
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
@@ -738,7 +738,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("completed results surface the operator's accept: acceptedFewer=true (min-met finalizes carry false)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-accepted-"));
+    const dir = tempDir("latent-run-accepted-");
     const session = makeSession(dir, "arm.jsonl");
     const seams = fakeSeams(async (find) => {
       const add = find("add_latent_probe") as { execute: (id: string, a: unknown) => Promise<unknown> };
@@ -769,7 +769,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("the fresh-pass dialog choice restarts authoring in a new context over the kept probes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-freshpass-"));
+    const dir = tempDir("latent-run-freshpass-");
     const session = makeSession(dir, "arm.jsonl");
     const kickoffs: string[] = [];
     let pass = 0;
@@ -832,7 +832,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("an operator fresh pass RESETS the auto-retry budget (later timeouts still retry)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-freshpass-budget-"));
+    const dir = tempDir("latent-run-freshpass-budget-");
     const session = makeSession(dir, "arm.jsonl");
     let call = 0;
     const seams: JsonToolStageSeams = {
@@ -896,7 +896,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("a no-progress stall at >=90% of the window AUTO-restarts the pass (no dialog) with the context-stall kickoff", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-ctxpass-"));
+    const dir = tempDir("latent-run-ctxpass-");
     const session = makeSession(dir, "arm.jsonl");
     const windowed = { id: "fake", contextWindow: 262_144 } as unknown as Model<Api>;
     const ui = fakeUi(["stop the run"]); // must never be called
@@ -973,7 +973,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("an AUTO fresh pass consumes the pass budget (unlike the operator fresh pass)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-ctxpass-budget-"));
+    const dir = tempDir("latent-run-ctxpass-budget-");
     const session = makeSession(dir, "arm.jsonl");
     const windowed = { id: "fake", contextWindow: 262_144 } as unknown as Model<Api>;
     let call = 0;
@@ -1027,7 +1027,7 @@ describe("runLatentAuthoringAgent", () => {
   });
 
   it("a tail-id citation is rejected AT ADD TIME (the finalize validation is the unreachable backstop)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-run-"));
+    const dir = tempDir("latent-run-");
     const session = makeSession(dir, "arm.jsonl");
     let badText = "";
     const seams = fakeSeams(async (find) => {
@@ -1153,7 +1153,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   }
 
   it("a timed-out pass auto-restarts: pass 2 completes over the kept probes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-retry-"));
+    const dir = tempDir("latent-retry-");
     const { seams, kickoffs } = scriptedSeams(
       [
         async (find) => {
@@ -1197,7 +1197,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
     // still dies on a timeout; pass 2 finalizes over the kept probes. The stage's
     // ending action must be pass 2's capture ALONE — a leftover capture from pass 1
     // must not speak for (or smear into) the pass that actually ended the loop.
-    const dir = mkdtempSync(join(tmpdir(), "latent-capture-reset-"));
+    const dir = tempDir("latent-capture-reset-");
     let finalizeTool: (LatentFinalizeTool & AgentTool) | null = null;
     // read through a fn so TS uses the DECLARED type (closure assignments don't narrow)
     const captured = (): readonly string[] => finalizeTool?._captured ?? [];
@@ -1242,7 +1242,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("a context-exhausted pass auto-restarts (StageRunError naming the context)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-retry-ooc-"));
+    const dir = tempDir("latent-retry-ooc-");
     const { seams } = scriptedSeams(
       [
         async (find) => {
@@ -1274,7 +1274,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("a SILENT context death (clean no-finalize at >=95% of the window) auto-restarts", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-retry-silent-"));
+    const dir = tempDir("latent-retry-silent-");
     const { seams, kickoffs } = scriptedSeams(
       [
         async (find) => {
@@ -1310,7 +1310,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("a NON-retryable failure (lucid no-finalize) does NOT restart", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-noretry-"));
+    const dir = tempDir("latent-noretry-");
     let calls = 0;
     const seams: JsonToolStageSeams = {
       resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL_R, apiKey: "k" }),
@@ -1341,7 +1341,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("retries stop at the pass cap (3 total), then the failure surfaces", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-cap-"));
+    const dir = tempDir("latent-cap-");
     let calls = 0;
     const seams: JsonToolStageSeams = {
       resolveModel: async () => ({ ok: true as const, model: FAKE_MODEL_R, apiKey: "k" }),
@@ -1372,7 +1372,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("seeds from a partial pool: counted, widget onAdd fired, retry kickoff with the resumed reason", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-seed-"));
+    const dir = tempDir("latent-seed-");
     const seen: string[] = [];
     const { seams, kickoffs } = scriptedSeams(
       [
@@ -1423,7 +1423,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("persistPartial fires after every accepted add with the full kept set", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-persist-"));
+    const dir = tempDir("latent-persist-");
     const persisted: number[] = [];
     const { seams } = scriptedSeams(
       [
@@ -1457,7 +1457,7 @@ describe("runLatentAuthoringAgent — retry passes", () => {
   });
 
   it("re-recording a SEEDED probe is rejected by the duplicate gate", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "latent-seeddup-"));
+    const dir = tempDir("latent-seeddup-");
     let rejection = "";
     const { seams } = scriptedSeams(
       [

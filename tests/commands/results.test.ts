@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsHandle } from "avtc-pi-settings-ui";
@@ -12,6 +11,7 @@ import { _setHandleForTest } from "../../src/config/accessor.js";
 import type { ArmId } from "../../src/config/types.js";
 import { METRIC_DEFS } from "../../src/metrics/defs.js";
 import type { ArmResultJson, BenchResultJson, MetricJson } from "../../src/report/result-json.js";
+import { tempDir } from "../temp-dirs.js";
 
 /** A minimal result-JSON with one arm (configurable) for dispatch testing. */
 function mkResult(
@@ -144,7 +144,7 @@ describe("registerResultsCommand (handler: real file IO)", () => {
   afterEach(() => _setHandleForTest(null));
 
   it("reads results.json, writes report.md, + notifies the path (single run)", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "bench-results-"));
+    const root = tempDir("bench-results-");
     const runId = "run-handler-1";
     const result = mkResult(runId, {
       A3: { tool: "session-owl-builder", metrics: { C1: { mean: 1000, ci: [900, 1100] as [number, number] } } },
@@ -171,7 +171,7 @@ describe("registerResultsCommand (handler: real file IO)", () => {
   });
 
   it("notifies a warning when the run's results.json is missing", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "bench-results-missing-"));
+    const root = tempDir("bench-results-missing-");
     _setHandleForTest({ getSettings: () => ({ outputDir: root }) } as unknown as SettingsHandle);
     const { pi, commands } = fakePi();
     registerResultsCommand(pi);

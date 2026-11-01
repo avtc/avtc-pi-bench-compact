@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readArmCompaction } from "../../src/session/compaction-record.js";
+import { tempDir } from "../temp-dirs.js";
 
 describe("readArmCompaction", () => {
   it("returns the last compaction record's summary + tail anchor", () => {
-    const dir = mkdtempSync(join(tmpdir(), "arm-compaction-"));
+    const dir = tempDir("arm-compaction-");
     const path = join(dir, "arm.jsonl");
     writeFileSync(
       path,
@@ -27,7 +27,7 @@ describe("readArmCompaction", () => {
   });
 
   it("returns null when the file has no compaction record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "arm-compaction-"));
+    const dir = tempDir("arm-compaction-");
     const path = join(dir, "arm.jsonl");
     writeFileSync(path, `${JSON.stringify({ id: "e1", type: "message", content: "x" })}\n`);
     expect(readArmCompaction(path)).toBeNull();

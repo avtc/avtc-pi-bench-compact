@@ -67,6 +67,19 @@ describe("scenario repo git wrappers (real git, temp dir)", () => {
     expect(tracked).toContain(".gitignore"); // the gitignore itself is tracked
   });
 
+  it("initScenarioRepo sets the local git identity exactly once (config survives re-init)", () => {
+    initScenarioRepo(repo);
+    expect(git(repo, ["config", "user.email"]).trim()).toBe("bench-compact@local");
+    expect(git(repo, ["config", "user.name"]).trim()).toBe("bench-compact");
+    // freeze --force re-runs initScenarioRepo on the same repo (after resetBranch):
+    // the identity block must not stack a duplicate [user] section, and the re-commit
+    // must keep working.
+    writeFileSync(path.join(repo, "game.ts"), "// forced re-prepare");
+    initScenarioRepo(repo, { message: "prepare scenario: project files" });
+    expect(git(repo, ["config", "--get-all", "user.email"]).trim()).toBe("bench-compact@local");
+    expect(git(repo, ["log", "-1", "--pretty=%s"]).trim()).toBe("prepare scenario: project files");
+  });
+
   it("branchExists reports whether a branch has been committed", () => {
     expect(branchExists(repo, "main")).toBe(false); // not yet init'd
     initScenarioRepo(repo);

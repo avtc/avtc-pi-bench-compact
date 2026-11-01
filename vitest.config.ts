@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     isolate: false,
+    // Worker threads instead of the default forks: same per-worker module registry
+    // (isolate:false shares within a worker either way — no vi.mock globals to isolate),
+    // but no process fork + snapshot per worker. Measured on this box: 13.6s → 11.3s
+    // suite wall with identical results.
+    pool: "threads",
     // Centralized module-singleton resets between tests (settings handle/seam,
     // logger, run-state globalThis) — the isolate:false leak fix, mirroring the
     // sibling-repo setupFiles pattern (avtc-pi-session-owl / avtc-pi-portrait).

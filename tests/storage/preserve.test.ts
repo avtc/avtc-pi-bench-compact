@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 avtc <tarasenkov@gmail.com>
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ArmId } from "../../src/config/types.js";
@@ -17,7 +16,7 @@ import { findPreservedArms, type PreserveSelectDeps } from "../../src/storage/pr
  *  <dir>/runs/<runId>/latent-pool-<arm>.json                  (source pools)
  */
 function makeFixture() {
-  const dir = mkdtempSync(join(tmpdir(), "preserve-"));
+  const dir = tempDir("preserve-");
   const sessionsDir = join(dir, "sessions");
   // runsRoot = the bench root (runDir() itself appends "runs/<runId>")
   const runsRoot = dir;
@@ -280,6 +279,7 @@ describe("findPreservedArms", () => {
 import { readFileSync } from "node:fs";
 import type { SessionRuntimePins } from "../../src/session/fork.js";
 import { materializePreservedArm, type PreservedMaterializeDeps } from "../../src/storage/preserve.js";
+import { tempDir } from "../temp-dirs.js";
 
 const NO_PINS: SessionRuntimePins = { model: null, thinkingLevel: "off" };
 
