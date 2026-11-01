@@ -1,68 +1,68 @@
 {
-  "name": "avtc-pi-bench-compact",
-  "version": "1.0.1",
-  "description": "Benchmarks compaction-memory extensions for pi head-to-head — judges what a post-compaction agent retains and recalls, whether it redoes work, and what that memory costs in tokens.",
-  "type": "module",
-  "license": "MIT",
-  "keywords": [
-    "pi-package",
-    "pi-extension"
-  ],
-  "main": "./index.ts",
-  "types": "./index.ts",
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ],
-    "allowedCodeDeps": [
-      "avtc-pi-logger",
-      "avtc-pi-settings-ui"
-    ]
-  },
-  "files": [
-    "index.ts",
-    "src/",
-    "docs/",
-    "LICENSE",
-    "README.md"
-  ],
-  "scripts": {
-    "lint": "biome check .",
-    "lint:optional-params": "node scripts/no-optional-params.cjs src/arms src/commands src/config src/judge src/manifest src/metrics src/orchestrate src/production src/runtime src/session src/simulator src/storage src/widget src/log.ts src/index.ts tests/",
-    "lint:bare-literals": "node scripts/no-bare-literals.cjs src/ index.ts",
-    "lint:design-refs": "node scripts/no-design-refs.cjs src/ tests/ index.ts README.md docs/CONFIGURATION.md",
-    "lint:as-never": "node scripts/no-as-never.cjs src/ tests/ index.ts",
-    "lint:bundled-imports": "node scripts/no-bundled-extension-imports.cjs src/ index.ts",
-    "knip": "knip --production",
-    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo",
-    "test:unit": "node scripts/test-low-priority.cjs vitest run",
-    "test": "node scripts/test-low-priority.cjs \"node scripts/run-parallel.cjs \"npm run lint:optional-params :: npm run lint:bare-literals :: npm run lint:design-refs :: npm run lint:as-never :: npm run lint:bundled-imports :: npm run lint :: npm run typecheck :: npm run knip :: npm run dupes\" && vitest run\"",
-    "dupes": "jscpd src/ --exit-code --threshold 0.01"
-  },
-  "dependencies": {
-    "avtc-pi-logger": "^1.0.3",
-    "avtc-pi-settings-ui": "^1.0.11"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.5.0",
-    "@earendil-works/pi-agent-core": "1.4.0",
-    "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
-    "@earendil-works/pi-tui": "1.4.0",
-    "@types/node": "^25.9.3",
-    "jscpd": "^5.0.10",
-    "knip": "^6.17.1",
-    "typebox": "^1.1.38",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
-  },
-  "author": "avtc <tarasenkov@gmail.com>",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/avtc/avtc-pi-bench-compact.git"
-  },
-  "bugs": {
-    "url": "https://github.com/avtc/avtc-pi-bench-compact/issues"
-  },
-  "homepage": "https://github.com/avtc/avtc-pi-bench-compact"
+	"name": "avtc-pi-bench-compact",
+	"version": "1.0.1",
+	"description": "Benchmarks compaction-memory extensions for pi head-to-head — judges what a post-compaction agent retains and recalls, whether it redoes work, and what that memory costs in tokens.",
+	"type": "module",
+	"license": "MIT",
+	"keywords": [
+		"pi-package",
+		"pi-extension"
+	],
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"allowedCodeDeps": [
+			"avtc-pi-logger",
+			"avtc-pi-settings-ui"
+		]
+	},
+	"files": [
+		"index.ts",
+		"src/",
+		"docs/",
+		"LICENSE",
+		"README.md"
+	],
+	"scripts": {
+		"lint": "biome check .",
+		"lint:optional-params": "node scripts/no-optional-params.cjs src/arms src/commands src/config src/judge src/manifest src/metrics src/orchestrate src/production src/runtime src/session src/simulator src/storage src/widget src/log.ts src/index.ts tests/",
+		"lint:bare-literals": "node scripts/no-bare-literals.cjs src/ index.ts",
+		"lint:design-refs": "node scripts/no-design-refs.cjs src/ tests/ index.ts README.md docs/CONFIGURATION.md",
+		"lint:as-never": "node scripts/no-as-never.cjs src/ tests/ index.ts",
+		"lint:bundled-imports": "node scripts/no-bundled-extension-imports.cjs src/ index.ts",
+		"knip": "knip --production",
+		"typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc.tsbuildinfo",
+		"test:unit": "node scripts/test-low-priority.cjs vitest run",
+		"test": "node scripts/test-low-priority.cjs \"node scripts/run-parallel.cjs \"npm run lint:optional-params :: npm run lint:bare-literals :: npm run lint:design-refs :: npm run lint:as-never :: npm run lint:bundled-imports :: npm run lint :: npm run typecheck :: npm run knip :: npm run dupes\" && vitest run\"",
+		"dupes": "jscpd src/ --exit-code --threshold 0.01"
+	},
+	"dependencies": {
+		"avtc-pi-logger": "^1.0.3",
+		"avtc-pi-settings-ui": "^1.0.14"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.0",
+		"@earendil-works/pi-agent-core": "1.4.0",
+		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-coding-agent": "1.4.0",
+		"@earendil-works/pi-tui": "1.4.0",
+		"@types/node": "^25.9.3",
+		"jscpd": "^5.0.10",
+		"knip": "^6.17.1",
+		"typebox": "^1.1.38",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.9"
+	},
+	"author": "avtc <tarasenkov@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/avtc/avtc-pi-bench-compact.git"
+	},
+	"bugs": {
+		"url": "https://github.com/avtc/avtc-pi-bench-compact/issues"
+	},
+	"homepage": "https://github.com/avtc/avtc-pi-bench-compact"
 }
